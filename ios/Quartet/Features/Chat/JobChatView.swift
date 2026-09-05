@@ -330,8 +330,26 @@ struct JobChatView: View {
     }
 
     /// 只渲染最近一段历史，确保非懒加载容器的工作量有界。
-    private var timelineMessages: ArraySlice<ChatMessage> {
-        chat.messages.suffix(effectiveTimelineMessageCount)
+    ///
+    /// 钉在最前面的轮首占位不占窗口配额：它代表的就是「已加载窗口之上那条用户消息」，
+    /// 而尾部对齐的窗口恰好最先把它切掉，钉住也就白钉了。
+    private var timelineMessages: [ChatMessage] {
+        let pinnedCount = pinnedRoundHeadCount
+        guard pinnedCount > 0 else {
+            return Array(chat.messages.suffix(effectiveTimelineMessageCount))
+        }
+        return Array(chat.messages.prefix(pinnedCount))
+            + Array(chat.messages.dropFirst(pinnedCount).suffix(effectiveTimelineMessageCount))
+    }
+
+    private var pinnedRoundHeadCount: Int {
+        chat.messages.prefix(while: { $0.isRoundHeadPinned }).count
+    }
+
+    /// 翻页后用来还原阅读位置的锚点：跳过轮首占位。占位在 prepend 前后都停在最前面，
+    /// 拿它当锚点等于没有位移，新插入的一页会把用户正在看的位置整段顶下去。
+    private var timelinePrependAnchorID: String? {
+        timelineMessages.first(where: { !$0.isRoundHeadPinned })?.id
     }
 
     /// 浏览期间追加到尾部的新消息不占用原窗口配额，否则 `suffix` 会同时从顶部移除一条，
@@ -344,7 +362,8 @@ struct JobChatView: View {
     }
 
     private var hiddenTimelineMessageCount: Int {
-        max(0, chat.messages.count - effectiveTimelineMessageCount)
+        // 轮首占位始终渲染，不算「被窗口挡住的更早历史」。
+        max(0, chat.messages.count - pinnedRoundHeadCount - effectiveTimelineMessageCount)
     }
 
     private var timelineHasPendingUpdates: Bool {
@@ -374,7 +393,7 @@ struct JobChatView: View {
     private func loadEarlierTimelineMessages() {
         guard pendingTimelinePrependAnchor == nil, !earlierPageRequestInFlight else { return }
         if hiddenTimelineMessageCount > 0 {
-            let anchor = timelineMessages.first?.id
+            let anchor = timelinePrependAnchorID
             let revealedCount = min(hiddenTimelineMessageCount, ChatTimelineWindow.earlierPageSize)
             pendingTimelinePrependAnchor = anchor
             visibleTimelineMessageCount = min(
@@ -394,7 +413,7 @@ struct JobChatView: View {
             return
         }
         guard chat.hasMoreEarlierMessages else { return }
-        let anchor = timelineMessages.first?.id
+        let anchor = timelinePrependAnchorID
         pendingTimelinePrependAnchor = anchor
         earlierPageRequestInFlight = true
         Task {

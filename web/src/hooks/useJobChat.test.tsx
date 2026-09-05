@@ -20,6 +20,10 @@ interface MockApi {
   historyFetchCount: number
   postMessageBodies: PostedMessageBody[]
   messageResponse?: Record<string, unknown>
+  // Newest history page served for every /sessions/:id/messages request.
+  history?: Record<string, unknown>
+  // Message queue snapshot served for /job/:id/message-queue.
+  queue?: Record<string, unknown>
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -71,6 +75,7 @@ function installFetchMock(api: MockApi) {
       return jsonResponse({ code: 0, status: 'started' })
     }
     if (url.includes(`/job/${JOB_ID}/message-queue`)) {
+      if (api.queue) return jsonResponse({ code: 0, queue: api.queue })
       return jsonResponse({ code: 0, queue: { jobId: JOB_ID, version: 0, paused: false, willContinue: api.job.status === 'running', items: [] } })
     }
     if (url.includes(`/job/${JOB_ID}/stop`)) return jsonResponse({ code: 0 })
@@ -81,7 +86,7 @@ function installFetchMock(api: MockApi) {
     }
     if (url.includes('/sessions/')) {
       api.historyFetchCount += 1
-      return jsonResponse({ messages: [] })
+      return jsonResponse(api.history ?? { messages: [] })
     }
     throw new Error(`Unexpected fetch in test: ${method} ${url}`)
   }))
@@ -254,5 +259,62 @@ describe('useJobChat graph jobs', () => {
     // deliberately does not support.
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 200)) })
     expect(api.postMessageBodies).toHaveLength(0)
+  })
+})
+
+describe('useJobChat running message outside the newest page', () => {
+  // The message queue reports the message the backend is running as `active`,
+  // and the run persists it before the agent produces anything. Pagination
+  // only loads the newest page, so on a long turn that message is on disk but
+  // ABOVE the loaded window — "not in the list" must not be read as "not sent
+  // yet", or the user's own question renders below the replies to it.
+  function longTurnApi(activeCreatedAt: number): MockApi {
+    return {
+      job: { ...runningInteractiveJob(), sessionIds: ['session-1'] },
+      failEvents: false,
+      eventsFetchCount: 0,
+      jobFetchCount: 0,
+      historyFetchCount: 0,
+      postMessageBodies: [],
+      history: {
+        messages: [
+          { id: 'assistant-late', role: 'assistant', content: 'late answer', startedAt: 9_000 },
+        ],
+        page: { hasMoreBefore: true, beforeCursor: 'cursor-1' },
+      },
+      queue: {
+        jobId: JOB_ID,
+        version: 1,
+        paused: false,
+        willContinue: true,
+        items: [],
+        active: {
+          id: 'initial-1',
+          state: 'processing',
+          createdAt: activeCreatedAt,
+          messages: [{ content: '开场问题' }],
+        },
+      },
+    }
+  }
+
+  it('pins the running message above the loaded window instead of below its replies', async () => {
+    const api = longTurnApi(1_000)
+    installFetchMock(api)
+    const { result } = renderHook(() => useJobChat({ existingJobId: JOB_ID }))
+
+    await waitFor(() => expect(result.current.messages.some((m) => m.id === 'initial-1')).toBe(true))
+    expect(result.current.messages.map((m) => m.id)).toEqual(['initial-1', 'assistant-late'])
+    expect(result.current.messages[0].roundHeadPinned).toBe(true)
+  })
+
+  it('appends a message that just started running and is newer than the loaded window', async () => {
+    const api = longTurnApi(12_000)
+    installFetchMock(api)
+    const { result } = renderHook(() => useJobChat({ existingJobId: JOB_ID }))
+
+    await waitFor(() => expect(result.current.messages.some((m) => m.id === 'initial-1')).toBe(true))
+    expect(result.current.messages.map((m) => m.id)).toEqual(['assistant-late', 'initial-1'])
+    expect(result.current.messages[1].roundHeadPinned).toBeUndefined()
   })
 })

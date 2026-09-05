@@ -197,7 +197,7 @@ function UserMessageContent({ message }: { message: UserMessage }) {
       ? t('chat.messageSendFailedDetail', { error: userMsg.sendError })
       : t('chat.messageSendFailed');
   return (
-    <div className="message-item user-message" data-testid="message-item" data-message-id={message.id} data-message-role="user" data-session-id={message.sessionId || ''}>
+    <div className="message-item user-message" data-testid="message-item" data-message-id={message.id} data-message-role="user" data-session-id={message.sessionId || ''} data-round-head-pinned={message.roundHeadPinned ? 'true' : undefined}>
       <div className="message-content">
         <div className="user-bubble-row">
           <div className="user-meta-col">

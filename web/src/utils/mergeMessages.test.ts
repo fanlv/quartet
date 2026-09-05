@@ -198,3 +198,49 @@ describe('mergeLatestHistoryPage', () => {
     expect(mergeLatestHistoryPage(existing, [])).toBe(existing);
   });
 });
+
+describe('pinned round heads', () => {
+  // The message queue reports the message the backend is running as `active`.
+  // On a turn long enough to push it out of the newest page, the chat pins a
+  // stand-in copy to the front of the loaded window. No merge may reorder that
+  // copy into page order: it stands for a record that lives ABOVE the page.
+  const pinnedHead = baseMessage('initial-1', MessageRoleEnum.USER, 'opening question', {
+    clientMessageId: 'initial-1', pending: true, roundHeadPinned: true,
+  });
+
+  it('keeps the pinned head in front when the newest page does not reach it', () => {
+    const pageTool = toolMessage('call-9', 'call-9', 'late tool output');
+    const pageAnswer = baseMessage('assistant-9', MessageRoleEnum.ASSISTANT, 'late answer');
+
+    const merged = mergeLatestHistoryPage([pinnedHead, pageTool], [pageTool, pageAnswer]);
+
+    expect(merged).toEqual([pinnedHead, pageTool, pageAnswer]);
+  });
+
+  it('keeps the pinned head in front even when the page shares no id with the list', () => {
+    const pageAnswer = baseMessage('assistant-9', MessageRoleEnum.ASSISTANT, 'late answer');
+
+    expect(mergeLatestHistoryPage([pinnedHead], [pageAnswer])).toEqual([pinnedHead, pageAnswer]);
+  });
+
+  it('drops the pinned head once a page carries the real record', () => {
+    const realHead = baseMessage('initial-1', MessageRoleEnum.USER, 'opening question', {
+      clientMessageId: 'initial-1',
+    });
+    const firstAnswer = baseMessage('assistant-1', MessageRoleEnum.ASSISTANT, 'first answer');
+
+    // Scrolling up prepends the earlier page that finally contains record 0.
+    const merged = mergeMessages([pinnedHead], [realHead, firstAnswer]);
+
+    expect(merged).toEqual([realHead, firstAnswer]);
+  });
+
+  it('floats the pinned head above an earlier page that still does not reach it', () => {
+    const middleAnswer = baseMessage('assistant-5', MessageRoleEnum.ASSISTANT, 'middle answer');
+    const windowTool = toolMessage('call-9', 'call-9', 'late tool output');
+
+    const merged = mergeMessages([pinnedHead, windowTool], [middleAnswer]);
+
+    expect(merged).toEqual([pinnedHead, middleAnswer, windowTool]);
+  });
+});

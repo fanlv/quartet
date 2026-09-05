@@ -491,6 +491,10 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // one after RUN_STARTED. Messages explicitly submitted while a run is in
   // flight are not added here and continue to render as queue pills.
   const foregroundMessageIdsRef = useRef<Set<string>>(new Set());
+  // Mirrors hasMoreEarlierMessages for callbacks that run outside render
+  // (applyMessageQueueSnapshot is declared before the paging refs and needs to
+  // know whether the loaded window still has history above it).
+  const hasMoreEarlierMessagesRef = useRef(false);
   const activeClientMessageIdRef = useRef<string | null>(null);
 
   const applyMessageQueueSnapshot = useCallback((snapshot: MessageQueueSnapshot | null | undefined) => {
@@ -534,11 +538,27 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       const active = projectItem(snapshot.active);
       knownQueuedMessagesRef.current.set(active.id, active);
       activeClientMessageIdRef.current = active.id;
-      setMessages((prev) => prev.some((message) => message.id === active.id) ? prev : [...prev, {
-        id: active.id, role: MessageRoleEnum.USER, content: active.content,
-        createdAt: snapshot.active?.createdAt || Date.now(), status: MessageStatusEnum.Finished,
-        clientMessageId: active.id, pending: true, deliveryStatus: 'sent', imageUrls: active.imageUrls, fileAttachments: active.fileAttachments,
-      } as Message]);
+      const activeCreatedAt = snapshot.active.createdAt || Date.now();
+      setMessages((prev) => {
+        if (prev.some((message) => message.id === active.id)) return prev;
+        const bubble = {
+          id: active.id, role: MessageRoleEnum.USER, content: active.content,
+          createdAt: activeCreatedAt, status: MessageStatusEnum.Finished,
+          clientMessageId: active.id, pending: true, deliveryStatus: 'sent', imageUrls: active.imageUrls, fileAttachments: active.fileAttachments,
+        } as Message;
+        // `active` is the message the backend is running right now, and the run
+        // persists it before the agent emits anything, so "not in the list"
+        // does NOT mean "not on disk": the list is only the newest page, and a
+        // long turn pushes the message that started it above that window.
+        // Appending in that case renders the user's own message BELOW the
+        // replies to it. Pin it to the front of the window instead; backwards
+        // paging brings in the real record and drops this stand-in.
+        const newestLoadedCreatedAt = prev.reduce((max, m) => (m.createdAt > max ? m.createdAt : max), 0);
+        if (!hasMoreEarlierMessagesRef.current || activeCreatedAt >= newestLoadedCreatedAt) {
+          return [...prev, bubble];
+        }
+        return [{ ...bubble, roundHeadPinned: true }, ...prev];
+      });
     } else {
       activeClientMessageIdRef.current = null;
     }
@@ -833,6 +853,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   useEffect(() => {
     isLoadingRef.current = isLoading;
   }, [isLoading]);
+
+  // Declared before the message-queue effect below so the ref is already
+  // current when that effect fires in the same commit.
+  useEffect(() => {
+    hasMoreEarlierMessagesRef.current = hasMoreEarlierMessages;
+  }, [hasMoreEarlierMessages]);
 
   useEffect(() => {
     if (!existingJobId || isPublic || !snapshotReady || isGraph) return;

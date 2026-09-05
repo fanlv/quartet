@@ -171,6 +171,15 @@ final class ChatViewModel: ObservableObject {
     private var historyPrefetchTask: Task<Void, Never>?
     private var tokenUsageTask: Task<Void, Never>?
     private var historyGeneration: UInt64 = 0
+    /// Session whose transcript `messages` currently shows. A newest page for
+    /// this session is spliced into the list; a page for any other session
+    /// replaces it.
+    private var loadedMessagesSessionID: String?
+    /// False while a history load is in flight. Placing the bubble for the
+    /// running queue message needs to know whether the list has history above
+    /// it, which is only true once the page has been applied — until then the
+    /// caller re-applies the queue snapshot, so skipping is free.
+    private var historyWindowEstablished = false
 
     private static let historyPageSize = 80
 
@@ -284,6 +293,7 @@ final class ChatViewModel: ObservableObject {
         let changesJob = !jobID.isEmpty && jobID != route.summary.id
         if changesJob {
             messages = []
+            loadedMessagesSessionID = nil
             outbox = []
             serverQueue = MessageQueueSnapshot(jobId: route.summary.id, version: 0, paused: false, pauseReason: nil, willContinue: false, active: nil, items: [])
             sessionID = nil
@@ -306,6 +316,7 @@ final class ChatViewModel: ObservableObject {
         oldestLoadedSessionIndex = -1
         historyPageInfoBySession = [:]
         hasMoreEarlierMessages = false
+        historyWindowEstablished = false
         self.client = client
         jobID = route.summary.id
         isGraph = route.summary.mode == "graph"
@@ -384,6 +395,8 @@ final class ChatViewModel: ObservableObject {
                 try await loadHistory(sessionID: sessionID)
             } else {
                 messages = []
+                loadedMessagesSessionID = nil
+                historyWindowEstablished = true
             }
             if !isGraph { applyServerQueue(serverQueue) }
 
@@ -443,6 +456,8 @@ final class ChatViewModel: ObservableObject {
             )
         }
         messages = previewMessages
+        loadedMessagesSessionID = sessionID
+        historyWindowEstablished = true
         isTurnRunning = route.summary.status == "running"
         loading = false
         bumpScrollAnchor()
@@ -610,7 +625,7 @@ final class ChatViewModel: ObservableObject {
         bumpScrollAnchor()
     }
 
-    private func loadHistory(sessionID: String, preservesLiveMessages: Bool = true) async throws {
+    private func loadHistory(sessionID: String) async throws {
         guard let client else { return }
         historyGeneration &+= 1
         historyPrefetchTask?.cancel()
@@ -625,11 +640,7 @@ final class ChatViewModel: ObservableObject {
         let historyMessages = convertHistoryMessages(response.messages, agentInfo: agentInfo)
         // 上面有 await，缓冲里可能又攒了新 delta；紧贴写入点 flush，别让它们在替换之后才落地。
         flushPendingDeltas()
-        if isGraph && graphRunLive && preservesLiveMessages {
-            mergeGraphHistory(historyMessages)
-        } else {
-            messages = historyMessages
-        }
+        applyNewestHistoryPage(historyMessages, sessionID: sessionID)
         historyPageInfoBySession[sessionID] = response.page ?? MessagePageInfo(hasMoreBefore: false, beforeCursor: nil)
         hasMoreEarlierMessages = (response.page?.hasMoreBefore == true) || oldestLoadedSessionIndex > 0
         removeEchoedOutboxItems()
@@ -655,12 +666,33 @@ final class ChatViewModel: ObservableObject {
         applySessionMetadata(response, agentInfo: agentInfo)
         historyPageInfoBySession[currentSessionID] = response.page ?? MessagePageInfo(hasMoreBefore: false, beforeCursor: nil)
         flushPendingDeltas()
-        messages = combined
+        applyNewestHistoryPage(combined, sessionID: currentSessionID)
         hasMoreEarlierMessages = (response.page?.hasMoreBefore == true) || oldestLoadedSessionIndex > 0
         removeEchoedOutboxItems()
         bumpScrollAnchor()
         preloadEarlierMessages()
         refreshSessionTokenUsage(sessionID: currentSessionID, generation: historyGeneration)
+    }
+
+    /// Applies a freshly-read newest history page to the visible timeline.
+    ///
+    /// A page for a session the list is not currently showing replaces the list.
+    /// A page for the SAME session is spliced in: it is only the tail of that
+    /// transcript, so rebuilding the list from it drops the earlier pages the
+    /// user scrolled in, and re-appending the live bubbles it cannot carry
+    /// renders an older bubble below a newer one.
+    private func applyNewestHistoryPage(_ page: [ChatMessage], sessionID: String) {
+        if loadedMessagesSessionID == sessionID {
+            messages = Self.mergeLatestHistoryPage(existing: messages, page: page)
+        } else if isGraph && graphRunLive {
+            // A live Graph run advanced to another node's session. The page
+            // becomes the list, but bubbles that are still streaming carry over.
+            mergeGraphHistory(page)
+        } else {
+            messages = page
+        }
+        loadedMessagesSessionID = sessionID
+        historyWindowEstablished = true
     }
 
     func loadEarlierMessages() async -> Int {
@@ -683,15 +715,41 @@ final class ChatViewModel: ObservableObject {
             collected.append(contentsOf: prefetched.messages)
             if !prefetched.messages.isEmpty || !hasMoreEarlierMessages { break }
         }
-        let existingIDs = Set(messages.map(\.id))
+        // A pinned round head is a stand-in for a record the page may now be
+        // carrying for real, so it must not make that record look like a
+        // duplicate — exclude it from the dedup set and drop it below instead.
+        let pinnedIDs = Set(messages.filter(\.isRoundHeadPinned).map(\.id))
+        let existingIDs = Set(messages.map(\.id)).subtracting(pinnedIDs)
         let uniqueEarlier = collected.filter { !existingIDs.contains($0.id) }
-        if !uniqueEarlier.isEmpty {
+        if !uniqueEarlier.isEmpty || !pinnedIDs.isEmpty {
             flushPendingDeltas()
-            messages = uniqueEarlier + messages
+            messages = Self.prependEarlierPage(uniqueEarlier, into: messages, pageIDs: Set(collected.map(\.id)))
             bumpScrollAnchor()
         }
         preloadEarlierMessages()
         return uniqueEarlier.count
+    }
+
+    /// Prepends an earlier page while keeping pinned round heads above it.
+    ///
+    /// A pinned round head stands in for a record that lives above the loaded
+    /// window, so it can never be ordered relative to a page: the page carries
+    /// the real record (then the stand-in is dropped), or the record is older
+    /// still (then the stand-in stays at the very front).
+    private static func prependEarlierPage(
+        _ earlier: [ChatMessage], into existing: [ChatMessage], pageIDs: Set<String>
+    ) -> [ChatMessage] {
+        guard existing.contains(where: \.isRoundHeadPinned) else { return earlier + existing }
+        var pinned: [ChatMessage] = []
+        var body: [ChatMessage] = []
+        for message in existing {
+            if !message.isRoundHeadPinned {
+                body.append(message)
+            } else if !pageIDs.contains(message.id) {
+                pinned.append(message)
+            }
+        }
+        return pinned + earlier + body
     }
 
     private func fetchEarlierPage(generation: UInt64) async throws -> PrefetchedHistoryPage? {
@@ -1438,7 +1496,7 @@ final class ChatViewModel: ObservableObject {
         isTurnRunning = graphRunLive
         if preferredSessionID == nil, let latestSession = latestGraphSessionID(in: snapshot), latestSession != sessionID {
             sessionID = latestSession
-            try await loadHistory(sessionID: latestSession, preservesLiveMessages: true)
+            try await loadHistory(sessionID: latestSession)
         }
         if let error = run.lastError?.fullDetail, !error.isEmpty {
             errorDetail = error
@@ -1470,6 +1528,116 @@ final class ChatViewModel: ObservableObject {
             !persistedIDs.contains(message.id) && (message.isOptimistic || !message.isFinished || message.kind == .system)
         }
         messages = persisted + inFlight
+    }
+
+    /// True for a bubble that is a live artefact of the current round rather
+    /// than settled history: a command/system bubble (never persisted), an
+    /// optimistic message still waiting for its echo, or one still streaming.
+    private static func isTransientBubble(_ message: ChatMessage) -> Bool {
+        message.kind == .system || message.isOptimistic || !message.isFinished
+    }
+
+    /// Splices the newest history page into the in-memory timeline.
+    ///
+    /// `page` only describes the TAIL of the transcript and says nothing about
+    /// anything before it. Everything it does not cover lives only in `existing`
+    /// and has to stay in front of it: the earlier pages the user scrolled in,
+    /// and — on a turn long enough to push it out of the newest page — the user
+    /// message that started the round. So the page is used as the spine for the
+    /// region it covers, and bubbles it cannot carry keep their position instead
+    /// of being re-appended at the end (which renders an older bubble below a
+    /// newer one).
+    ///
+    ///     [ existing before the page ] [ page, with live bubbles in place ]
+    ///
+    /// Inside the covered region a settled bubble the page does not carry is
+    /// dropped: one persisted assistant record collapses several streamed
+    /// bubbles and only the last streaming id survives into history, so keeping
+    /// the pre-collapse bubbles would render the same text twice. Transient
+    /// bubbles are not on disk yet and are kept.
+    static func mergeLatestHistoryPage(existing: [ChatMessage], page: [ChatMessage]) -> [ChatMessage] {
+        guard !page.isEmpty else { return existing }
+        guard !existing.isEmpty else { return page }
+
+        // Pinned round heads stand for a record above the page, so no page can
+        // order them: restore them at the very front, and drop the ones whose
+        // real record this page finally carries.
+        let pageIDs = Set(page.map(\.id))
+        var pinned: [ChatMessage] = []
+        var body: [ChatMessage] = []
+        for message in existing {
+            if !message.isRoundHeadPinned {
+                body.append(message)
+            } else if !pageIDs.contains(message.id) {
+                pinned.append(message)
+            }
+        }
+
+        var pagePositionByID: [String: Int] = [:]
+        for (position, message) in page.enumerated() where pagePositionByID[message.id] == nil {
+            pagePositionByID[message.id] = position
+        }
+        // A live thought bubble's id and the persisted thought_msg_id can differ
+        // for a moment, so id dedup alone would render the same thought twice.
+        let pageThoughts = Set(page.filter { $0.kind == .thought && !$0.content.isEmpty }.map(\.content))
+        func isSuperseded(_ message: ChatMessage) -> Bool {
+            if pagePositionByID[message.id] != nil { return true }
+            return message.kind == .thought && !message.content.isEmpty && pageThoughts.contains(message.content)
+        }
+
+        let existingByID = Dictionary(body.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        // Keep the in-memory copy while it is still accumulating deltas: the
+        // persisted record can be shorter than what is already on screen.
+        func spineEntry(_ pageMessage: ChatMessage) -> ChatMessage {
+            guard let live = existingByID[pageMessage.id],
+                  live.content.count > pageMessage.content.count else { return pageMessage }
+            return live
+        }
+
+        guard let spineStart = body.firstIndex(where: { pagePositionByID[$0.id] != nil }) else {
+            // No overlap at all: treat the settled prefix as older history and
+            // keep only the trailing run of transient bubbles behind the page.
+            var tailStart = body.count
+            while tailStart > 0, isTransientBubble(body[tailStart - 1]) { tailStart -= 1 }
+            var merged = pinned
+            merged.append(contentsOf: body[..<tailStart])
+            merged.append(contentsOf: page)
+            merged.append(contentsOf: body[tailStart...].filter { !isSuperseded($0) })
+            return dedupedByID(merged)
+        }
+
+        var out = Array(body[..<spineStart])
+        var pageCursor = 0
+        func layPageThrough(_ position: Int) {
+            while pageCursor <= position {
+                out.append(spineEntry(page[pageCursor]))
+                pageCursor += 1
+            }
+        }
+        for message in body[spineStart...] {
+            if let position = pagePositionByID[message.id] {
+                layPageThrough(position)
+            } else if !isSuperseded(message), isTransientBubble(message) {
+                out.append(message)
+            }
+        }
+        layPageThrough(page.count - 1)
+        var merged = pinned
+        merged.append(contentsOf: out)
+        return dedupedByID(merged)
+    }
+
+    /// Drops repeated ids, keeping the first occurrence. A reconnect can replay
+    /// a tool id the page already carries, and a duplicate id in `messages`
+    /// breaks SwiftUI's identity-based diffing.
+    static func dedupedByID(_ messages: [ChatMessage]) -> [ChatMessage] {
+        var seen = Set<String>()
+        var out: [ChatMessage] = []
+        out.reserveCapacity(messages.count)
+        for message in messages {
+            if seen.insert(message.id).inserted { out.append(message) }
+        }
+        return out
     }
 
     private func latestGraphSessionID(in snapshot: GraphRunStatusResponse) -> String? {
@@ -1510,11 +1678,7 @@ final class ChatViewModel: ObservableObject {
                 let queued = knownQueuedItems[clientMessageID]
                 if let queued,
                    !messages.contains(where: { $0.id == clientMessageID }) {
-                    messages.append(ChatMessage(
-                        id: queued.id, kind: .user, content: queued.summaryLine, detail: nil,
-                        isFinished: true, isFailed: false, timestamp: event.timestamp,
-                        imagePaths: queued.imagePaths, fileAttachments: queued.fileAttachments
-                    ))
+                    insertRunningQueueMessage(queued, timestamp: event.timestamp ?? queued.createdAt, isOptimistic: false)
                 }
                 if serverQueue.items.contains(where: { $0.id == clientMessageID }) {
                     serverQueue = MessageQueueSnapshot(
@@ -1853,16 +2017,40 @@ final class ChatViewModel: ObservableObject {
         for item in snapshot.items { knownQueuedItems[item.id] = item }
         if let active = snapshot.active {
             knownQueuedItems[active.id] = active
-            if !messages.contains(where: { $0.id == active.id }) {
-                messages.append(ChatMessage(
-                    id: active.id, kind: .user, content: active.summaryLine, detail: nil,
-                    isFinished: true, isFailed: false, timestamp: active.createdAt,
-                    imagePaths: active.imagePaths, fileAttachments: active.fileAttachments, isOptimistic: true
-                ))
+            // Skipped while a history load is in flight: the loader re-applies
+            // this snapshot once the window is known, and placing the bubble
+            // needs that window.
+            if historyWindowEstablished, !messages.contains(where: { $0.id == active.id }) {
+                insertRunningQueueMessage(active, timestamp: active.createdAt, isOptimistic: true)
             }
         }
         serverQueue = snapshot
         isTurnRunning = snapshot.willContinue || status == "running" || graphRunLive
+    }
+
+    /// Places the bubble for the message the backend is running right now.
+    ///
+    /// The run persists that message before the agent produces anything, so
+    /// "not in `messages`" does NOT mean "not on disk": the list only holds the
+    /// newest history page, and a long turn pushes the message that started it
+    /// above that window. Appending in that case renders the user's own message
+    /// BELOW the replies to it. Pin it to the front of the window instead;
+    /// backwards paging brings in the real record and drops this stand-in.
+    private func insertRunningQueueMessage(_ item: QueuedJobMessage, timestamp: Int64?, isOptimistic: Bool) {
+        flushPendingDeltas()
+        let bubble = ChatMessage(
+            id: item.id, kind: .user, content: item.summaryLine, detail: nil,
+            isFinished: true, isFailed: false, timestamp: timestamp,
+            imagePaths: item.imagePaths, fileAttachments: item.fileAttachments, isOptimistic: isOptimistic
+        )
+        let newestLoaded = messages.compactMap(\.timestamp).max() ?? 0
+        if hasMoreEarlierMessages, let timestamp, timestamp < newestLoaded {
+            var pinned = bubble
+            pinned.isRoundHeadPinned = true
+            messages.insert(pinned, at: 0)
+        } else {
+            messages.append(bubble)
+        }
     }
 
     private func scheduleSnapshotRefresh() {

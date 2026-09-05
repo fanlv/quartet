@@ -91,6 +91,36 @@ function preferLongerContent(historyMessage: Message, existingById: Map<string, 
 }
 
 /**
+ * Splits off the pinned round heads in `existing`.
+ *
+ * A pinned round head is a stand-in for a user message that is already on disk
+ * but sits ABOVE the loaded window (see `roundHeadPinned`). No merge may
+ * position it by page order — it belongs before everything the window holds —
+ * so every merge path holds it aside and puts it back at the very front. Once
+ * an incoming page carries the real record, the stand-in is dropped and the
+ * real one takes its place in page order.
+ */
+function extractPinnedRoundHeads(
+  existing: Message[],
+  incoming: Message[],
+): { pinned: Message[]; rest: Message[] } {
+  if (!existing.some((message) => message.roundHeadPinned === true)) {
+    return { pinned: [], rest: existing };
+  }
+  const incomingIds = new Set(incoming.map((message) => message.id));
+  const pinned: Message[] = [];
+  const rest: Message[] = [];
+  for (const message of existing) {
+    if (message.roundHeadPinned !== true) {
+      rest.push(message);
+    } else if (!incomingIds.has(message.id)) {
+      pinned.push(message);
+    }
+  }
+  return { pinned, rest };
+}
+
+/**
  * Merges incoming (history) messages with existing (SSE/live) messages.
  *
  * Core algorithm:
@@ -113,6 +143,16 @@ function preferLongerContent(historyMessage: Message, existingById: Map<string, 
  * invariant-clean so downstream SSE merges reason over a unique-id list.
  */
 export function mergeMessages(
+  existing: Message[],
+  incoming: Message[],
+  options?: MergeOptions,
+): Message[] {
+  const { pinned, rest } = extractPinnedRoundHeads(existing, incoming);
+  const merged = mergeUnpinned(rest, incoming, options);
+  return pinned.length > 0 ? dedupeById([...pinned, ...merged], 'merge') : merged;
+}
+
+function mergeUnpinned(
   existing: Message[],
   incoming: Message[],
   options?: MergeOptions,
@@ -168,8 +208,17 @@ function isTransient(message: Message): boolean {
  * When the page shares no id with the list at all, the settled prefix is
  * treated as older history (a long turn can push the whole list out of the
  * newest page) and only the trailing transient run is kept behind the page.
+ *
+ * Pinned round heads are held aside and restored at the very front, since they
+ * stand in for a message the page cannot place (see extractPinnedRoundHeads).
  */
 export function mergeLatestHistoryPage(existing: Message[], latest: Message[]): Message[] {
+  const { pinned, rest } = extractPinnedRoundHeads(existing, latest);
+  const spliced = spliceLatestHistoryPage(rest, latest);
+  return pinned.length > 0 ? dedupeById([...pinned, ...spliced], 'latest-page') : spliced;
+}
+
+function spliceLatestHistoryPage(existing: Message[], latest: Message[]): Message[] {
   if (existing.length === 0) return dedupeById(latest, 'latest-page');
   if (latest.length === 0) return dedupeById(existing, 'existing');
 

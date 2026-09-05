@@ -151,3 +151,76 @@ test('the chat page does not loop resolving an unresolvable agent reference', as
   expect(resolveCalls).toBeLessThanOrEqual(afterIdle + 1)
   expect(resolveCalls).toBeLessThan(10)
 })
+
+// The message queue reports the message the backend is currently running as
+// `active`, and the run persists it before the agent produces anything. On a
+// turn long enough to push it out of the newest page it is therefore on disk
+// but ABOVE the loaded window, and treating "not in the rendered list" as "not
+// sent yet" appended the user's own question below the replies to it.
+const runningQueueActiveID = `${e2ePagedHistorySessionID}-seed-0`
+
+async function stubQueueRunningTheOpeningQuestion(page: Page) {
+  await page.route('**/api/v1/job/*/message-queue*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 0,
+        queue: {
+          jobId: e2ePagedHistoryJobID,
+          version: 1,
+          paused: false,
+          willContinue: true,
+          items: [],
+          active: {
+            id: runningQueueActiveID,
+            state: 'processing',
+            // Fixed epoch timestamp: unambiguously older than every record the
+            // newest page carries, whatever wall clock the fixture seeded with.
+            createdAt: 1,
+            messages: [{ content: e2ePagedHistoryFirstQuestion }],
+          },
+        },
+      }),
+    })
+  })
+}
+
+test('the running message stays above the loaded window instead of below its replies', async ({ page }) => {
+  test.setTimeout(180_000)
+  await stubQueueRunningTheOpeningQuestion(page)
+  await stubFlappingEventStream(page)
+  await openPagedHistoryJob(page)
+
+  // Pinned to the front of the window, not appended after the newest reply.
+  await expect.poll(async () => (await renderedMessageIDs(page))[0], {
+    timeout: 30_000,
+    message: 'the running message never rendered above the loaded window',
+  }).toBe(runningQueueActiveID)
+  const idsOnLoad = await renderedMessageIDs(page)
+  expect(idsOnLoad[idsOnLoad.length - 1]).not.toBe(runningQueueActiveID)
+  await expect(page.getByText(e2ePagedHistoryFirstQuestion, { exact: true })).toHaveCount(1)
+
+  // A newest-page reload must not move it back to the end of the list.
+  await waitForNewestPageReload(page)
+  expect((await renderedMessageIDs(page))[0]).toBe(runningQueueActiveID)
+
+  // Paging back brings in the real record. Poll on the opening ANSWER, not the
+  // question: the pinned stand-in already renders the question's text, so
+  // waiting on that would pass without any paging happening at all.
+  const list = page.getByTestId('message-list')
+  const firstAnswer = page.getByText(e2ePagedHistoryFirstAnswer, { exact: true })
+  await expect.poll(async () => {
+    await list.evaluate((el) => { el.scrollTop = 0 })
+    await page.waitForTimeout(200)
+    return await firstAnswer.count()
+  }, { timeout: 60_000, message: 'backwards paging never reached the opening exchange' }).toBeGreaterThan(0)
+
+  // The real record supersedes the stand-in: still exactly one opening
+  // question, still at the top, and nothing is pinned any more.
+  await expect(page.getByText(e2ePagedHistoryFirstQuestion, { exact: true })).toHaveCount(1)
+  await expect(page.locator('[data-round-head-pinned="true"]')).toHaveCount(0)
+  const idsAfterPaging = await renderedMessageIDs(page)
+  expect(idsAfterPaging[0]).toBe(runningQueueActiveID)
+  expect(new Set(idsAfterPaging).size).toBe(idsAfterPaging.length)
+})

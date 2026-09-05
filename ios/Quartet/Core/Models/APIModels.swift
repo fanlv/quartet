@@ -1343,6 +1343,11 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
     var agentDisplayName: String?
     var agentIconUrl: String?
     var isOptimistic: Bool
+    /// True for the stand-in copy of the user message that opened the round the
+    /// loaded window is showing. The real record is already on disk but sits
+    /// above the newest page, so no page can position this copy: it is pinned to
+    /// the front of the window until backwards paging brings the real record in.
+    var isRoundHeadPinned: Bool
 
     init(
         id: String,
@@ -1365,7 +1370,8 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
         placeholderReason: String? = nil,
         agentDisplayName: String? = nil,
         agentIconUrl: String? = nil,
-        isOptimistic: Bool = false
+        isOptimistic: Bool = false,
+        isRoundHeadPinned: Bool = false
     ) {
         self.id = id
         self.kind = kind
@@ -1388,6 +1394,7 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
         self.agentDisplayName = agentDisplayName
         self.agentIconUrl = agentIconUrl
         self.isOptimistic = isOptimistic
+        self.isRoundHeadPinned = isRoundHeadPinned
     }
 
     init(history: HistoryMessage, idPrefix: String? = nil) {
@@ -1432,6 +1439,7 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
         agentDisplayName = nil
         agentIconUrl = nil
         isOptimistic = false
+        isRoundHeadPinned = false
     }
 }
 

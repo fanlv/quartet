@@ -12,6 +12,13 @@ export interface BaseMessage {
   failed?: boolean;
   deliveryStatus?: 'sending' | 'sent' | 'failed';
   sendError?: string;
+  /**
+   * True for the stand-in copy of the user message that opened the round the
+   * loaded window is showing. The real record is already on disk but sits
+   * above the newest page, so no page can position this copy: it is pinned to
+   * the front of the window until backwards paging brings the real record in.
+   */
+  roundHeadPinned?: boolean;
 }
 
 export interface FileAttachment {

@@ -311,3 +311,93 @@ func TestCreateJobUsesAStableIntentIDUntilTheSemanticPayloadChanges(t *testing.T
 		t.Fatal("definite client-side/HTTP rejection must rotate the CreateJob intent ID")
 	}
 }
+
+// The message queue reports the message the backend is running as `active`, and
+// the run persists it before the agent produces anything. Pagination only loads
+// the newest page, so on a long turn that message is on disk but ABOVE the
+// loaded window: "not in the list" must not be read as "not sent yet", or the
+// user's own question renders below the replies to it.
+func TestRunningQueueMessageOutsideTheWindowIsPinnedAboveItInsteadOfAppended(t *testing.T) {
+	source := chatSource(t, "Quartet/Features/Chat/ChatViewModel.swift")
+	for _, contract := range []string{
+		// Single placement helper shared by the queue snapshot and RUN_STARTED.
+		"private func insertRunningQueueMessage(_ item: QueuedJobMessage, timestamp: Int64?, isOptimistic: Bool)",
+		"insertRunningQueueMessage(active, timestamp: active.createdAt, isOptimistic: true)",
+		"insertRunningQueueMessage(queued, timestamp: event.timestamp ?? queued.createdAt, isOptimistic: false)",
+		// Older than the loaded window => pinned to its front, never appended.
+		"if hasMoreEarlierMessages, let timestamp, timestamp < newestLoaded {",
+		"pinned.isRoundHeadPinned = true",
+		"messages.insert(pinned, at: 0)",
+		// Not synthesised until the window it is placed against is known.
+		"if historyWindowEstablished, !messages.contains(where: { $0.id == active.id }) {",
+		// Backwards paging hands the position back to the real record.
+		"let pinnedIDs = Set(messages.filter(\\.isRoundHeadPinned).map(\\.id))",
+		"Set(messages.map(\\.id)).subtracting(pinnedIDs)",
+		"prependEarlierPage(uniqueEarlier, into: messages, pageIDs: Set(collected.map(\\.id)))",
+	} {
+		if !strings.Contains(source, contract) {
+			t.Fatalf("running queue message placement contract missing %q", contract)
+		}
+	}
+	models := chatSource(t, "Quartet/Core/Models/APIModels.swift")
+	if !strings.Contains(models, "var isRoundHeadPinned: Bool") {
+		t.Fatal("ChatMessage must carry the pinned round-head marker")
+	}
+}
+
+// A newest-page reload describes only the tail of the transcript. Rebuilding
+// the list from it drops the earlier pages the user scrolled in, and
+// re-appending the live bubbles it cannot carry renders an older bubble below a
+// newer one. Only a page for a different session may replace the list.
+func TestNewestHistoryPageIsSplicedInsteadOfReplacingTheList(t *testing.T) {
+	source := chatSource(t, "Quartet/Features/Chat/ChatViewModel.swift")
+	for _, contract := range []string{
+		"private var loadedMessagesSessionID: String?",
+		"applyNewestHistoryPage(historyMessages, sessionID: sessionID)",
+		"applyNewestHistoryPage(combined, sessionID: currentSessionID)",
+		"if loadedMessagesSessionID == sessionID {",
+		"messages = Self.mergeLatestHistoryPage(existing: messages, page: page)",
+		"static func mergeLatestHistoryPage(existing: [ChatMessage], page: [ChatMessage]) -> [ChatMessage]",
+		// The page is a spine, not a rebuild: transient bubbles keep their slot.
+		"guard let spineStart = body.firstIndex(where: { pagePositionByID[$0.id] != nil }) else {",
+		"} else if !isSuperseded(message), isTransientBubble(message) {",
+		"static func dedupedByID(_ messages: [ChatMessage]) -> [ChatMessage]",
+	} {
+		if !strings.Contains(source, contract) {
+			t.Fatalf("newest page splice contract missing %q", contract)
+		}
+	}
+	// The wholesale replace of the visible timeline must not come back.
+	for _, banned := range []string{"messages = historyMessages", "messages = combined"} {
+		if strings.Contains(source, banned) {
+			t.Fatalf("newest page must not replace the visible timeline: found %q", banned)
+		}
+	}
+}
+
+// Pinning is pointless if the render window drops it: the timeline only renders
+// a tail-aligned slice, and the pinned round head sits at the very front, which
+// is exactly what that window discards first.
+func TestPinnedRoundHeadIsAlwaysRenderedAndNeverUsedAsThePrependAnchor(t *testing.T) {
+	view := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
+	for _, contract := range []string{
+		"private var pinnedRoundHeadCount: Int",
+		"chat.messages.prefix(while: { $0.isRoundHeadPinned }).count",
+		// Outside the window quota, always rendered in front of it.
+		"return Array(chat.messages.prefix(pinnedCount))",
+		"+ Array(chat.messages.dropFirst(pinnedCount).suffix(effectiveTimelineMessageCount))",
+		// Not counted as hidden earlier history, so the load-earlier affordance
+		// still describes the real remainder.
+		"max(0, chat.messages.count - pinnedRoundHeadCount - effectiveTimelineMessageCount)",
+		// A pin does not move across a prepend, so it cannot anchor the restore.
+		"private var timelinePrependAnchorID: String?",
+		"timelineMessages.first(where: { !$0.isRoundHeadPinned })?.id",
+	} {
+		if !strings.Contains(view, contract) {
+			t.Fatalf("pinned round head rendering contract missing %q", contract)
+		}
+	}
+	if strings.Contains(view, "let anchor = timelineMessages.first?.id") {
+		t.Fatal("prepend anchor must skip pinned round heads")
+	}
+}

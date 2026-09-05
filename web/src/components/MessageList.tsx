@@ -39,8 +39,14 @@ interface PrependAnchor {
   scrollTop: number;
 }
 
+/**
+ * First message node that a prepended page pushes down. Pinned round heads are
+ * skipped: they stand for a message above the window and stay put across a
+ * prepend, so anchoring on one would measure a zero delta and let the reading
+ * position jump by the height of the newly inserted page.
+ */
 function firstMessageElement(container: HTMLElement): HTMLElement | null {
-  const candidate = container.querySelector<HTMLElement>('[data-message-id]');
+  const candidate = container.querySelector<HTMLElement>('[data-message-id]:not([data-round-head-pinned])');
   return candidate?.dataset.messageId ? candidate : null;
 }
 
@@ -86,9 +92,19 @@ export function MessageList({
     ? 0
     : Math.max(0, messages.length - browsingMessageCountRef.current);
   const effectiveMessageCount = visibleMessageCount + appendedWhileBrowsing;
-  const firstVisibleMessageIndex = Math.max(0, messages.length - effectiveMessageCount);
-  const visibleMessages = messages.slice(firstVisibleMessageIndex);
-  const hiddenMessageCount = firstVisibleMessageIndex;
+  // A pinned round head stands for a message that lives ABOVE the loaded
+  // window, and pinning exists precisely so the user can still see the message
+  // that started the round. It sits at the very front, which is exactly what a
+  // tail-anchored window drops first, so keep it out of the quota and always
+  // render it. It is not "hidden earlier history" either — the counter below
+  // drives the load-earlier affordance and must ignore it.
+  let pinnedHeadCount = 0;
+  while (pinnedHeadCount < messages.length && messages[pinnedHeadCount].roundHeadPinned === true) pinnedHeadCount++;
+  const firstVisibleMessageIndex = Math.max(pinnedHeadCount, messages.length - effectiveMessageCount);
+  const visibleMessages = pinnedHeadCount > 0
+    ? [...messages.slice(0, pinnedHeadCount), ...messages.slice(firstVisibleMessageIndex)]
+    : messages.slice(firstVisibleMessageIndex);
+  const hiddenMessageCount = firstVisibleMessageIndex - pinnedHeadCount;
 
   const scrollToBottom = useCallback(() => {
     if (containerRef.current) {
