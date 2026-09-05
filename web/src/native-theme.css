@@ -65,11 +65,11 @@
   box-shadow: var(--shadow-raised);
 }
 
-/* Home dashboard: keep the dense, edge-to-edge workspace layout. The
-   schedule and history areas are page sections, not inset cards. */
+/* Home dashboard: use the same desktop measure and horizontal insets as the
+   chat composer so the lists and both composers share identical edges. */
 #root .home-content {
-  max-width: none;
-  padding: 8px 24px 24px;
+  max-width: 1220px;
+  padding: 8px 22px 24px 28px;
   gap: 0;
 }
 
@@ -192,11 +192,11 @@
   font-size: 9.5px;
 }
 
-/* The composer remains a distinct input surface, but follows the full-width
-   home sections instead of the narrower chat-page measure. */
+/* Keep the home composer on the same measure as the home lists and the chat
+   composer. */
 #root .home-input-container {
-  max-width: none;
-  padding: 0 24px 24px;
+  max-width: 1220px;
+  padding: 0 22px 24px 28px;
 }
 
 #root .chat-input-container {
@@ -656,7 +656,7 @@
   }
 
   #root .home-content {
-    padding: 6px 12px 10px;
+    padding: 6px 6px 10px 12px;
     gap: 0;
   }
 
@@ -666,7 +666,7 @@
   }
 
   #root .home-input-container {
-    padding: 0 12px calc(12px + env(safe-area-inset-bottom));
+    padding: 0 6px calc(12px + env(safe-area-inset-bottom)) 12px;
   }
 
   #root .chat-input-container {
