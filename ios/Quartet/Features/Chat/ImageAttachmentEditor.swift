@@ -279,7 +279,7 @@ struct ImageAttachmentEditor: View {
                 .padding(.horizontal, 14)
                 .frame(minHeight: 44)
                 .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .accessibilityHint("保存编辑并返回新任务".localizedForApp)
+                .accessibilityHint("保存图片编辑并返回".localizedForApp)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 10)

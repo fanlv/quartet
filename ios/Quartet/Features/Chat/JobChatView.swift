@@ -68,6 +68,9 @@ struct JobChatView: View {
     @State private var showsPhotoPicker = false
     @State private var pendingAttachments: [PendingUpload] = []
     @State private var attachmentImportCount = 0
+    @State private var activeImageEdit: ImageAttachmentEditRequest?
+    @State private var editingAttachmentIndex: Int?
+    @State private var deferredImageEditError: APIError?
     @State private var confirmsStop = false
     @State private var showsAttachmentMenu = false
     @State private var showsCameraPicker = false
@@ -273,6 +276,13 @@ struct JobChatView: View {
                 }
             )
             .quartetSheetStyle()
+        }
+        .fullScreenCover(item: $activeImageEdit, onDismiss: imageEditorDidDismiss) { request in
+            ImageAttachmentEditor(
+                request: request,
+                onCancel: cancelImageEditing,
+                onComplete: completeImageEditing
+            )
         }
         .sheet(isPresented: $showsDocumentPicker) {
             DocumentAttachmentPicker(
@@ -722,7 +732,10 @@ struct JobChatView: View {
 
             VStack(spacing: 0) {
                 if !pendingAttachments.isEmpty {
-                    ChatPendingAttachmentStrip(uploads: pendingAttachments) { index in
+                    ChatPendingAttachmentStrip(
+                        uploads: pendingAttachments,
+                        onEdit: { index in editImageAttachment(at: index) }
+                    ) { index in
                         pendingAttachments.remove(at: index)
                     }
                         .padding(.horizontal, 12)
@@ -1479,6 +1492,62 @@ struct JobChatView: View {
             ))
         } catch {
             appModel.present(error)
+        }
+    }
+
+    private func editImageAttachment(at index: Int) {
+        guard pendingAttachments.indices.contains(index) else { return }
+        let upload = pendingAttachments[index]
+        guard upload.isImage, let image = UIImage(data: upload.data) else {
+            appModel.present(APIError(
+                summary: "图片数据无效".localizedForApp,
+                detail: AppLanguage.localizedFormat("无法打开 %@ 进行编辑。", upload.filename)
+            ))
+            return
+        }
+        composerFocused = false
+        editingAttachmentIndex = index
+        activeImageEdit = ImageAttachmentEditRequest(
+            image: image,
+            suggestedFilename: upload.filename
+        )
+    }
+
+    private func completeImageEditing(_ image: UIImage, suggestedFilename: String) {
+        do {
+            let upload = try ChatAttachmentProcessor.prepareImageUpload(
+                image: image,
+                suggestedFilename: suggestedFilename
+            )
+            guard let index = editingAttachmentIndex, pendingAttachments.indices.contains(index) else {
+                throw APIError(
+                    summary: "无法保存图片".localizedForApp,
+                    detail: "原附件已不存在，请重新选择图片。".localizedForApp
+                )
+            }
+            pendingAttachments[index] = upload
+        } catch let error as APIError {
+            deferredImageEditError = error
+        } catch {
+            deferredImageEditError = APIError(
+                summary: "图片编辑失败".localizedForApp,
+                detail: String(describing: error)
+            )
+        }
+        activeImageEdit = nil
+        editingAttachmentIndex = nil
+    }
+
+    private func cancelImageEditing() {
+        activeImageEdit = nil
+        editingAttachmentIndex = nil
+    }
+
+    private func imageEditorDidDismiss() {
+        editingAttachmentIndex = nil
+        if let deferredImageEditError {
+            self.deferredImageEditError = nil
+            appModel.present(deferredImageEditError)
         }
     }
 

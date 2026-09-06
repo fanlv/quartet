@@ -2779,19 +2779,19 @@
         }
       }
     },
-    "保存编辑并返回新任务" : {
+    "保存图片编辑并返回" : {
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Save edits and return to the new task"
+            "value" : "Save image edits and return"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "保存编辑并返回新任务"
+            "value" : "保存图片编辑并返回"
           }
         }
       }
