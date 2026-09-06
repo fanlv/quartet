@@ -2,6 +2,7 @@
 .PHONY: build build-all build-cli build-eino-cli build-web build-frontend build-ios pod-install
 .PHONY: test test-go test-web lint-web e2e test-ios e2e-ios frontend-test-ready test-web-run lint-web-run e2e-run
 .PHONY: run-cli run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs
+.PHONY: autostart-install autostart-uninstall autostart-status
 .PHONY: install-eino-cli install-project-tools install-skill install-skill-copy install-skill-list clean
 .PHONY: stage-web activate-web-stage install-skill-cli install-skill-run
 
@@ -30,6 +31,7 @@ BACKEND_LOG := /tmp/quartet-backend.log
 WATCHDOG_LOG := /tmp/quartet-watchdog.log
 WATCHDOG_PID := /tmp/quartet-watchdog.pid
 WATCHDOG := $(CURDIR)/scripts/watchdog.sh
+AUTOSTART_SH := $(CURDIR)/scripts/autostart.sh
 FRONTEND_ENV_CHECK := $(CURDIR)/scripts/frontend-env-check.sh
 FRONTEND_DEPS := $(CURDIR)/scripts/frontend-deps.sh
 BUILD_TIME ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -84,6 +86,10 @@ help:
 	@printf '  %-24s %s\n' 'web-watch' 'Start detached backend watchdog'
 	@printf '  %-24s %s\n' 'web-watch-stop' 'Stop backend watchdog'
 	@printf '  %-24s %s\n\n' 'web-watch-logs' 'Follow watchdog log'
+	@printf 'Autostart targets (macOS launchd, login auto-start + crash auto-revival):\n'
+	@printf '  %-24s %s\n' 'autostart-install' 'Install and load the LaunchAgent for watchdog.sh'
+	@printf '  %-24s %s\n' 'autostart-status' 'Show LaunchAgent, watchdog, and backend status'
+	@printf '  %-24s %s\n\n' 'autostart-uninstall' 'Unload and remove the LaunchAgent (backend keeps running)'
 	@printf 'Install targets:\n'
 	@printf '  %-24s %s\n' 'install-eino-cli' 'Build and install eino-cli to INSTALL_BIN_DIR'
 	@printf '  %-24s %s\n' 'install-project-tools' 'Install quartet-cli and every skill shipped by this project'
@@ -330,6 +336,18 @@ web-watch-stop:
 
 web-watch-logs:
 	@tail -f $(WATCHDOG_LOG)
+
+# LaunchAgent supervision of watchdog.sh: starts the watchdog at login and
+# relaunches it after a crash (KeepAlive.SuccessfulExit=false). A SIGTERM stop
+# (`make web-stop` / `web-watch-stop`) exits 0, so launchd leaves it stopped.
+autostart-install:
+	@bash "$(AUTOSTART_SH)" install "$(CURDIR)"
+
+autostart-uninstall:
+	@bash "$(AUTOSTART_SH)" uninstall "$(CURDIR)"
+
+autostart-status:
+	@bash "$(AUTOSTART_SH)" status "$(CURDIR)"
 
 web-stop:
 	@$(MAKE) --no-print-directory web-watch-stop
