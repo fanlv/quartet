@@ -1733,7 +1733,13 @@ private enum MessageLibrarySource: Equatable {
         }
     }
 
-    var isCurrentProject: Bool { self == .currentProject }
+    var tint: Color {
+        switch self {
+        case .currentProject: QuartetTheme.messageSourceCurrentProject
+        case .allProjects: QuartetTheme.messageSourceAllProjects
+        case .recentlySent: QuartetTheme.messageSourceHistory
+        }
+    }
 }
 
 private struct MessageLibraryRow: View {
@@ -1760,25 +1766,18 @@ private struct MessageLibraryRow: View {
 
                     Text(source.title.localizedForApp)
                         .font(.quartet(.compact, weight: .medium))
-                        .foregroundStyle(source.isCurrentProject ? QuartetTheme.accent : QuartetTheme.secondaryText)
+                        .foregroundStyle(source.tint)
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .background(
-                            source.isCurrentProject
-                                ? QuartetTheme.accent.opacity(0.1)
-                                : QuartetTheme.elevated,
+                            source.tint.opacity(0.1),
                             in: RoundedRectangle(cornerRadius: 6, style: .continuous)
                         )
                         .overlay {
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .stroke(
-                                    source.isCurrentProject
-                                        ? QuartetTheme.accent.opacity(0.18)
-                                        : QuartetTheme.divider,
-                                    lineWidth: 1
-                                )
+                                .stroke(source.tint.opacity(0.2), lineWidth: 1)
                         }
                         .accessibilityHidden(true)
                 }

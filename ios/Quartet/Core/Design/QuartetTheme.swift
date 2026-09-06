@@ -56,6 +56,11 @@ enum QuartetTheme {
     static let chartCyan = dynamic(light: 0x0E7490, dark: 0x22D3EE)
     static let chartAmber = dynamic(light: 0xA16207, dark: 0xFACC15)
 
+    // 消息库按来源固定着色，让当前项目、全部项目和发送历史可以快速扫视区分。
+    static let messageSourceCurrentProject = accent
+    static let messageSourceAllProjects = chartBlue
+    static let messageSourceHistory = chartOrange
+
     static func statusColor(_ status: String) -> Color {
         switch status.lowercased() {
         case "running": running

@@ -149,6 +149,15 @@ func (h *Handler) serveRemoteIcon(ctx context.Context, c *app.RequestContext, ic
 	if mediaType, _, parseErr := mime.ParseMediaType(contentType); parseErr == nil {
 		contentType = mediaType
 	}
+	if contentType == "image/svg+xml" {
+		body, readErr = rasterizeSVGIcon(ctx, body)
+		if readErr != nil {
+			logger.Warnf(ctx, "[icon-cache] render SVG failed url=%s err=%v", iconURL, readErr)
+			c.AbortWithStatus(http.StatusBadGateway)
+			return
+		}
+		contentType = "image/png"
+	}
 	if !strings.HasPrefix(contentType, "image/") {
 		contentType = http.DetectContentType(body)
 	}
