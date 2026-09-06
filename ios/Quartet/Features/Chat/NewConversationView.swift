@@ -1607,22 +1607,24 @@ struct MessagePresetHistorySheet: View {
                             }
                         }
 
-                        presetSection("当前项目", presets: projectPresets, scope: "project")
-                        presetSection("全部项目", presets: globalPresets, scope: "global")
+                        Section {
+                            presetRows(projectPresets, source: .currentProject, scope: "project")
+                            presetRows(globalPresets, source: .allProjects, scope: "global")
 
-                        if !history.isEmpty {
-                            Section("最近发送") {
+                            if !history.isEmpty {
                                 ForEach(history) { item in
                                     Button { applyHistory(item) } label: {
                                         MessageLibraryRow(
                                             title: messagePreview(item.content),
                                             subtitle: Date(timeIntervalSince1970: Double(item.createdAt) / 1_000)
                                                 .formatted(date: .abbreviated, time: .shortened),
-                                            icon: "clock.arrow.circlepath"
+                                            icon: "clock.arrow.circlepath",
+                                            source: .recentlySent
                                         )
                                     }
                                     .buttonStyle(.plain)
                                     .accessibilityLabel(item.content)
+                                    .accessibilityValue(MessageLibrarySource.recentlySent.title.localizedForApp)
                                     .accessibilityHint("替换当前输入内容")
                                     .accessibilityIdentifier("sent-message-history-item-\(item.id)")
                                 }
@@ -1651,28 +1653,32 @@ struct MessagePresetHistorySheet: View {
     }
 
     @ViewBuilder
-    private func presetSection(_ title: String, presets: [MessagePreset], scope: String) -> some View {
+    private func presetRows(
+        _ presets: [MessagePreset],
+        source: MessageLibrarySource,
+        scope: String
+    ) -> some View {
         if !presets.isEmpty {
-            Section(title) {
-                ForEach(presets) { preset in
-                    Button { selectPreset(preset) } label: {
-                        MessageLibraryRow(
-                            title: preset.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                                ? preset.name!
-                                : messagePreview(preset.content),
-                            subtitle: preset.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                                ? messagePreview(preset.content)
-                                : nil,
-                            icon: preset.content.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
-                                ? "terminal"
-                                : "text.bubble"
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(preset.name?.isEmpty == false ? preset.name! : messagePreview(preset.content))
-                    .accessibilityHint(currentMessage.isEmpty ? "填入消息输入框" : "选择追加或替换当前输入内容")
-                    .accessibilityIdentifier("message-preset-\(scope)-\(preset.id)")
+            ForEach(presets) { preset in
+                Button { selectPreset(preset) } label: {
+                    MessageLibraryRow(
+                        title: preset.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                            ? preset.name!
+                            : messagePreview(preset.content),
+                        subtitle: preset.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                            ? messagePreview(preset.content)
+                            : nil,
+                        icon: preset.content.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
+                            ? "terminal"
+                            : "text.bubble",
+                        source: source
+                    )
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(preset.name?.isEmpty == false ? preset.name! : messagePreview(preset.content))
+                .accessibilityValue(source.title.localizedForApp)
+                .accessibilityHint(currentMessage.isEmpty ? "填入消息输入框" : "选择追加或替换当前输入内容")
+                .accessibilityIdentifier("message-preset-\(scope)-\(preset.id)")
             }
         }
     }
@@ -1714,10 +1720,27 @@ struct MessagePresetHistorySheet: View {
     }
 }
 
+private enum MessageLibrarySource: Equatable {
+    case currentProject
+    case allProjects
+    case recentlySent
+
+    var title: String {
+        switch self {
+        case .currentProject: "当前项目"
+        case .allProjects: "全部项目"
+        case .recentlySent: "最近发送"
+        }
+    }
+
+    var isCurrentProject: Bool { self == .currentProject }
+}
+
 private struct MessageLibraryRow: View {
     let title: String
     let subtitle: String?
     let icon: String
+    let source: MessageLibrarySource
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -1728,11 +1751,37 @@ private struct MessageLibraryRow: View {
                 .background(QuartetTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.quartet(.control, weight: .medium))
-                    .foregroundStyle(QuartetTheme.primaryText)
-                    .lineLimit(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(title)
+                        .font(.quartet(.control, weight: .medium))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text(source.title.localizedForApp)
+                        .font(.quartet(.compact, weight: .medium))
+                        .foregroundStyle(source.isCurrentProject ? QuartetTheme.accent : QuartetTheme.secondaryText)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            source.isCurrentProject
+                                ? QuartetTheme.accent.opacity(0.1)
+                                : QuartetTheme.elevated,
+                            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(
+                                    source.isCurrentProject
+                                        ? QuartetTheme.accent.opacity(0.18)
+                                        : QuartetTheme.divider,
+                                    lineWidth: 1
+                                )
+                        }
+                        .accessibilityHidden(true)
+                }
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.quartet(.compact))

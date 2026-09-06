@@ -517,8 +517,8 @@ final class QuartetUITests: XCTestCase {
 
         app.buttons["new-task-message-history"].tap()
         XCTAssertTrue(app.navigationBars["预置消息与历史"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["当前项目"].exists)
-        XCTAssertTrue(app.staticTexts["全部项目"].exists)
+        XCTAssertTrue(app.buttons["message-preset-project-ios-ui-test-project-preset"].exists)
+        XCTAssertTrue(app.buttons["message-preset-global-ios-ui-test-global-preset"].exists)
         app.buttons["检查当前改动"].tap()
 
         let message = app.textViews["new-conversation-message"]

@@ -36,7 +36,7 @@ import { isImeComposing } from '../utils/keyboard';
 import { isImageUrl, resolveIconSrc } from '../utils/url';
 import { showToast } from '../utils/toast';
 import { fetchAvailableAgentList } from '../api/agents';
-import { useLocalTextDraft } from '../hooks/useLocalTextDraft';
+import { useLocalComposerDraft } from '../hooks/useLocalComposerDraft';
 
 type LocalSentMessage = SentMessageHistoryItem;
 
@@ -446,7 +446,25 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   const localDraftStorageKey = principal
     ? `quartet:composer_draft:home:${encodeURIComponent(principal.user.id)}:${encodeURIComponent(workspaceId || 'default')}`
     : null;
-  const [input, setInput, clearInputDraft] = useLocalTextDraft(localDraftStorageKey);
+  const [composerDraft, setComposerDraft, clearComposerDraft] = useLocalComposerDraft(localDraftStorageKey);
+  const input = composerDraft.text;
+  const pickedImageUrls = composerDraft.imageUrls;
+  const pickedFileAttachments = composerDraft.fileAttachments;
+  const setInput = useCallback((text: string) => {
+    setComposerDraft((current) => ({ ...current, text }));
+  }, [setComposerDraft]);
+  const setPickedImageUrls = useCallback((update: string[] | ((current: string[]) => string[])) => {
+    setComposerDraft((current) => ({
+      ...current,
+      imageUrls: typeof update === 'function' ? update(current.imageUrls) : update,
+    }));
+  }, [setComposerDraft]);
+  const setPickedFileAttachments = useCallback((update: FileAttachment[] | ((current: FileAttachment[]) => FileAttachment[])) => {
+    setComposerDraft((current) => ({
+      ...current,
+      fileAttachments: typeof update === 'function' ? update(current.fileAttachments) : update,
+    }));
+  }, [setComposerDraft]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [acpConfigError, setAcpConfigError] = useState<string | null>(null);
@@ -465,24 +483,37 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   const thoughtLevelDropdownRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { pendingAttachments, addAttachments, removeAttachment, clearAttachments } = usePendingAttachments(uploadChatAttachment);
+  const handleAttachmentUploaded = useCallback((attachment: UploadedAttachment) => {
+    if (attachment.isImage) {
+      setPickedImageUrls((current) => current.includes(attachment.path) ? current : [...current, attachment.path]);
+      return;
+    }
+    const { isImage: _isImage, ...fileAttachment } = attachment;
+    setPickedFileAttachments((current) => current.some((file) => file.path === fileAttachment.path)
+      ? current
+      : [...current, fileAttachment]);
+  }, [setPickedFileAttachments, setPickedImageUrls]);
+  const { pendingAttachments, addAttachments, removeAttachment, clearAttachments } = usePendingAttachments(
+    uploadChatAttachment,
+    handleAttachmentUploaded,
+  );
   const isMobile = useIsMobile();
   // Local cache of "sent" messages (recorded on click send, regardless of server success/failure)
   const localHistoryStorageKey = `quartet:sent_history:${workspaceId || 'default'}`;
   const [historyItems, setHistoryItems] = useState<LocalSentMessage[]>(() => readLocalSentMessages(localHistoryStorageKey));
   const historyCursorRef = useRef<number | null>(null);
   const historyDraftRef = useRef<{ input: string; pickedImageUrls: string[]; pickedFileAttachments: FileAttachment[] } | null>(null);
-  const [pickedImageUrls, setPickedImageUrls] = useState<string[]>([]);
-  const [pickedFileAttachments, setPickedFileAttachments] = useState<FileAttachment[]>([]);
 
   useEffect(() => {
     // When switching workspace, load the corresponding history.
     setHistoryItems(readLocalSentMessages(localHistoryStorageKey));
     historyCursorRef.current = null;
     historyDraftRef.current = null;
-    setPickedImageUrls([]);
-    setPickedFileAttachments([]);
   }, [localHistoryStorageKey]);
+
+  useEffect(() => {
+    clearAttachments();
+  }, [localDraftStorageKey, clearAttachments]);
 
   const [hideScheduledJobs, setHideScheduledJobs] = useState<boolean>(() => {
     // Default on — most users aren't interested in scheduled-task jobs mixed
@@ -1129,7 +1160,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
     });
     setHistoryItems(nextHistory);
 
-    clearInputDraft();
+    clearComposerDraft();
     onStartChat(
       contentToSend,
       selectedAgent.models?.currentModelId || selectedAgent.model_id,
@@ -1140,8 +1171,6 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
       selectedAgent.modes?.currentModeId,
       selectedAgent.thoughtLevels?.currentThoughtLevelId,
     );
-    setPickedImageUrls([]);
-    setPickedFileAttachments([]);
     clearAttachments();
     closeSlash();
     historyCursorRef.current = null;
@@ -1150,11 +1179,11 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
 
   const handleRemovePickedImage = useCallback((url: string) => {
     setPickedImageUrls((prev) => prev.filter((u) => u !== url));
-  }, []);
+  }, [setPickedImageUrls]);
 
   const handleRemovePickedFile = useCallback((path: string) => {
     setPickedFileAttachments((previous) => previous.filter((file) => file.path !== path));
-  }, []);
+  }, [setPickedFileAttachments]);
 
   const handleMentionSelect = (file: FileResult) => {
     if (!mentionState) return;

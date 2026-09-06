@@ -23,7 +23,7 @@ import { splitFavoriteModels } from '../utils/agentPrefs';
 import { DurationBadge } from './DurationBadge';
 import { ConfigurationIcon } from './ComposerIcons';
 import { MessagePresetHistoryMenu, type SentMessageHistoryItem } from './MessagePresetHistoryMenu';
-import { useLocalTextDraft } from '../hooks/useLocalTextDraft';
+import { useLocalComposerDraft } from '../hooks/useLocalComposerDraft';
 import './ChatInput.css';
 
 function toImagePreviewUrl(path: string): string {
@@ -197,7 +197,7 @@ interface ChatInputProps {
   canQueueWhileRunning?: boolean;
   /** localStorage key scope for sent-message history. */
   localHistoryKey?: string;
-  /** localStorage key scope for the unsubmitted text draft. */
+  /** localStorage key scope for the unsubmitted text and attachment draft. */
   localDraftKey?: string;
 }
 
@@ -252,7 +252,25 @@ export function ChatInput({
 }: ChatInputProps) {
   const { t } = useTranslation();
   const localDraftStorageKey = localDraftKey ? `quartet:composer_draft:${localDraftKey}` : null;
-  const [input, setInput, clearInputDraft] = useLocalTextDraft(localDraftStorageKey);
+  const [composerDraft, setComposerDraft, clearComposerDraft] = useLocalComposerDraft(localDraftStorageKey);
+  const input = composerDraft.text;
+  const pickedImageUrls = composerDraft.imageUrls;
+  const pickedFileAttachments = composerDraft.fileAttachments;
+  const setInput = useCallback((text: string) => {
+    setComposerDraft((current) => ({ ...current, text }));
+  }, [setComposerDraft]);
+  const setPickedImageUrls = useCallback((update: string[] | ((current: string[]) => string[])) => {
+    setComposerDraft((current) => ({
+      ...current,
+      imageUrls: typeof update === 'function' ? update(current.imageUrls) : update,
+    }));
+  }, [setComposerDraft]);
+  const setPickedFileAttachments = useCallback((update: FileAttachment[] | ((current: FileAttachment[]) => FileAttachment[])) => {
+    setComposerDraft((current) => ({
+      ...current,
+      fileAttachments: typeof update === 'function' ? update(current.fileAttachments) : update,
+    }));
+  }, [setComposerDraft]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showModeDropdown, setShowModeDropdown] = useState(false);
@@ -267,15 +285,26 @@ export function ChatInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [tabletBottomGap, setTabletBottomGap] = useState(0);
 
-  const { pendingAttachments, addAttachments, removeAttachment, clearAttachments } = usePendingAttachments(uploadChatAttachment);
+  const handleAttachmentUploaded = useCallback((attachment: UploadedAttachment) => {
+    if (attachment.isImage) {
+      setPickedImageUrls((current) => current.includes(attachment.path) ? current : [...current, attachment.path]);
+      return;
+    }
+    const { isImage: _isImage, ...fileAttachment } = attachment;
+    setPickedFileAttachments((current) => current.some((file) => file.path === fileAttachment.path)
+      ? current
+      : [...current, fileAttachment]);
+  }, [setPickedFileAttachments, setPickedImageUrls]);
+  const { pendingAttachments, addAttachments, removeAttachment, clearAttachments } = usePendingAttachments(
+    uploadChatAttachment,
+    handleAttachmentUploaded,
+  );
 
   // Local cache of "sent" messages (recorded on click send, regardless of server success/failure)
   const localHistoryStorageKey = `quartet:sent_history:${localHistoryKey || 'global'}`;
   const [historyItems, setHistoryItems] = useState<LocalSentMessage[]>(() => readLocalSentMessages(localHistoryStorageKey));
   const historyCursorRef = useRef<number | null>(null);
   const historyDraftRef = useRef<{ input: string; pickedImageUrls: string[]; pickedFileAttachments: FileAttachment[] } | null>(null);
-  const [pickedImageUrls, setPickedImageUrls] = useState<string[]>([]);
-  const [pickedFileAttachments, setPickedFileAttachments] = useState<FileAttachment[]>([]);
   const [deletingQueuedIds, setDeletingQueuedIds] = useState<Set<string>>(new Set());
 
   const [mentionState, setMentionState] = useState<{ keyword: string; start: number } | null>(null);
@@ -361,8 +390,11 @@ export function ChatInput({
     setHistoryItems(readLocalSentMessages(localHistoryStorageKey));
     historyCursorRef.current = null;
     historyDraftRef.current = null;
-    setPickedImageUrls([]);
   }, [localHistoryStorageKey]);
+
+  useEffect(() => {
+    clearAttachments();
+  }, [localDraftStorageKey, clearAttachments]);
 
   useEffect(() => {
     if (!isTabletLayout) {
@@ -452,9 +484,7 @@ export function ChatInput({
     } else {
       onSend(contentToSend, imageUrls.length > 0 ? imageUrls : undefined);
     }
-    clearInputDraft();
-    setPickedImageUrls([]);
-    setPickedFileAttachments([]);
+    clearComposerDraft();
     clearAttachments();
     setMentionState(null);
     closeSlash();
@@ -470,7 +500,7 @@ export function ChatInput({
   const handleRemovePickedFile = useCallback((path: string) => {
     if (interactionDisabled) return;
     setPickedFileAttachments((previous) => previous.filter((file) => file.path !== path));
-  }, [interactionDisabled]);
+  }, [interactionDisabled, setPickedFileAttachments]);
 
   const handleRemovePickedImage = useCallback((url: string) => {
     if (interactionDisabled) return;

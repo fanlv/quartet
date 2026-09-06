@@ -15,6 +15,7 @@ export interface PendingAttachment {
 }
 
 type UploadAttachment = (file: File) => Promise<UploadedAttachment>;
+type UploadedAttachmentHandler = (attachment: UploadedAttachment) => void;
 
 function revokePreviewUrls(attachments: PendingAttachment[]) {
   for (const attachment of attachments) {
@@ -54,7 +55,7 @@ export async function uploadChatAttachment(file: File): Promise<UploadedAttachme
   };
 }
 
-export function usePendingAttachments(uploadAttachment: UploadAttachment) {
+export function usePendingAttachments(uploadAttachment: UploadAttachment, onUploaded?: UploadedAttachmentHandler) {
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const attachmentsRef = useRef<PendingAttachment[]>([]);
   const mountedRef = useRef(true);
@@ -84,6 +85,17 @@ export function usePendingAttachments(uploadAttachment: UploadAttachment) {
       try {
         const uploaded = await uploadAttachment(attachment.file);
         if (!mountedRef.current) return;
+        if (!attachmentsRef.current.some((item) => item.id === attachment.id)) continue;
+        if (onUploaded) {
+          onUploaded(uploaded);
+          if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+          setPendingAttachments((previous) => {
+            const next = previous.filter((item) => item.id !== attachment.id);
+            attachmentsRef.current = next;
+            return next;
+          });
+          continue;
+        }
         setPendingAttachments((previous) => {
           const next = previous.map((item) => item.id === attachment.id
             ? { ...item, uploading: false, uploaded }
@@ -102,7 +114,7 @@ export function usePendingAttachments(uploadAttachment: UploadAttachment) {
         });
       }
     }
-  }, [uploadAttachment]);
+  }, [uploadAttachment, onUploaded]);
 
   const removeAttachment = useCallback((id: string) => {
     const attachment = attachmentsRef.current.find((item) => item.id === id);
