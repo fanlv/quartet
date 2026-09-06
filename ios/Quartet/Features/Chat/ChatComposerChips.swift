@@ -674,13 +674,21 @@ struct AgentUsageStrip: View {
     }
 
     private func antigravityContent(_ value: AntigravityAgentUsage) -> some View {
-        Group {
+        VStack(alignment: .leading, spacing: 3) {
             if let version = displayValue(value.version) { versionLabel(version) }
-            if value.claude5h != nil || value.claudeWeekly != nil {
-                usageGroup(mark: "C", windows: [("5h", value.claude5h), ("7d", value.claudeWeekly)])
-            }
-            if value.gemini5h != nil || value.geminiWeekly != nil {
-                usageGroup(mark: "G", windows: [("5h", value.gemini5h), ("7d", value.geminiWeekly)])
+            HStack(spacing: 4) {
+                if value.claude5h != nil || value.claudeWeekly != nil {
+                    antigravityQuotaGroup(
+                        name: "Claude",
+                        windows: [("5h", value.claude5h), ("7d", value.claudeWeekly)]
+                    )
+                }
+                if value.gemini5h != nil || value.geminiWeekly != nil {
+                    antigravityQuotaGroup(
+                        name: "Gemini",
+                        windows: [("5h", value.gemini5h), ("7d", value.geminiWeekly)]
+                    )
+                }
             }
         }
     }
@@ -769,20 +777,81 @@ struct AgentUsageStrip: View {
         .accessibilityLabel(label)
     }
 
-    private func usageGroup(mark: String, windows: [(String, AgentUsageWindow?)]) -> some View {
-        HStack(spacing: 2) {
-            Text(mark)
-                .font(.chat(.compact, weight: .bold, design: .monospaced))
-                .foregroundStyle(QuartetTheme.secondaryText)
-                .padding(.trailing, 2)
-            ForEach(Array(windows.enumerated()), id: \.offset) { _, item in
-                if let window = item.1 { usageRing(label: item.0, window: window) }
-            }
+    private func antigravityQuotaGroup(
+        name: String,
+        windows: [(String, AgentUsageWindow?)]
+    ) -> some View {
+        let visibleWindows = windows.compactMap { label, window in
+            window.map { (label, $0) }
         }
-        .padding(2)
-        .background(QuartetTheme.elevated.opacity(0.8), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(QuartetTheme.divider, lineWidth: 1))
-        .accessibilityElement(children: .contain)
+        let usedLabel = "已用".localizedForApp
+        let detailLines = visibleWindows.map { label, window in
+            "\(label)  \(window.percentLabel) · \(formatReset(window)) \("重置".localizedForApp)"
+        }
+        let accessibilityValue = visibleWindows
+            .map { "\($0.0) \($0.1.percentLabel)" }
+            .joined(separator: "，")
+
+        return Button {
+            detail = AgentUsageDetail(
+                title: "\(name) · \(usedLabel)",
+                lines: detailLines
+            )
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(name)
+                        .font(.chat(.detail, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                    Spacer(minLength: 2)
+                    Text(usedLabel)
+                        .font(.chat(.compact, weight: .medium))
+                        .foregroundStyle(QuartetTheme.secondaryText.opacity(0.72))
+                }
+
+                ForEach(Array(visibleWindows.enumerated()), id: \.offset) { _, item in
+                    antigravityWindowRow(label: item.0, window: item.1)
+                }
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
+            .frame(minWidth: 108, minHeight: 46, alignment: .leading)
+            .background(QuartetTheme.elevated.opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(QuartetTheme.divider, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(name)，\(usedLabel)，\(accessibilityValue)")
+        .accessibilityHint("查看重置时间".localizedForApp)
+    }
+
+    private func antigravityWindowRow(label: String, window: AgentUsageWindow) -> some View {
+        let color = usageColor(window.usedPercent)
+        return HStack(spacing: 4) {
+            Text(label)
+                .font(.chat(.compact, weight: .medium, design: .monospaced))
+                .foregroundStyle(QuartetTheme.secondaryText.opacity(0.78))
+                .frame(width: 17, alignment: .leading)
+            Text(window.percentLabel)
+                .font(.chat(.detail, weight: .semibold, design: .monospaced))
+                .foregroundStyle(color)
+                .frame(width: 31, alignment: .trailing)
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(QuartetTheme.divider)
+                    Capsule()
+                        .fill(color)
+                        .frame(
+                            width: max(2, proxy.size.width * min(max(window.usedPercent, 0), 100) / 100)
+                        )
+                }
+            }
+            .frame(width: 31, height: 3)
+        }
     }
 
     private func usageRing(label: String, window: AgentUsageWindow) -> some View {

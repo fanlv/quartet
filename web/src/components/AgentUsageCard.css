@@ -95,29 +95,104 @@
   color: #5d6c62;
 }
 
-.agent-usage-inline .usage-window-group {
+.agent-usage-inline .usage-antigravity {
   display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid #dbe4dd;
-  border-radius: 6px;
-  background: #f8fbf8;
-  flex-shrink: 0;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
 
-.agent-usage-inline .usage-provider-mark {
-  width: 10px;
-  padding-right: 2px;
-  border-right: 1px solid #dbe2ea;
-  box-sizing: border-box;
-  color: #5d6c62;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
-  text-align: center;
-  letter-spacing: 0;
+.agent-usage-inline .usage-antigravity-groups {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 4px;
 }
+
+.agent-usage-inline .usage-provider-quota {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  min-width: 108px;
+  padding: 5px 7px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--elevated) 58%, var(--surface));
+  transition: border-color var(--motion-fast), background var(--motion-fast);
+}
+
+.agent-usage-inline .usage-tip-anchor:hover .usage-provider-quota,
+.agent-usage-inline .usage-tip-anchor:focus-visible .usage-provider-quota {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-strong));
+  background: color-mix(in srgb, var(--elevated) 76%, var(--surface));
+}
+
+.agent-usage-inline .usage-provider-quota-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 5px;
+  line-height: 1;
+}
+
+.agent-usage-inline .usage-provider-quota-head strong {
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.agent-usage-inline .usage-provider-quota-head span {
+  color: var(--muted-2);
+  font-size: 9px;
+}
+
+.agent-usage-inline .usage-window-row {
+  display: grid;
+  grid-template-columns: 20px 31px 1fr;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.agent-usage-inline .usage-window-period {
+  color: var(--muted-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.agent-usage-inline .usage-window-row strong {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 650;
+  text-align: right;
+}
+
+.agent-usage-inline .usage-window-row strong.pct-lo { color: var(--success); }
+.agent-usage-inline .usage-window-row strong.pct-mid { color: var(--warn); }
+.agent-usage-inline .usage-window-row strong.pct-hi { color: var(--danger); }
+
+.agent-usage-inline .usage-window-bar {
+  position: relative;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+
+.agent-usage-inline .usage-window-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 2px;
+  border-radius: inherit;
+  transition: width 0.35s ease;
+}
+
+.agent-usage-inline .usage-window-fill.pct-lo { background: var(--success); }
+.agent-usage-inline .usage-window-fill.pct-mid { background: var(--warn); }
+.agent-usage-inline .usage-window-fill.pct-hi { background: var(--danger); }
 
 /* Inline-flex wrapper that gives arbitrary content (e.g. the QoderCN credits
  * meter) the same hover/click tooltip behaviour the rings have. */
@@ -126,6 +201,12 @@
   align-items: center;
   cursor: pointer;
   min-width: 0;
+  border-radius: 7px;
+  outline: none;
+}
+
+.agent-usage-inline .usage-tip-anchor:focus-visible {
+  box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
 /* QoderCN credits meter: coin icon + used/total numbers + a slim progress bar.
@@ -235,9 +316,16 @@
 }
 
 .agent-usage-inline .usage-inline-ver {
-  color: #7a897f;
+  color: var(--muted-2);
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
+}
+
+@media (max-width: 520px) {
+  .agent-usage-inline .usage-antigravity-groups {
+    flex-wrap: wrap;
+  }
 }
 
 .agent-usage-inline .usage-inline-refresh {
