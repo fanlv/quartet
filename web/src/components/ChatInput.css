@@ -123,7 +123,7 @@
 
 .chat-input-footer {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
   border-top: 1px solid #e7eee9;
