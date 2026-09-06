@@ -28,6 +28,7 @@ type NetworkEntry = {
 }
 
 type FailedResponseEntry = NetworkEntry & {
+  body?: string
   bodyFile?: string
   bodyTruncated?: boolean
 }
@@ -93,6 +94,16 @@ async function persistDiagnostics(testInfo: TestInfo, diagnostics: E2EDiagnostic
   if (diagnostics.failedResponses.length > 0) {
     await fs.mkdir(failedResponseDir, { recursive: true })
   }
+  const failedResponses = await Promise.all(diagnostics.failedResponses.map(async (entry, index) => {
+    const { body, ...persisted } = entry
+    if (body !== undefined) {
+      const pathname = new URL(entry.url, 'http://127.0.0.1').pathname
+      const bodyFileName = `${String(index + 1).padStart(3, '0')}-${safeName(`${entry.method}-${entry.status}-${pathname}`)}.txt`
+      await fs.writeFile(path.join(failedResponseDir, bodyFileName), body, 'utf8')
+      persisted.bodyFile = path.join('failed-response-bodies', bodyFileName)
+    }
+    return persisted
+  }))
 
   await Promise.all([
     writeJSON(path.join(root, 'console-summary.json'), {
@@ -100,7 +111,7 @@ async function persistDiagnostics(testInfo: TestInfo, diagnostics: E2EDiagnostic
       pageErrors: diagnostics.pageErrors,
     }),
     writeJSON(path.join(root, 'network-summary.json'), diagnostics.network),
-    writeJSON(path.join(root, 'failed-responses.json'), diagnostics.failedResponses),
+    writeJSON(path.join(root, 'failed-responses.json'), failedResponses),
   ])
 
   await testInfo.attach('e2e-console-summary', { path: path.join(root, 'console-summary.json'), contentType: 'application/json' })
@@ -108,16 +119,11 @@ async function persistDiagnostics(testInfo: TestInfo, diagnostics: E2EDiagnostic
   await testInfo.attach('e2e-failed-responses', { path: path.join(root, 'failed-responses.json'), contentType: 'application/json' })
 }
 
-async function recordFailedPageResponse(response: Response, diagnostics: E2EDiagnostics, testInfo: TestInfo) {
+async function recordFailedPageResponse(response: Response, diagnostics: E2EDiagnostics) {
   const status = response.status()
   if (status < 400) return
   const request = response.request()
   const body = await captureResponseBody(response)
-  const root = diagnosticsRoot(testInfo)
-  const failedResponseDir = path.join(root, 'failed-response-bodies')
-  await fs.mkdir(failedResponseDir, { recursive: true })
-  const bodyFileName = `${String(diagnostics.failedResponses.length + 1).padStart(3, '0')}-${safeName(`${request.method()}-${status}-${new URL(response.url()).pathname}`)}.txt`
-  await fs.writeFile(path.join(failedResponseDir, bodyFileName), body.text, 'utf8')
   pushCapped(diagnostics.failedResponses, {
     timestamp: now(),
     method: request.method(),
@@ -126,12 +132,12 @@ async function recordFailedPageResponse(response: Response, diagnostics: E2EDiag
     status,
     statusText: response.statusText(),
     ok: response.ok(),
-    bodyFile: path.join('failed-response-bodies', bodyFileName),
+    body: body.text,
     bodyTruncated: body.truncated,
   })
 }
 
-function attachPageDiagnostics(page: Page, diagnostics: E2EDiagnostics, testInfo: TestInfo) {
+function attachPageDiagnostics(page: Page, diagnostics: E2EDiagnostics) {
   page.on('console', (message) => {
     pushCapped(diagnostics.console, {
       timestamp: now(),
@@ -175,7 +181,7 @@ function attachPageDiagnostics(page: Page, diagnostics: E2EDiagnostics, testInfo
       statusText: response.statusText(),
       ok: response.ok(),
     })
-    const pending = recordFailedPageResponse(response, diagnostics, testInfo).catch((err) => {
+    const pending = recordFailedPageResponse(response, diagnostics).catch((err) => {
       pushCapped(diagnostics.pageErrors, {
         timestamp: now(),
         message: `failed to persist response body for ${response.url()}: ${String(err)}`,
@@ -191,16 +197,10 @@ async function recordAPIResponse(opts: {
   requestBody?: string | null
   response: APIResponse
   diagnostics: E2EDiagnostics
-  testInfo: TestInfo
 }) {
   if (opts.response.status() < 400) return
 
   const body = await captureResponseBody(opts.response)
-  const root = diagnosticsRoot(opts.testInfo)
-  const failedResponseDir = path.join(root, 'failed-response-bodies')
-  await fs.mkdir(failedResponseDir, { recursive: true })
-  const bodyFileName = `${String(opts.diagnostics.failedResponses.length + 1).padStart(3, '0')}-${safeName(`${opts.method}-${opts.response.status()}-${new URL(opts.url, 'http://127.0.0.1').pathname}`)}.txt`
-  await fs.writeFile(path.join(failedResponseDir, bodyFileName), body.text, 'utf8')
   pushCapped(opts.diagnostics.failedResponses, {
     timestamp: now(),
     method: opts.method,
@@ -208,7 +208,7 @@ async function recordAPIResponse(opts: {
     status: opts.response.status(),
     statusText: opts.response.statusText(),
     ok: opts.response.ok(),
-    bodyFile: path.join('failed-response-bodies', bodyFileName),
+    body: body.text,
     bodyTruncated: body.truncated,
   })
 }
@@ -226,7 +226,7 @@ function requestBodyFromOptions(options: unknown) {
   }
 }
 
-function wrapRequestContext(request: APIRequestContext, diagnostics: E2EDiagnostics, testInfo: TestInfo): APIRequestContext {
+function wrapRequestContext(request: APIRequestContext, diagnostics: E2EDiagnostics): APIRequestContext {
   return new Proxy(request, {
     get(target, prop, receiver) {
       const original = Reflect.get(target, prop, receiver)
@@ -247,7 +247,7 @@ function wrapRequestContext(request: APIRequestContext, diagnostics: E2EDiagnost
         // missing-CSRF, and legacy-header rejection paths).
         args[1] = { ...options, headers: { ...e2eAuthHeaders(), ...(options.headers as Record<string, string> | undefined) } }
         const response = await original.apply(target, args) as APIResponse
-        await recordAPIResponse({ method: requestMethod, url, requestBody, response, diagnostics, testInfo })
+        await recordAPIResponse({ method: requestMethod, url, requestBody, response, diagnostics })
         return response
       }
     },
@@ -267,15 +267,17 @@ export const test = base.extend<{ diagnostics: E2EDiagnostics }>({
       pendingWrites: [],
     }
     await fixtureUse(diagnostics)
-    await persistDiagnostics(testInfo, diagnostics)
+    if (testInfo.status !== testInfo.expectedStatus) {
+      await persistDiagnostics(testInfo, diagnostics)
+    }
   },
-  page: async ({ page, diagnostics }, fixtureUse, testInfo) => {
+  page: async ({ page, diagnostics }, fixtureUse) => {
     await installE2EAuthCookie(page)
-    attachPageDiagnostics(page, diagnostics, testInfo)
+    attachPageDiagnostics(page, diagnostics)
     await fixtureUse(page)
   },
-  request: async ({ request, diagnostics }, fixtureUse, testInfo) => {
-    await fixtureUse(wrapRequestContext(request, diagnostics, testInfo))
+  request: async ({ request, diagnostics }, fixtureUse) => {
+    await fixtureUse(wrapRequestContext(request, diagnostics))
   },
 })
 

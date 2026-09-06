@@ -1,6 +1,6 @@
 .PHONY: help
 .PHONY: build build-all build-cli build-eino-cli build-web build-frontend build-ios pod-install
-.PHONY: test test-go test-web lint-web e2e test-ios e2e-ios
+.PHONY: test test-go test-web lint-web e2e test-ios e2e-ios frontend-test-ready test-web-run lint-web-run e2e-run
 .PHONY: run-cli run-frontend run-backend web web-logs web-stop web-status backend-stop web-watch web-watch-stop web-watch-logs
 .PHONY: install-eino-cli install-project-tools install-skill install-skill-copy install-skill-list clean
 .PHONY: stage-web activate-web-stage install-skill-cli install-skill-run
@@ -101,28 +101,36 @@ build-all:
 
 build: build-cli build-eino-cli build-web build-frontend
 
-test: test-go test-web e2e
+test: frontend-test-ready
+	@$(MAKE) --no-print-directory -j3 test-go test-web-run e2e-run
 
 test-go:
 	@echo "Running Go tests..."
 	go test ./...
 
-test-web:
-	@echo "Running web component tests..."
+frontend-test-ready:
 	@bash "$(FRONTEND_ENV_CHECK)" "$(CURDIR)/web"
 	@bash "$(FRONTEND_DEPS)" "$(CURDIR)/web"
+
+test-web: frontend-test-ready
+	@$(MAKE) --no-print-directory test-web-run
+
+test-web-run:
+	@echo "Running web component tests..."
 	@cd web && npm test
 
-lint-web:
+lint-web: frontend-test-ready
+	@$(MAKE) --no-print-directory lint-web-run
+
+lint-web-run:
 	@echo "Running frontend lint..."
-	@bash "$(FRONTEND_ENV_CHECK)" "$(CURDIR)/web"
-	@bash "$(FRONTEND_DEPS)" "$(CURDIR)/web"
 	@cd web && npm run lint
 
-e2e:
+e2e: frontend-test-ready
+	@$(MAKE) --no-print-directory e2e-run
+
+e2e-run:
 	@echo "Running web E2E tests..."
-	@bash "$(FRONTEND_ENV_CHECK)" "$(CURDIR)/web"
-	@bash "$(FRONTEND_DEPS)" "$(CURDIR)/web"
 	@cd web && npm run test:e2e
 
 build-cli:

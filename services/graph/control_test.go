@@ -337,27 +337,42 @@ func TestStopRunAndWaitImmediatelyAfterStart(t *testing.T) {
 		Edges: []model.GraphEdge{edge("s_p", "s", "p"), edge("p_e", "p", "e")},
 	}
 
-	for i := 0; i < 50; i++ {
-		runner := newLifecycleBlockingRunner()
-		run, startErr := svc.StartRun(context.Background(), &model.StartGraphRunRequest{
-			JobID:  fmt.Sprintf("job-immediate-%d", i),
-			Config: &cfg,
-		}, runner, nil)
-		if startErr != nil {
-			t.Fatalf("iteration %d: StartRun failed: %v", i, startErr)
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		got, stopErr := svc.StopRunAndWait(ctx, run.ID, "immediate stop")
-		cancel()
-		if stopErr != nil {
-			t.Fatalf("iteration %d: StopRunAndWait failed: %v", i, stopErr)
-		}
-		if got.Status != model.GraphRunStatusStopped {
-			t.Fatalf("iteration %d: status = %s, want stopped", i, got.Status)
-		}
-		if activeControl(svc, run.ID) != nil {
-			t.Fatalf("iteration %d: control handle still registered", i)
-		}
+	const iterations = 50
+	errs := make(chan error, iterations)
+	var wg sync.WaitGroup
+	for i := 0; i < iterations; i++ {
+		wg.Add(1)
+		go func(iteration int) {
+			defer wg.Done()
+			runner := newLifecycleBlockingRunner()
+			run, startErr := svc.StartRun(context.Background(), &model.StartGraphRunRequest{
+				JobID:  fmt.Sprintf("job-immediate-%d", iteration),
+				Config: &cfg,
+			}, runner, nil)
+			if startErr != nil {
+				errs <- fmt.Errorf("iteration %d: StartRun failed: %w", iteration, startErr)
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			got, stopErr := svc.StopRunAndWait(ctx, run.ID, "immediate stop")
+			cancel()
+			if stopErr != nil {
+				errs <- fmt.Errorf("iteration %d: StopRunAndWait failed: %w", iteration, stopErr)
+				return
+			}
+			if got.Status != model.GraphRunStatusStopped {
+				errs <- fmt.Errorf("iteration %d: status = %s, want stopped", iteration, got.Status)
+				return
+			}
+			if activeControl(svc, run.ID) != nil {
+				errs <- fmt.Errorf("iteration %d: control handle still registered", iteration)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
 	}
 }
 

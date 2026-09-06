@@ -298,7 +298,7 @@ func TestSchedulerNodeTimeoutFailsInstance(t *testing.T) {
 		Nodes: []model.GraphNode{
 			node("s", model.GraphNodeTypeStart),
 			{ID: "slow", Type: model.GraphNodeTypeShell, Config: model.GraphNodeConfig{
-				Script:         "sleep 3",
+				Script:         "exec sleep 3",
 				TimeoutSeconds: &timeout,
 			}},
 			node("e", model.GraphNodeTypeEnd),

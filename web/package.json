@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "eslint .",
+    "lint": "eslint src e2e/fixtures e2e/tests e2e/playwright.config.ts vite.config.ts vitest.config.ts vitest.setup.ts --cache --cache-strategy content --cache-location node_modules/.cache/eslint/.eslintcache",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

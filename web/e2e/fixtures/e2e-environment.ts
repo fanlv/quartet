@@ -462,14 +462,22 @@ async function globalSetup() {
   process.env.QUARTET_E2E_RUN_DIR = runDir
   const logDir = path.join(runDir, 'logs')
   const localMemory = path.join(runDir, 'local-memory')
-  const goCache = path.join(runDir, 'go-build-cache')
-  const viteCache = path.join(runDir, 'vite-cache')
-  const certsDir = path.join(runDir, 'certs-empty')
   const goTmp = createExternalTempDir('quartet-e2e-go-tmp-')
+  const backendBinary = path.join(goTmp, process.platform === 'win32' ? 'quartet-web.exe' : 'quartet-web')
+  const viteCache = path.join(webDir, 'node_modules', '.vite-e2e')
+  const certsDir = path.join(runDir, 'certs-empty')
   fs.mkdirSync(logDir, { recursive: true })
-  fs.mkdirSync(goCache, { recursive: true })
-  fs.mkdirSync(viteCache, { recursive: true })
   fs.mkdirSync(certsDir, { recursive: true })
+
+  // Build once with Go's normal persistent build cache, then run the same
+  // binary for the primary server and any replay server a spec needs. Keeping
+  // GOCACHE out of the per-run artifact directory avoids a cold ~600 MiB cache
+  // on every invocation and keeps retained failure artifacts small.
+  execFileSync('go', ['build', '-o', backendBinary, './cmd/web'], {
+    cwd: repoRoot,
+    env: { ...process.env, GOTMPDIR: goTmp },
+    stdio: 'inherit',
+  })
 
   // Build the in-repo eino-cli and put it on the backend's PATH ONLY when E2E
   // model credentials are supplied (seedAgentConfig then also seeds its model
@@ -487,7 +495,7 @@ async function globalSetup() {
     fs.mkdirSync(einoBinDir, { recursive: true })
     execFileSync('go', ['build', '-o', path.join(einoBinDir, 'eino-cli'), './cmd/eino-cli'], {
       cwd: repoRoot,
-      env: { ...process.env, GOCACHE: goCache, GOTMPDIR: goTmp },
+      env: { ...process.env, GOTMPDIR: goTmp },
       stdio: 'inherit',
     })
   }
@@ -503,6 +511,7 @@ async function globalSetup() {
     frontendURL,
     localMemory,
     repoRoot,
+    backendBinary,
     webDir,
     pid: process.pid,
     platform: os.platform(),
@@ -514,13 +523,12 @@ async function globalSetup() {
   try {
     const backend = startProcess({
       name: 'backend',
-      command: 'go',
-      args: ['run', './cmd/web'],
+      command: backendBinary,
+      args: [],
       cwd: repoRoot,
       env: {
         ...process.env,
         LOCAL_MEMORY: localMemory,
-        GOCACHE: goCache,
         GOTMPDIR: goTmp,
         // In-repo eino-cli on PATH (probe discovery) + isolated eino-cli home —
         // only when E2E model credentials seeded its catalog (see above).

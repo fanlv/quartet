@@ -1217,9 +1217,11 @@ export function ChatInput({
               }}
               onApplyHistory={(item) => {
                 const nextInput = (item.content === '[image]' || item.content === '[file]') && ((item.imageUrls?.length ?? 0) + (item.fileAttachments?.length ?? 0) > 0) ? '' : item.content;
-                setInput(nextInput);
-                setPickedImageUrls(item.imageUrls || []);
-                setPickedFileAttachments(item.fileAttachments || []);
+                setComposerDraft({
+                  text: nextInput,
+                  imageUrls: item.imageUrls || [],
+                  fileAttachments: item.fileAttachments || [],
+                });
                 clearAttachments();
                 closeSlash();
                 historyCursorRef.current = null;

@@ -1,4 +1,5 @@
-import { expect, test } from '../fixtures/test'
+import { expect, test, type Page } from '../fixtures/test'
+import { e2eFrontendURL } from '../fixtures/e2e-environment'
 
 // Verifies that all agent icon rendering paths display correctly after the
 // icon proxy cache feature. Icons served from /api/v1/icon?url=... must render
@@ -13,8 +14,18 @@ async function openAppWithAuth(page: import('@playwright/test').Page) {
   await expect(page.getByRole('textbox', { name: /ask anything/i })).toBeVisible()
 }
 
+async function stubProxiedIcons(page: Page) {
+  await page.route('**/api/v1/icon?url=*', (route) => route.fulfill({
+    status: 200,
+    contentType: 'image/svg+xml',
+    headers: { 'Cache-Control': 'private, max-age=86400' },
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1"/></svg>',
+  }))
+}
+
 test.describe('agent icon rendering', () => {
   test('agent selector shows icons as images, not raw text', async ({ page }) => {
+    await stubProxiedIcons(page)
     await openAppWithAuth(page)
 
     // Agent discovery is asynchronous. Wait for the loading/empty placeholder
@@ -73,6 +84,7 @@ test.describe('agent icon rendering', () => {
   })
 
   test('selected agent tag shows icon correctly', async ({ page }) => {
+    await stubProxiedIcons(page)
     await openAppWithAuth(page)
 
     // The model-tag (selected agent display) should render icon properly
@@ -108,26 +120,13 @@ test.describe('agent icon rendering', () => {
   })
 
   test('icon proxy endpoint returns image content-type', async ({ request }) => {
-    // Get the agent list to find a real icon URL
-    const listRes = await request.get('/api/v1/agent/list', {
-    })
-    expect(listRes.ok()).toBeTruthy()
-    const data = await listRes.json()
-    const agents = (data.agent_list || []) as Array<{ icon_url: string; display_name: string }>
-
-    // Find an agent with a proxy icon URL
-    const proxyAgent = agents.find((a) => a.icon_url?.startsWith('/api/v1/icon'))
-    if (!proxyAgent) {
-      test.skip(true, 'No agents with proxy icon URLs found')
-      return
-    }
-
-    // Hit the proxy endpoint
-    const iconRes = await request.get(proxyAgent.icon_url, {
-    })
+    // Use the isolated frontend as a deterministic local image upstream. The
+    // proxy behavior stays covered without depending on public network access.
+    const upstream = `${e2eFrontendURL}/vite.svg`
+    const iconRes = await request.get(`/api/v1/icon?url=${encodeURIComponent(upstream)}`)
 
     // Should return successfully with an image content type
-    expect(iconRes.ok(), `icon proxy returned ${iconRes.status()} for ${proxyAgent.display_name}`).toBeTruthy()
+    expect(iconRes.ok(), `icon proxy returned ${iconRes.status()} for ${upstream}`).toBeTruthy()
     const contentType = iconRes.headers()['content-type'] || ''
     expect(
       contentType.startsWith('image/'),

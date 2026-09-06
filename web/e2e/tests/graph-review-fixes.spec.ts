@@ -97,6 +97,7 @@ type GraphWorkspace = {
 type E2ERunInfo = {
   localMemory: string
   repoRoot?: string
+  backendBinary?: string
   goTmp?: string
 }
 
@@ -208,16 +209,16 @@ function parseSSEMessageEvents(text: string): Array<Record<string, unknown>> {
 
 async function startReplayBackend(runInfo: E2ERunInfo, port: number): Promise<{ proc: ChildProcessWithoutNullStreams; authHeaders: Record<string, string> }> {
   if (!runInfo.repoRoot) throw new Error('repoRoot missing from E2E env.json')
+  if (!runInfo.backendBinary) throw new Error('backendBinary missing from E2E env.json')
   const logDir = path.join(process.env.QUARTET_E2E_RUN_DIR || '.', 'logs')
   await fs.mkdir(logDir, { recursive: true })
   const stdout = await fs.open(path.join(logDir, `replay-backend-${port}.stdout.log`), 'a')
   const stderr = await fs.open(path.join(logDir, `replay-backend-${port}.stderr.log`), 'a')
-  const proc = spawn('go', ['run', './cmd/web'], {
+  const proc = spawn(runInfo.backendBinary, [], {
     cwd: runInfo.repoRoot,
     env: {
       ...process.env,
       LOCAL_MEMORY: runInfo.localMemory,
-      GOCACHE: path.join(process.env.QUARTET_E2E_RUN_DIR || '.', `go-build-cache-replay-${port}`),
       GOTMPDIR: runInfo.goTmp,
       QUARTET_LISTEN_ADDR: `127.0.0.1:${port}`,
       // The repository may contain production certs. This replay subprocess is
