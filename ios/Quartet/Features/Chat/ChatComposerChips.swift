@@ -971,7 +971,13 @@ struct AgentUsageStrip: View {
 }
 
 struct WrappingHStack: Layout {
+    enum RowAlignment: Equatable {
+        case top
+        case center
+    }
+
     let spacing: CGFloat
+    var rowAlignment: RowAlignment = .top
 
     func sizeThatFits(
         proposal: ProposedViewSize,
@@ -1004,27 +1010,38 @@ struct WrappingHStack: Layout {
         var x: CGFloat = 0
         var y: CGFloat = 0
         var rowHeight: CGFloat = 0
+        var rowStartIndex = 0
         var usedWidth: CGFloat = 0
 
         for index in subviews.indices {
             var size = subviews[index].sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
             size.width = min(size.width, maxWidth)
             if x > 0, x + size.width > maxWidth {
+                alignRowItems(&items, from: rowStartIndex, rowHeight: rowHeight)
                 x = 0
                 y += rowHeight + spacing
                 rowHeight = 0
+                rowStartIndex = items.count
             }
             items.append(Item(index: index, origin: CGPoint(x: x, y: y), size: size))
             usedWidth = max(usedWidth, x + size.width)
             rowHeight = max(rowHeight, size.height)
             x += size.width + spacing
         }
+        alignRowItems(&items, from: rowStartIndex, rowHeight: rowHeight)
         return (items, usedWidth, items.isEmpty ? 0 : y + rowHeight)
+    }
+
+    private func alignRowItems(_ items: inout [Item], from startIndex: Int, rowHeight: CGFloat) {
+        guard rowAlignment == .center else { return }
+        for index in startIndex..<items.count {
+            items[index].origin.y += (rowHeight - items[index].size.height) / 2
+        }
     }
 
     private struct Item {
         let index: Int
-        let origin: CGPoint
+        var origin: CGPoint
         let size: CGSize
     }
 }

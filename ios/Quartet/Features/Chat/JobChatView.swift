@@ -767,7 +767,7 @@ struct JobChatView: View {
                 Divider()
                     .overlay(QuartetTheme.divider.opacity(0.7))
 
-                WrappingHStack(spacing: 7) {
+                WrappingHStack(spacing: 7, rowAlignment: .center) {
                     composerContext
 
                     ComposerMetadataChip(
