@@ -674,9 +674,9 @@ struct AgentUsageStrip: View {
     }
 
     private func antigravityContent(_ value: AntigravityAgentUsage) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 5) {
             if let version = displayValue(value.version) { versionLabel(version) }
-            HStack(spacing: 4) {
+            HStack(spacing: 3) {
                 if value.claude5h != nil || value.claudeWeekly != nil {
                     antigravityQuotaGroup(
                         name: "Claude",
@@ -691,6 +691,7 @@ struct AgentUsageStrip: View {
                 }
             }
         }
+        .fixedSize(horizontal: true, vertical: true)
     }
 
     private func kimiContent(_ value: KimiAgentUsage) -> some View {
@@ -798,10 +799,10 @@ struct AgentUsageStrip: View {
                 lines: detailLines
             )
         } label: {
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     Text(name)
-                        .font(.chat(.detail, weight: .semibold))
+                        .font(.chat(.compact, weight: .semibold))
                         .foregroundStyle(QuartetTheme.primaryText)
                     Spacer(minLength: 2)
                     Text(usedLabel)
@@ -813,9 +814,9 @@ struct AgentUsageStrip: View {
                     antigravityWindowRow(label: item.0, window: item.1)
                 }
             }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 5)
-            .frame(minWidth: 108, minHeight: 46, alignment: .leading)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .frame(width: 90, alignment: .leading)
             .background(QuartetTheme.elevated.opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -823,6 +824,8 @@ struct AgentUsageStrip: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
+        .frame(width: 90)
+        .frame(minHeight: 44)
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(name)，\(usedLabel)，\(accessibilityValue)")
@@ -839,18 +842,16 @@ struct AgentUsageStrip: View {
             Text(window.percentLabel)
                 .font(.chat(.detail, weight: .semibold, design: .monospaced))
                 .foregroundStyle(color)
-                .frame(width: 31, alignment: .trailing)
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(QuartetTheme.divider)
-                    Capsule()
-                        .fill(color)
-                        .frame(
-                            width: max(2, proxy.size.width * min(max(window.usedPercent, 0), 100) / 100)
-                        )
-                }
+                .frame(width: 27, alignment: .trailing)
+            ZStack(alignment: .leading) {
+                Capsule().fill(QuartetTheme.divider)
+                Capsule()
+                    .fill(color)
+                    .frame(
+                        width: max(2, 23 * min(max(window.usedPercent, 0), 100) / 100)
+                    )
             }
-            .frame(width: 31, height: 3)
+            .frame(width: 23, height: 3)
         }
     }
 

@@ -97,10 +97,10 @@
 
 .agent-usage-inline .usage-antigravity {
   display: inline-flex;
-  align-items: flex-start;
-  flex-direction: column;
-  gap: 3px;
+  align-items: center;
+  gap: 5px;
   min-width: 0;
+  white-space: nowrap;
 }
 
 .agent-usage-inline .usage-antigravity-groups {
@@ -320,12 +320,6 @@
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
-}
-
-@media (max-width: 520px) {
-  .agent-usage-inline .usage-antigravity-groups {
-    flex-wrap: wrap;
-  }
 }
 
 .agent-usage-inline .usage-inline-refresh {
