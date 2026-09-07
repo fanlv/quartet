@@ -359,7 +359,8 @@ struct NewConversationView: View {
                     globalPresets: globalMessagePresets,
                     history: sentMessageHistory,
                     errors: messagePresetLoadErrors,
-                    loading: loadingMessagePresets
+                    loading: loadingMessagePresets,
+                    onApplyHistory: applyHistory
                 )
                 .presentationDetents([.medium, .large])
                 .quartetSheetStyle()
@@ -1141,6 +1142,7 @@ struct NewConversationView: View {
             do {
                 sentMessageHistory = try model.recordSentMessage(
                     submittedMessage,
+                    attachments: submittedAttachments,
                     workspaceID: payload.workspaceID
                 )
             } catch {
@@ -1197,6 +1199,19 @@ struct NewConversationView: View {
             sentMessageHistory = try model.sentMessageHistory(workspaceID: workspaceID)
         } catch {
             present(error)
+        }
+    }
+
+    private func applyHistory(_ item: SentMessageHistoryItem) -> Bool {
+        do {
+            let attachments = try model.sentMessageHistoryAttachments(for: item)
+            message = item.composerContent
+            pendingAttachments = attachments
+            selectedPhotos = []
+            return true
+        } catch {
+            present(error)
+            return false
         }
     }
 
@@ -1559,6 +1574,7 @@ struct MessagePresetHistorySheet: View {
     let history: [SentMessageHistoryItem]
     let errors: [String]
     let loading: Bool
+    let onApplyHistory: (SentMessageHistoryItem) -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @State private var pendingPreset: MessagePreset?
@@ -1615,15 +1631,14 @@ struct MessagePresetHistorySheet: View {
                                 ForEach(history) { item in
                                     Button { applyHistory(item) } label: {
                                         MessageLibraryRow(
-                                            title: messagePreview(item.content),
-                                            subtitle: Date(timeIntervalSince1970: Double(item.createdAt) / 1_000)
-                                                .formatted(date: .abbreviated, time: .shortened),
+                                            title: historyPreview(item),
+                                            subtitle: historySubtitle(item),
                                             icon: "clock.arrow.circlepath",
                                             source: .recentlySent
                                         )
                                     }
                                     .buttonStyle(.plain)
-                                    .accessibilityLabel(item.content)
+                                    .accessibilityLabel(historyPreview(item))
                                     .accessibilityValue(MessageLibrarySource.recentlySent.title.localizedForApp)
                                     .accessibilityHint("替换当前输入内容")
                                     .accessibilityIdentifier("sent-message-history-item-\(item.id)")
@@ -1707,8 +1722,29 @@ struct MessagePresetHistorySheet: View {
     }
 
     private func applyHistory(_ item: SentMessageHistoryItem) {
-        currentMessage = item.content
-        dismiss()
+        if onApplyHistory(item) { dismiss() }
+    }
+
+    private func historyPreview(_ item: SentMessageHistoryItem) -> String {
+        let preview = messagePreview(item.composerContent)
+        if preview != "（空）".localizedForApp { return preview }
+        if item.imageAttachmentCount > 0 { return "[图片]".localizedForApp }
+        if item.fileAttachmentCount > 0 { return "[文件]".localizedForApp }
+        return preview
+    }
+
+    private func historySubtitle(_ item: SentMessageHistoryItem) -> String {
+        var parts = [
+            Date(timeIntervalSince1970: Double(item.createdAt) / 1_000)
+                .formatted(date: .abbreviated, time: .shortened)
+        ]
+        if item.imageAttachmentCount > 0 {
+            parts.append("\("[图片]".localizedForApp) ×\(item.imageAttachmentCount)")
+        }
+        if item.fileAttachmentCount > 0 {
+            parts.append("\("[文件]".localizedForApp) ×\(item.fileAttachmentCount)")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func messagePreview(_ content: String) -> String {

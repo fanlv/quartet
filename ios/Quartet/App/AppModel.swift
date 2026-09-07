@@ -139,7 +139,10 @@ final class AppModel: ObservableObject {
             effectiveDefaults = defaults
         }
         self.defaults = effectiveDefaults
-        sentMessageHistoryStore = SentMessageHistoryStore(defaults: effectiveDefaults)
+        sentMessageHistoryStore = SentMessageHistoryStore(
+            defaults: effectiveDefaults,
+            directoryName: detectedUITestScenario == nil ? "Quartet" : "QuartetUITests"
+        )
         serverBookmarkStore = ServerBookmarkStore(defaults: effectiveDefaults)
         self.cacheStore = detectedUITestScenario == nil
             ? cacheStore
@@ -1455,10 +1458,18 @@ final class AppModel: ObservableObject {
     }
 
     @discardableResult
-    func recordSentMessage(_ content: String, workspaceID: String?) throws -> [SentMessageHistoryItem] {
+    func recordSentMessage(
+        _ content: String,
+        attachments: [PendingUpload] = [],
+        workspaceID: String?
+    ) throws -> [SentMessageHistoryItem] {
         let scope = sentMessageHistoryScope(workspaceID: workspaceID)
         do {
-            let history = try sentMessageHistoryStore.append(content: content, scope: scope)
+            let history = try sentMessageHistoryStore.append(
+                content: content,
+                attachments: attachments,
+                scope: scope
+            )
             if let workspaceID, !workspaceID.isEmpty {
                 defaults.set(
                     workspaceID,
@@ -1470,6 +1481,22 @@ final class AppModel: ObservableObject {
             throw APIError(
                 summary: "无法保存发送历史",
                 detail: "保存本地发送历史失败。\n服务：\(serverAddress)\n工作空间：\(workspaceID ?? "default")\n\n\(String(reflecting: error))"
+            )
+        }
+    }
+
+    func sentMessageHistoryAttachments(for item: SentMessageHistoryItem) throws -> [PendingUpload] {
+        do {
+            return try sentMessageHistoryStore.attachments(for: item)
+        } catch {
+            throw APIError(
+                summary: "无法读取历史消息附件".localizedForApp,
+                detail: AppLanguage.localizedFormat(
+                    "读取本地发送历史的附件失败。\n服务：%@\n消息：%@\n\n%@",
+                    serverAddress,
+                    item.id,
+                    String(reflecting: error)
+                )
             )
         }
     }

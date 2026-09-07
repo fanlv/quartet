@@ -18688,6 +18688,38 @@
         }
       }
     },
+    "无法读取历史消息附件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not read attachments from message history"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取历史消息附件"
+          }
+        }
+      }
+    },
+    "读取本地发送历史的附件失败。\n服务：%@\n消息：%@\n\n%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not read the attachment from local message history.\nServer: %1$@\nMessage: %2$@\n\n%3$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读取本地发送历史的附件失败。\n服务：%1$@\n消息：%2$@\n\n%3$@"
+          }
+        }
+      }
+    },
     "删除服务器失败" : {
       "localizations" : {
         "en" : {

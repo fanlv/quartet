@@ -32,7 +32,7 @@ private struct ChatAgentModelSelection: Hashable {
 /// 浏览态记录进入时的内容版本，用于提示这期间是否又收到了新内容。
 private enum ChatTimelineMode: Equatable {
     case following
-    case browsing(anchor: Int, messageCount: Int)
+    case browsing(anchor: Int)
 
     var isFollowing: Bool {
         if case .following = self { return true }
@@ -40,12 +40,7 @@ private enum ChatTimelineMode: Equatable {
     }
 
     var browsingAnchor: Int? {
-        if case .browsing(let anchor, _) = self { return anchor }
-        return nil
-    }
-
-    var browsingMessageCount: Int? {
-        if case .browsing(_, let messageCount) = self { return messageCount }
+        if case .browsing(let anchor) = self { return anchor }
         return nil
     }
 }
@@ -54,6 +49,9 @@ private enum ChatTimelineWindow {
     /// 默认非懒加载窗口有明确上限，避免长会话首次创建几百个 Markdown 视图。
     static let initialMessageCount = 80
     static let earlierPageSize = 80
+    /// 顶部翻页哨兵的固定高度。加载指示器和空占位共用同一高度，哨兵才能一直存在
+    /// 且不因加载状态切换而在视口上方凭空增减内容高度。
+    static let earlierSentinelHeight: CGFloat = 34
 }
 
 struct JobChatView: View {
@@ -85,16 +83,19 @@ struct JobChatView: View {
     @State private var userIsScrollingTimeline = false
     @State private var timelineTopIsVisible = false
     @State private var timelineBottomIsVisible = true
-    @State private var visibleTimelineMessageCount = ChatTimelineWindow.initialMessageCount
-    /// Keep SwiftUI's live scroll position bound to message identities. When an earlier
-    /// page is inserted above the viewport, SwiftUI can then preserve the currently
-    /// visible target at its existing relative position instead of jumping an arbitrary
-    /// window boundary to the top of the screen.
+    /// 渲染窗口的起点：body 开头要跳过多少条更早历史。
+    ///
+    /// `nil` 表示尾部对齐——跟随最新时只渲染最近一页，保证非懒加载容器的工作量有界。
+    /// 用户一旦开始向上读就把它固化下来，此后流式追加、历史折叠、翻页 prepend 都不再
+    /// 移动窗口起点，用户正在看的那条消息不会被窗口挤出渲染。
+    @State private var hiddenEarlierMessageCount: Int?
+    /// 程序化滚动通道：只用来显式滚动，不指望它跨内容变更自动维持位置。
     @State private var timelineScrollPosition = ScrollPosition(idType: String.self)
-    @State private var timelineWindowUpdateInFlight = false
-    @State private var earlierPageRequestInFlight = false
-    @State private var timelinePrimeTask: Task<Void, Never>?
-    @State private var timelinePrimeGeneration = 0
+    /// 翻页期间的还原锚点：翻页前视口顶部那条消息，新内容进入视图树后把它重新对齐回顶部。
+    @State private var pendingTimelineAnchorID: String?
+    @State private var timelineAnchorRestoreRequests = 0
+    @State private var earlierPageLoadInFlight = false
+    @State private var earlierPageTask: Task<Void, Never>?
     @State private var followBottomRequests = 0
     /// 时间线内容区的实际宽度（已扣掉列表的水平内边距），气泡按它算宽度上限。
     @State private var timelineContentWidth: CGFloat = 0
@@ -178,7 +179,6 @@ struct JobChatView: View {
             do {
                 let client = try appModel.apiClient()
                 await chat.start(route: route, client: client)
-                primeEarlierTimelineBuffer()
             } catch {
                 appModel.present(error)
             }
@@ -205,18 +205,17 @@ struct JobChatView: View {
             await loadGitBranch()
         }
         .onDisappear {
-            cancelTimelinePrime()
+            cancelEarlierPageLoad()
             chat.stopStreaming()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
-                cancelTimelinePrime()
+                cancelEarlierPageLoad()
                 chat.stopStreaming()
             } else {
                 Task {
                     do {
                         await chat.start(route: route, client: try appModel.apiClient())
-                        primeEarlierTimelineBuffer()
                     } catch {
                         appModel.present(error)
                     }
@@ -314,7 +313,8 @@ struct JobChatView: View {
                 globalPresets: globalMessagePresets,
                 history: sentMessageHistory,
                 errors: messagePresetLoadErrors,
-                loading: loadingMessagePresets
+                loading: loadingMessagePresets,
+                onApplyHistory: applyHistory
             )
             .presentationDetents([.medium, .large])
             .quartetSheetStyle()
@@ -362,38 +362,32 @@ struct JobChatView: View {
     /// 而尾部对齐的窗口恰好最先把它切掉，钉住也就白钉了。
     private var timelineMessages: [ChatMessage] {
         let pinnedCount = pinnedRoundHeadCount
-        guard pinnedCount > 0 else {
-            return Array(chat.messages.suffix(effectiveTimelineMessageCount))
-        }
-        return Array(chat.messages.prefix(pinnedCount))
-            + Array(chat.messages.dropFirst(pinnedCount).suffix(effectiveTimelineMessageCount))
+        let body = chat.messages.dropFirst(pinnedCount + hiddenTimelineMessageCount)
+        guard pinnedCount > 0 else { return Array(body) }
+        return Array(chat.messages.prefix(pinnedCount)) + Array(body)
     }
 
     private var pinnedRoundHeadCount: Int {
         chat.messages.prefix(while: { $0.isRoundHeadPinned }).count
     }
 
-    /// 渲染列表里距顶部一页的位置。用户滚到这里就该取下一页；只有不足一页可度量时
-    /// 返回 nil，那种情况由顶部哨兵兜住。
-    private var earlierBufferSentinelIndex: Int? {
-        let index = pinnedRoundHeadCount + ChatTimelineWindow.earlierPageSize
-        let renderedCount = pinnedRoundHeadCount
-            + min(effectiveTimelineMessageCount, max(0, chat.messages.count - pinnedRoundHeadCount))
-        return index < renderedCount ? index : nil
+    /// 轮首占位始终渲染，不参与窗口配额，所以窗口只在它之后的这段里挪动。
+    private var timelineBodyCount: Int {
+        max(0, chat.messages.count - pinnedRoundHeadCount)
     }
 
-    /// 浏览期间追加到尾部的新消息不占用原窗口配额，否则 `suffix` 会同时从顶部移除一条，
-    /// 让用户正在看的位置跳动。把增量加入有效窗口后，窗口起点保持不变。
-    private var effectiveTimelineMessageCount: Int {
-        guard let browsingMessageCount = timelineMode.browsingMessageCount else {
-            return visibleTimelineMessageCount
-        }
-        return visibleTimelineMessageCount + max(0, chat.messages.count - browsingMessageCount)
-    }
-
+    /// 窗口之上、还没渲染出来的更早历史条数。
+    ///
+    /// 描述窗口的是「跳过多少条」而不是「渲染多少条」，这一点是位置稳定的关键：
+    /// 尾部追加、历史折叠、翻页 prepend 都不改这个数，窗口起点对应的那条消息就不会变，
+    /// 视口上方的内容高度也就不会凭空增减。
     private var hiddenTimelineMessageCount: Int {
-        // 轮首占位始终渲染，不算「被窗口挡住的更早历史」。
-        max(0, chat.messages.count - pinnedRoundHeadCount - effectiveTimelineMessageCount)
+        // 固化值不小于当前可用条数说明列表被整体换过（切会话 / 切 Graph 结点），
+        // 这时固化的起点已经没有意义，回落到尾部对齐，免得渲染出一个空窗口。
+        guard let fixed = hiddenEarlierMessageCount, fixed < timelineBodyCount else {
+            return max(0, timelineBodyCount - ChatTimelineWindow.initialMessageCount)
+        }
+        return max(0, fixed)
     }
 
     private var timelineHasPendingUpdates: Bool {
@@ -403,21 +397,10 @@ struct JobChatView: View {
 
     private func beginTimelineBrowsing() {
         guard timelineMode.isFollowing else { return }
-        // Priming is only a launch-time optimization. If the user starts reading
-        // history while its prefetched page is still being consumed, do not let that
-        // background prepend mutate the content underneath an active gesture.
-        cancelTimelinePrime()
-        timelineMode = .browsing(anchor: chat.scrollAnchor, messageCount: chat.messages.count)
-    }
-
-    private func cancelTimelinePrime() {
-        timelinePrimeGeneration &+= 1
-        let wasPriming = timelinePrimeTask != nil
-        timelinePrimeTask?.cancel()
-        timelinePrimeTask = nil
-        // A user-triggered earlier-page request can only exist after browsing has
-        // already begun, so while entering browsing this flag belongs to priming.
-        if wasPriming { earlierPageRequestInFlight = false }
+        // 跟随态的窗口是尾部对齐的，流式每追加一条就从窗口顶部挤掉一条。用户开始向上读
+        // 的这一刻必须把窗口起点固定住，否则他正在看的内容会被这种挤动抽走。
+        hiddenEarlierMessageCount = hiddenTimelineMessageCount
+        timelineMode = .browsing(anchor: chat.scrollAnchor)
     }
 
     /// 非懒加载窗口里的底部位置是完整布局后的真实位置，不再经过离屏 cell 高度估算。
@@ -427,76 +410,88 @@ struct JobChatView: View {
         }
     }
 
-    private func resumeTimelineFollow() {
-        timelineWindowUpdateInFlight = false
+    /// 回到跟随最新。窗口重新尾部对齐，把浏览期间为了稳住阅读位置而扩开的渲染量收回去；
+    /// 视口此刻就在底部，`.sizeChanges` 的底部锚定会吸收这次收缩。
+    ///
+    /// 底部可见性回调在流式输出期间会反复触发，所以这里先判一次「已经是跟随态且窗口
+    /// 已经尾部对齐」，避免每次都白写一遍状态、多跑一轮 body 求值。
+    private func enterTimelineFollow() {
+        guard !timelineMode.isFollowing
+            || hiddenEarlierMessageCount != nil
+            || earlierPageLoadInFlight
+            || earlierPageTask != nil else { return }
+        cancelEarlierPageLoad()
         timelineMode = .following
-        visibleTimelineMessageCount = ChatTimelineWindow.initialMessageCount
+        hiddenEarlierMessageCount = nil
+    }
+
+    private func resumeTimelineFollow() {
+        enterTimelineFollow()
         scrollTimelineToBottom()
     }
 
-    /// 首屏之后把缓冲补到两页。
-    ///
-    /// 首帧仍只渲染一页（非懒加载容器的工作量上限就是为此设的），但只有一页时窗口
-    /// 之上没有任何东西可度量，「到顶前一页就取下一页」在第一次上滚时无从触发。这里
-    /// 消费的是模型已经在后台预取好的那一页，不额外发请求；且不设 prepend 锚点，
-    /// 让跟随态的底部锚定继续生效，补页不会把视口从底部拽走。
-    private func primeEarlierTimelineBuffer() {
-        guard timelineMode.isFollowing, !timelineWindowUpdateInFlight, !earlierPageRequestInFlight else { return }
-        if hiddenTimelineMessageCount > 0 {
-            visibleTimelineMessageCount = chat.messages.count
-        }
-        guard chat.hasMoreEarlierMessages else { return }
-        timelinePrimeGeneration &+= 1
-        let generation = timelinePrimeGeneration
-        earlierPageRequestInFlight = true
-        timelinePrimeTask = Task { @MainActor in
-            let loadedCount = await chat.loadEarlierMessages()
-            guard generation == timelinePrimeGeneration, !Task.isCancelled else { return }
-            earlierPageRequestInFlight = false
-            timelinePrimeTask = nil
-            guard loadedCount > 0 else { return }
-            visibleTimelineMessageCount += loadedCount
-        }
+    private func cancelEarlierPageLoad() {
+        earlierPageTask?.cancel()
+        earlierPageTask = nil
+        earlierPageLoadInFlight = false
+        pendingTimelineAnchorID = nil
     }
 
+    /// 取更早的历史。
+    ///
+    /// 只在用户已经滚到列表顶部（顶部哨兵可见）时触发，所以渲染列表的第一条消息就是
+    /// 视口顶部那条，用它当还原锚点是精确的——不必去猜视口里正显示着哪一条。这也是
+    /// 为什么这里不再提前一页取：提前取的话锚点就不在视口里，还原就成了盲对齐。
     private func loadEarlierTimelineMessages() {
-        guard !timelineWindowUpdateInFlight, !earlierPageRequestInFlight else { return }
-        if hiddenTimelineMessageCount > 0 {
-            let revealedCount = min(hiddenTimelineMessageCount, ChatTimelineWindow.earlierPageSize)
-            timelineWindowUpdateInFlight = true
-            visibleTimelineMessageCount = min(
-                chat.messages.count,
-                visibleTimelineMessageCount + ChatTimelineWindow.earlierPageSize
-            )
-            if revealedCount == hiddenTimelineMessageCount, chat.hasMoreEarlierMessages {
-                earlierPageRequestInFlight = true
-                Task {
-                    let loadedCount = await chat.loadEarlierMessages()
-                    earlierPageRequestInFlight = false
-                    if loadedCount > 0, case .browsing(let anchor, let messageCount) = timelineMode {
-                        timelineMode = .browsing(anchor: anchor, messageCount: messageCount + loadedCount)
-                    }
-                    // 必须按新增条数扩窗，和另一条取页分支一致。否则整页新数据落进
-                    // 窗口之外的隐藏区，而隐藏区就在列表顶部——用户刚刚还在看的那条
-                    // （代表窗口之上那条消息的轮首占位）会当场从渲染里消失。
-                    timelineWindowUpdateInFlight = loadedCount > 0
-                    visibleTimelineMessageCount += loadedCount
-                }
-            }
+        guard !earlierPageLoadInFlight, pendingTimelineAnchorID == nil else { return }
+        guard let anchorID = timelineMessages.first(where: { !$0.isRoundHeadPinned })?.id else { return }
+
+        // 已经加载进内存、只是被窗口挡住的那部分先揭示出来，这一步不用等网络。
+        let hidden = hiddenTimelineMessageCount
+        if hidden > 0 {
+            earlierPageLoadInFlight = true
+            hiddenEarlierMessageCount = max(0, hidden - ChatTimelineWindow.earlierPageSize)
+            requestTimelineAnchorRestore(anchorID)
             return
         }
 
         guard chat.hasMoreEarlierMessages else { return }
-        earlierPageRequestInFlight = true
-        Task {
+        earlierPageLoadInFlight = true
+        earlierPageTask = Task {
             let loadedCount = await chat.loadEarlierMessages()
-            earlierPageRequestInFlight = false
-            guard loadedCount > 0 else { return }
-            if case .browsing(let anchor, let messageCount) = timelineMode {
-                timelineMode = .browsing(anchor: anchor, messageCount: messageCount + loadedCount)
+            guard !Task.isCancelled else { return }
+            earlierPageTask = nil
+            guard loadedCount > 0 else {
+                // 这一页拉回来全是已有内容（游标重叠）。窗口不动，闸门放开，
+                // 让用户下一次上滑接着往前取。
+                earlierPageLoadInFlight = false
+                return
             }
-            timelineWindowUpdateInFlight = true
-            visibleTimelineMessageCount += loadedCount
+            // 窗口起点是「跳过多少条」，这里 hidden 已经是 0，prepend 进来的一页
+            // 自然全部落在渲染区内，不需要改窗口。
+            requestTimelineAnchorRestore(anchorID)
+        }
+    }
+
+    /// 内容变更和位置还原必须落在同一次视图更新里：先让新内容进入视图树，再把锚点
+    /// 对齐回视口顶部。用专用的请求计数当触发信号，流式追加不会误触发它。
+    private func requestTimelineAnchorRestore(_ anchorID: String) {
+        pendingTimelineAnchorID = anchorID
+        timelineAnchorRestoreRequests &+= 1
+    }
+
+    /// 显式把锚点滚回视口顶部。
+    ///
+    /// 绑定的 `ScrollPosition` 只在被外部改写时才会滚动，它不会替我们跨内容变更维持
+    /// 位置；视口上方插进来的整页内容全靠这一次显式还原抵掉，缺了它滚动条就会瞬间
+    /// 跑到顶部附近。
+    private func restorePendingTimelineAnchor() {
+        guard let anchorID = pendingTimelineAnchorID else { return }
+        pendingTimelineAnchorID = nil
+        earlierPageLoadInFlight = false
+        guard timelineMessages.contains(where: { $0.id == anchorID }) else { return }
+        withTransaction(Transaction(animation: nil)) {
+            timelineScrollPosition.scrollTo(id: anchorID, anchor: .top)
         }
     }
 
@@ -514,37 +509,29 @@ struct JobChatView: View {
                     }
                     .padding(.top, 80)
                 }
-                if hiddenTimelineMessageCount > 0 || chat.hasMoreEarlierMessages {
-                    Group {
-                        if hiddenTimelineMessageCount > 0 {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(QuartetTheme.accent)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                                .accessibilityLabel("加载更多".localizedForApp)
-                                .accessibilityIdentifier("chat-load-earlier")
-                        } else {
-                            Color.clear.frame(height: 1)
-                        }
-                    }
-                    .onScrollVisibilityChange { isVisible in
-                        timelineTopIsVisible = isVisible
-                        guard isVisible, !timelineMode.isFollowing else { return }
-                        loadEarlierTimelineMessages()
+                // 顶部翻页哨兵：无条件渲染，高度恒定。
+                //
+                // 条件渲染过的哨兵被移除时收不到可见性回调，`timelineTopIsVisible` 会一直
+                // 停在旧值；高度随加载状态变化又会在视口上方凭空增减内容，把阅读位置顶走。
+                Group {
+                    if hiddenTimelineMessageCount > 0 || earlierPageLoadInFlight {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(QuartetTheme.accent)
+                            .accessibilityLabel("加载更多".localizedForApp)
+                            .accessibilityIdentifier("chat-load-earlier")
+                    } else {
+                        Color.clear
                     }
                 }
-                ForEach(Array(timelineMessages.enumerated()), id: \.element.id) { index, message in
-                    if index == earlierBufferSentinelIndex {
-                        // 距顶部一页的哨兵：滚到这里就说明用户已经进入最上面那一页，
-                        // 此时取下一页，而不是等他滚到最顶再干等一次网络往返。
-                        Color.clear
-                            .frame(height: 1)
-                            .onScrollVisibilityChange { isVisible in
-                                guard isVisible, !timelineMode.isFollowing else { return }
-                                loadEarlierTimelineMessages()
-                            }
-                    }
+                .frame(maxWidth: .infinity)
+                .frame(height: ChatTimelineWindow.earlierSentinelHeight)
+                .onScrollVisibilityChange { isVisible in
+                    timelineTopIsVisible = isVisible
+                    guard isVisible, !timelineMode.isFollowing else { return }
+                    loadEarlierTimelineMessages()
+                }
+                ForEach(timelineMessages, id: \.id) { message in
                     ChatBubble(
                         message: message,
                         fallbackAgentName: chat.agentDisplayLabel,
@@ -581,7 +568,7 @@ struct JobChatView: View {
                         timelineBottomIsVisible = isVisible
                         guard !userIsScrollingTimeline else { return }
                         if isVisible {
-                            timelineMode = .following
+                            enterTimelineFollow()
                         }
                     }
             }
@@ -595,11 +582,8 @@ struct JobChatView: View {
             .padding(.vertical, 18)
         }
         .scrollDismissesKeyboard(.interactively)
-        // A bound target-aware position preserves the current visible message
-        // when pagination inserts variable-height rows above it. The former
-        // manual restore aligned the render window's first message to `.top`;
-        // because loading starts one page early, that visibly jumped backwards
-        // by roughly a full page.
+        // 只作程序化滚动的通道。绑定的位置不会替我们跨内容变更维持视口——翻页在视口
+        // 上方插入内容后的位置还原一律由 `restorePendingTimelineAnchor()` 显式完成。
         .scrollPosition($timelineScrollPosition)
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         .defaultScrollAnchor(timelineMode.isFollowing ? .bottom : nil, for: .sizeChanges)
@@ -619,30 +603,31 @@ struct JobChatView: View {
             userIsScrollingTimeline = isUserScrolling
             if isUserScrolling {
                 beginTimelineBrowsing()
+                // 可见性回调只在「变化」时触发，用户停在顶部再次起滑时不会重放，
+                // 所以这里按当前状态补一次。
                 if timelineTopIsVisible {
                     loadEarlierTimelineMessages()
                 }
                 return
             }
             if newPhase == .idle, wasUserScrolling, timelineBottomIsVisible {
-                timelineMode = .following
+                enterTimelineFollow()
             }
         }
         .onChange(of: followBottomRequests) { _, _ in
             resumeTimelineFollow()
         }
-        .onChange(of: visibleTimelineMessageCount) { _, _ in
-            timelineWindowUpdateInFlight = false
+        // 翻页的新内容已经进入这次视图树，把翻页前视口顶部那条重新对齐回顶部。
+        .onChange(of: timelineAnchorRestoreRequests) { _, _ in
+            restorePendingTimelineAnchor()
         }
         .onChange(of: route.summary.id) { _, _ in
-            cancelTimelinePrime()
-            timelineWindowUpdateInFlight = false
-            earlierPageRequestInFlight = false
+            cancelEarlierPageLoad()
             timelineMode = .following
+            hiddenEarlierMessageCount = nil
             userIsScrollingTimeline = false
             timelineTopIsVisible = false
             timelineBottomIsVisible = true
-            visibleTimelineMessageCount = ChatTimelineWindow.initialMessageCount
             scrollTimelineToBottom()
         }
     }
@@ -1420,7 +1405,11 @@ struct JobChatView: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !pendingAttachments.isEmpty else { return }
         do {
-            try appModel.recordSentMessage(text, workspaceID: route.summary.workspaceId)
+            try appModel.recordSentMessage(
+                text,
+                attachments: pendingAttachments,
+                workspaceID: route.summary.workspaceId
+            )
         } catch {
             appModel.present(error)
         }
@@ -1445,6 +1434,19 @@ struct JobChatView: View {
             sentMessageHistory = try appModel.sentMessageHistory(workspaceID: route.summary.workspaceId)
         } catch {
             appModel.present(error)
+        }
+    }
+
+    private func applyHistory(_ item: SentMessageHistoryItem) -> Bool {
+        do {
+            let attachments = try appModel.sentMessageHistoryAttachments(for: item)
+            draft = item.composerContent
+            pendingAttachments = attachments
+            selectedPhotos = []
+            return true
+        } catch {
+            appModel.present(error)
+            return false
         }
     }
 
