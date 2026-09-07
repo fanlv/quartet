@@ -1189,8 +1189,12 @@ function TrendCard({
   };
   const gridLevels = [0.25, 0.5, 0.75];
   // Render per-point value labels on the Total line whenever columns aren't
-  // razor-thin. Labels always sit flat above each point.
-  const showPointLabels = colWidth >= 22;
+  // razor-thin. Labels always sit flat above each point. A "8.2M"-style label
+  // needs roughly 40px before neighbours start colliding.
+  const showPointLabels = colWidth >= 44;
+  // Same story for the x-axis: an "09-01" tick is ~30px wide, so on narrow
+  // columns only label every Nth day rather than letting them overprint.
+  const tickStep = Math.max(1, Math.ceil(36 / colWidth));
   const visibleCount = allSeriesKeys.filter((k) => !effectiveHiddenModels.has(k)).length;
   const toggleModel = (model: string) => {
     setHiddenModels((prev) => {
@@ -1339,7 +1343,9 @@ function TrendCard({
                 }}
                 onKeyDown={(event) => handleDayKeyDown(event, idx)}
               />
-              <text x={xAt(idx)} y={height - 8} textAnchor="middle" className="stats-trend-tick">{day.date.slice(5)}</text>
+              {idx % tickStep === 0 && (
+                <text x={xAt(idx)} y={height - 8} textAnchor="middle" className="stats-trend-tick">{day.date.slice(5)}</text>
+              )}
             </g>
           ))}
         </svg>

@@ -921,7 +921,17 @@
   }
 
   .header-nav {
-    gap: 6px;
+    gap: 4px;
+  }
+
+  /* The nav can hold up to seven icon buttons. On a phone they were taking
+     ~80% of the bar, collapsing .header-left (overflow:hidden) to a few pixels
+     — the page mark rendered as a vertical sliver and the title disappeared
+     entirely. Shrink the buttons and reserve enough room for the back button
+     plus the mark; only the title text may still ellipsize. */
+  .header-left {
+    flex: 1 1 auto;
+    min-width: 76px;
   }
 
   .chatbot-container .header-joblist {
@@ -937,13 +947,13 @@
   }
 
   .header-filebrowser-btn {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
   }
 
   .header-settings-btn {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
   }
 
   .header-action-overflow {

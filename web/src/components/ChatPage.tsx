@@ -346,12 +346,8 @@ interface JobHistoryRowProps {
 const JobHistoryRow = memo(function JobHistoryRow({ job, modelLabel, workspaceName, onSelect, onPin, onDelete }: JobHistoryRowProps) {
   const { i18n } = useTranslation();
   const wsColor = job.workspaceId ? workspaceColor(job.workspaceId) : undefined;
-  const isMobile = useIsMobile();
-  const workspaceDisplay = workspaceName && isMobile ? Array.from(workspaceName).slice(0, 3).join('') : workspaceName;
   const title = getJobTitle(job);
   const isPinned = (job.pinnedAt ?? 0) > 0;
-  const titleChars = Array.from(title);
-  const titleDisplay = isMobile && titleChars.length > 10 ? titleChars.slice(0, 10).join('') + '…' : title;
   const jobUrl = (() => {
     const url = new URL(window.location.href);
     url.searchParams.delete('sessionId');
@@ -383,7 +379,7 @@ const JobHistoryRow = memo(function JobHistoryRow({ job, modelLabel, workspaceNa
     >
       <span className="home-job-history-row-icon">{getJobIcon(job)}</span>
       <span className={`home-job-history-row-status-icon ${job.status}`}>{getJobStatusIcon(job.status)}</span>
-      <span className="home-job-history-row-title" title={title}>{titleDisplay}</span>
+      <span className="home-job-history-row-title" title={title}>{title}</span>
       <div className="home-job-history-row-meta">
         {job.scheduleId && (
           <span className="home-job-history-row-sched" title="定时任务触发" aria-label="定时任务触发">
@@ -400,7 +396,7 @@ const JobHistoryRow = memo(function JobHistoryRow({ job, modelLabel, workspaceNa
             title={workspaceName}
             style={wsColor ? ({ '--ws-color': wsColor } as React.CSSProperties) : undefined}
           >
-            {workspaceDisplay}
+            {workspaceName}
           </span>
         )}
         {modelLabel && <span className="home-job-history-row-model" title={modelLabel}>{modelLabel}</span>}

@@ -792,7 +792,9 @@
   .file-preview-title-group strong,
   .file-preview-title-group span { max-width: none; }
   .file-preview-meta { display: none; }
-  .file-preview-actions { justify-content: flex-start; overflow-x: auto; padding-bottom: 1px; }
+  /* Wrap rather than scroll: iOS draws no scrollbar here, so the last action
+     ("back") sat off-screen with nothing hinting it could be swiped to. */
+  .file-preview-actions { justify-content: flex-start; flex-wrap: wrap; row-gap: 8px; }
   .file-preview-button,
   .file-preview-segmented { flex-shrink: 0; }
   .file-preview-document {

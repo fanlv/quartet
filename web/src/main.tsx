@@ -43,6 +43,18 @@ function isTextEditingElement(element: Element | null): element is HTMLElement {
 function setupViewportFixes() {
   const ua = navigator.userAgent
   const isIPhone = /iPhone|iPod/.test(ua)
+  // WebKit Safari (iOS, iPadOS and macOS) reports window.innerHeight as the
+  // *large* viewport: the height the page would get once the browser chrome
+  // collapses. Our shell never scrolls the document (body is overflow:hidden),
+  // so on iPhone the URL bar and on iPad the tab bar never collapse, and a root
+  // sized to innerHeight always keeps its bottom edge — the composer — hidden
+  // behind that chrome. visualViewport is the only value that tracks the region
+  // the user can actually see there. Chromium/Gecko keep innerHeight in sync
+  // with the visible area, and iOS Chrome additionally needs the max() fallback
+  // below, so the override is scoped to Safari.
+  const isWebKitSafari = /AppleWebKit/.test(ua)
+    && / Version\/\d/.test(ua)
+    && !/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium|Android/.test(ua)
 
   // ① Prevent browser-level viewport scrolling on touch devices.
   document.addEventListener('touchmove', (e) => {
@@ -80,6 +92,13 @@ function setupViewportFixes() {
     let baseHeight = vv.height
 
     const layoutViewportHeight = () => {
+      if (isWebKitSafari) {
+        // Multiply out the pinch-zoom factor so zooming in does not shrink the
+        // app shell to the magnified slice the user happens to be looking at.
+        const scale = vv.scale > 0 ? vv.scale : 1
+        const visible = vv.height * scale
+        if (Number.isFinite(visible) && visible > 0) return visible
+      }
       const heights = [window.innerHeight, document.documentElement.clientHeight, vv.height]
         .filter((height) => Number.isFinite(height) && height > 0)
       return heights.length > 0 ? Math.max(...heights) : vv.height

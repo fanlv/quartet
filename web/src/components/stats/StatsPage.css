@@ -39,6 +39,11 @@
   gap: 16px;
   padding: 14px 20px;
   border-bottom: 1px solid #dbe4dd;
+  /* The shell is a fixed-height flex column. Without this the header is the
+     item that gives, so once the range chips wrap onto a second line (narrow
+     screens) the header keeps its one-line height and the chips end up hidden
+     behind the scrolling body. */
+  flex-shrink: 0;
 }
 
 .stats-title {
@@ -772,8 +777,12 @@
 
 @media (max-width: 560px) {
   .stats-kpi-band { grid-template-columns: repeat(2, 1fr); }
-  .stats-header { flex-wrap: wrap; }
-  .stats-range { margin-left: 0; justify-content: flex-start; }
+  /* Title and close stay on the first line; the range chips take the second
+     one on their own instead of pushing close onto a third. */
+  .stats-header { flex-wrap: wrap; gap: 8px 12px; }
+  .stats-title { order: 0; flex: 1 1 auto; }
+  .stats-close { order: 1; }
+  .stats-range { order: 2; flex-basis: 100%; margin-left: 0; justify-content: flex-start; }
   .stats-token-day-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stats-token-day-summary { align-items: flex-start; }
   .stats-token-source-grid { grid-template-columns: 1fr; }

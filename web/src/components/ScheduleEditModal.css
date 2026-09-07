@@ -726,6 +726,27 @@
   .schedule-selectors-row .model-dropdown {
     width: 100%;
   }
+
+  /* The workspace-binding row pairs a label with a long right-aligned hint.
+     Side by side on a phone the hint wraps to four ragged lines next to a
+     two-line label; stack them instead. The toggle rows (label + switch) keep
+     the side-by-side layout, hence the :has() scope. */
+  .schedule-field-row:has(.schedule-ws-bind) {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .schedule-field-row .schedule-ws-bind {
+    max-width: 100%;
+    align-items: flex-start;
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .schedule-field-row .schedule-ws-bind input[type="checkbox"] {
+    margin-top: 2px;
+  }
 }
 
 /* iPad */

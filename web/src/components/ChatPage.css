@@ -1594,6 +1594,128 @@
   50% { opacity: 0.3; }
 }
 
+/* ---- Job list filter & job row extras ---- */
+.home-job-history-row-sched {
+  display: inline-flex;
+  align-items: center;
+  color: #a16207;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+.home-job-history-row-ws {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ws-color, #5d6c62);
+  background: color-mix(in srgb, var(--ws-color, #7a897f) 10%, #fff);
+  border: 1px solid color-mix(in srgb, var(--ws-color, #7a897f) 22%, transparent);
+  padding: 0 9px;
+  border-radius: 999px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 2px;
+  flex-shrink: 0;
+}
+
+/* Fallback for browsers without color-mix support */
+@supports not (background: color-mix(in srgb, red, blue)) {
+  .home-job-history-row-ws {
+    color: #66746b;
+    background: #edf3ee;
+    border-color: #d5dfd7;
+  }
+}
+
+/* Narrow list columns. The home lists stay two-up down to fairly small widths,
+   so on iPad portrait (and any window under ~1200px) each row gets well under
+   500px — a single line there squeezed the title down to an ellipsis and let
+   the schedule name and its cron text overlap. Stack every row onto two lines
+   instead: identity on the first, metadata on the second. */
+@media (max-width: 1200px) {
+  .home-schedule-row {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  .home-schedule-row-dot { order: 0; }
+  .home-schedule-row-title-wrap { order: 1; }
+  .home-schedule-row-job { order: 2; }
+  .home-schedule-row-toggle { order: 3; }
+  .home-schedule-row-delete { order: 4; }
+
+  .home-schedule-row-cron {
+    order: 5;
+    flex: 1 1 100%;
+    /* Line up with the title above (dot 8px + row gap 10px). */
+    margin-left: 18px;
+    max-width: none;
+  }
+
+  .home-schedule-row-next {
+    display: none;
+  }
+
+  .home-job-history-row {
+    flex-wrap: wrap;
+    row-gap: 2px;
+    /* Reserve room for BOTH absolutely-positioned buttons below (pin at
+       right:34px and delete at right:6px) so the metadata line never runs
+       underneath them. */
+    padding: 6px 62px 6px 8px;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    /* Two lines instead of one; keep the scroll estimate in sync. */
+    contain-intrinsic-size: 56px;
+  }
+
+  /* Metadata becomes its own line, indented to line up with the title above
+     (icon 28px + gap 10px + status icon 22px + gap 10px). */
+  .home-job-history-row-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 100%;
+    min-width: 0;
+    margin-left: 70px;
+    overflow: hidden;
+  }
+
+  .home-job-history-row-model,
+  .home-job-history-row-time {
+    margin-left: 0;
+  }
+
+  /* When the metadata line runs out of room the model name is the one item
+     that can lose characters without hurting — the timestamp must stay whole. */
+  .home-job-history-row-model {
+    flex-shrink: 1;
+    min-width: 0;
+  }
+
+  /* Anchor the row buttons to the right edge: with the row wrapping they can
+     no longer sit at the end of the content flow. */
+  .home-job-history-row-pin,
+  .home-job-history-row-delete {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .home-job-history-row-pin {
+    right: 34px;
+  }
+
+  .home-job-history-row-delete {
+    right: 6px;
+  }
+}
+
 @media (max-width: 768px) {
   .header-joblist {
     display: none;
@@ -1781,6 +1903,8 @@
     padding-left: 6px;
   }
 
+  /* Two-line layout comes from the <=1200px block; only the phone-sized
+     spacing is set here. */
   .home-schedule-row {
     padding: 6px 6px;
     gap: 8px;
@@ -1791,12 +1915,9 @@
   }
 
   .home-schedule-row-cron {
-    max-width: 120px;
+    /* dot 8px + row gap 8px */
+    margin-left: 16px;
     font-size: 11px;
-  }
-
-  .home-schedule-row-next {
-    display: none;
   }
 
   .home-schedule-row-last {
@@ -1819,17 +1940,7 @@
 
   .home-job-history-row {
     gap: 6px;
-    /* Reserve right-side space for the absolutely-positioned delete button
-       so the row content never overflows beneath it. */
-    padding: 8px 34px 8px 10px;
-    /* Single-row layout on mobile; title truncates to share space. */
-    flex-wrap: nowrap;
-    /* Prevent the row from being widened by flex children (ws/model tags)
-       past the grid cell width; ensures the absolutely-positioned delete
-       button stays on-screen. */
-    min-width: 0;
-    max-width: 100%;
-    overflow: hidden;
+    padding: 6px 62px 6px 10px;
   }
 
   .home-job-history-row-icon {
@@ -1849,14 +1960,10 @@
     min-width: 0;
   }
 
+  /* Always visible and finger-sized on phones; the <=1200px block already
+     anchors them to the right edge. */
   .home-job-history-row-pin,
   .home-job-history-row-delete {
-    /* Anchor to the right edge so it stays visible regardless of row content
-       width (parent uses overflow-x: hidden and flex items with fixed widths
-       could otherwise push the button off-screen). */
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
     opacity: 1;
     width: 24px;
     height: 24px;
@@ -1866,7 +1973,6 @@
   }
 
   .home-job-history-row-pin {
-    right: 34px;
     font-size: 14px;
   }
 
@@ -1874,31 +1980,27 @@
     color: #f59e0b;
   }
 
-  .home-job-history-row-delete {
-    right: 6px;
-  }
-
   .home-job-history-row-delete:active {
     background: #fee2e2;
     color: #ef4444;
   }
 
-  /* Meta children lay out inline with the rest of the row (matches desktop). */
+  /* Tighter indent than the <=1200px block: the phone row uses a 24px icon,
+     an 18px status icon and 6px gaps. */
   .home-job-history-row-meta {
-    display: contents;
+    gap: 6px;
+    margin-left: 54px;
   }
 
   .home-job-history-row-time {
     display: inline-flex;
     font-size: 11px;
-    margin-left: 0;
   }
 
   .home-job-history-row-model {
     font-size: 10.5px;
-    max-width: 80px;
+    max-width: 140px;
     padding: 2px 6px;
-    margin-left: 0;
   }
 
   .home-job-history-row-ws {
@@ -1906,7 +2008,6 @@
     font-size: 10.5px;
     padding: 2px 7px;
     margin-right: 0;
-    max-width: 72px;
   }
 
   .home-job-history-row-sched {
@@ -2016,39 +2117,3 @@
   background: var(--accent-hover);
 }
 
-/* ---- Job list filter & job row extras ---- */
-.home-job-history-row-sched {
-  display: inline-flex;
-  align-items: center;
-  color: #a16207;
-  margin: 0 4px;
-  flex-shrink: 0;
-}
-.home-job-history-row-ws {
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1;
-  color: var(--ws-color, #5d6c62);
-  background: color-mix(in srgb, var(--ws-color, #7a897f) 10%, #fff);
-  border: 1px solid color-mix(in srgb, var(--ws-color, #7a897f) 22%, transparent);
-  padding: 0 9px;
-  border-radius: 999px;
-  max-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-right: 2px;
-  flex-shrink: 0;
-}
-
-/* Fallback for browsers without color-mix support */
-@supports not (background: color-mix(in srgb, red, blue)) {
-  .home-job-history-row-ws {
-    color: #66746b;
-    background: #edf3ee;
-    border-color: #d5dfd7;
-  }
-}

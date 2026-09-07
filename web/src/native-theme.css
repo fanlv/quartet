@@ -655,6 +655,22 @@
     padding-inline: 12px;
   }
 
+  /* .header-nav carries up to seven icon buttons. At the desktop 38px they ate
+     ~80% of a phone's width, collapsing the overflow-hidden .header-left to a
+     few pixels — the page mark rendered as a vertical stripe and the title
+     disappeared. This block owns the sizing because the unscoped rule above
+     (#root :is(...)) outranks the media queries in JobChat.css. */
+  #root :is(
+    .back-button,
+    .header-settings-btn,
+    .header-filebrowser-btn,
+    .graph-sidebar-icon-btn,
+    .graph-session-sidebar-toggle
+  ) {
+    width: 32px;
+    height: 32px;
+  }
+
   #root .home-content {
     padding: 6px 6px 10px 12px;
     gap: 0;
