@@ -49,9 +49,9 @@ private enum ChatTimelineWindow {
     /// 默认非懒加载窗口有明确上限，避免长会话首次创建几百个 Markdown 视图。
     static let initialMessageCount = 80
     static let earlierPageSize = 80
-    /// 顶部翻页哨兵的固定高度。加载指示器和空占位共用同一高度，哨兵才能一直存在
-    /// 且不因加载状态切换而在视口上方凭空增减内容高度。
-    static let earlierSentinelHeight: CGFloat = 34
+    /// 顶部翻页哨兵只负责可见性检测，保持固定的 1pt 高度，不把首条消息下推。
+    /// 加载指示器放在 ScrollView 浮层中，状态切换不改变内容高度。
+    static let earlierSentinelHeight: CGFloat = 1
 }
 
 struct JobChatView: View {
@@ -171,7 +171,10 @@ struct JobChatView: View {
         }
         .task(id: route.summary.id) {
             if appModel.isRunningUITests {
-                chat.startUITestPreview(route: route)
+                chat.startUITestPreview(
+                    route: route,
+                    includesLongTimeline: appModel.seedsLongChatUITestTimeline
+                )
                 return
             }
             do {
@@ -508,82 +511,73 @@ struct JobChatView: View {
             ScrollView {
                 // 聊天气泡高度会在流式输出时持续变化。这里必须使用完整测量的 VStack；
                 // LazyVStack 会估算离屏高度，工具/思考卡收起时可能把视口留在没有 cell 的空白区。
-                VStack(spacing: 14) {
-                    if chat.loading && chat.messages.isEmpty && chat.outbox.isEmpty {
-                        VStack(spacing: 12) {
-                            ProgressView()
-                            Text("正在同步对话…")
-                                .font(.chat(.detail))
-                                .foregroundStyle(QuartetTheme.secondaryText)
-                        }
-                        .padding(.top, 80)
-                    }
+                VStack(spacing: 0) {
                     // 顶部翻页哨兵：无条件渲染，高度恒定。
                     //
                     // 条件渲染过的哨兵被移除时收不到可见性回调，`timelineTopIsVisible` 会
-                    // 一直停在旧值；高度随加载状态变化又会在视口上方凭空增减内容高度，
-                    // 把用户正在读的位置顶走。所以这里只在固定高度的容器里换内容，
-                    // 而且只有真的在等网络时才转圈——「还有更早但没加载」是常态，
-                    // 挂一个常驻的离屏动画没有意义。
-                    Group {
-                        if earlierPageLoadInFlight {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(QuartetTheme.accent)
-                                .accessibilityLabel("加载更多".localizedForApp)
-                                .accessibilityIdentifier("chat-load-earlier")
-                        } else {
-                            Color.clear
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: ChatTimelineWindow.earlierSentinelHeight)
-                    .onScrollVisibilityChange { isVisible in
-                        timelineTopIsVisible = isVisible
-                        guard isVisible, !timelineMode.isFollowing else { return }
-                        loadEarlierTimelineMessages()
-                    }
-                    ForEach(timelineMessages, id: \.id) { message in
-                        ChatBubble(
-                            message: message,
-                            fallbackAgentName: chat.agentDisplayLabel,
-                            fallbackAgentIconUrl: chat.agentDisplayIconUrl,
-                            contentWidth: timelineContentWidth
-                        )
-                            .equatable()
-                            .accessibilityIdentifier("chat-message-\(message.id)")
-                            .id(message.id)
-                    }
-                    ForEach(chat.timelineOutboxItems) { item in
-                        OutboxBubble(item: item, contentWidth: timelineContentWidth)
-                            .id(item.id)
-                    }
-                    if chat.isRunning {
-                        HStack(spacing: 9) {
-                            Spacer(minLength: 0)
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(QuartetTheme.accent)
-                            Text("AI 正在思考...")
-                                .font(.chat(.control, weight: .medium))
-                                .foregroundStyle(QuartetTheme.secondaryText)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 6)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("AI 正在思考")
-                    }
+                    // 一直停在旧值；加载动画若参与布局，又会在视口上方凭空增减高度，
+                    // 把用户正在读的位置顶走。所以哨兵始终是一条透明细线，动画单独浮在列表顶部。
                     Color.clear
-                        .frame(height: 1)
-                        .id("chat-bottom")
+                        .frame(maxWidth: .infinity)
+                        .frame(height: ChatTimelineWindow.earlierSentinelHeight)
                         .onScrollVisibilityChange { isVisible in
-                            timelineBottomIsVisible = isVisible
-                            guard !userIsScrollingTimeline else { return }
-                            if isVisible {
-                                enterTimelineFollow()
-                            }
+                            timelineTopIsVisible = isVisible
+                            guard isVisible, !timelineMode.isFollowing else { return }
+                            loadEarlierTimelineMessages()
                         }
+
+                    VStack(spacing: 14) {
+                        if chat.loading && chat.messages.isEmpty && chat.outbox.isEmpty {
+                            VStack(spacing: 12) {
+                                ProgressView()
+                                Text("正在同步对话…")
+                                    .font(.chat(.detail))
+                                    .foregroundStyle(QuartetTheme.secondaryText)
+                            }
+                            .padding(.top, 80)
+                        }
+                        ForEach(timelineMessages, id: \.id) { message in
+                            ChatBubble(
+                                message: message,
+                                fallbackAgentName: chat.agentDisplayLabel,
+                                fallbackAgentIconUrl: chat.agentDisplayIconUrl,
+                                contentWidth: timelineContentWidth
+                            )
+                                .equatable()
+                                .accessibilityIdentifier("chat-message-\(message.id)")
+                                .id(message.id)
+                        }
+                        ForEach(chat.timelineOutboxItems) { item in
+                            OutboxBubble(item: item, contentWidth: timelineContentWidth)
+                                .id(item.id)
+                        }
+                        if chat.isRunning {
+                            HStack(spacing: 9) {
+                                Spacer(minLength: 0)
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .tint(QuartetTheme.accent)
+                                Text("AI 正在思考...")
+                                    .font(.chat(.control, weight: .medium))
+                                    .foregroundStyle(QuartetTheme.secondaryText)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 6)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel("AI 正在思考")
+                        }
+                        Color.clear
+                            .frame(height: 1)
+                            .id("chat-bottom")
+                            .onScrollVisibilityChange { isVisible in
+                                timelineBottomIsVisible = isVisible
+                                guard !userIsScrollingTimeline else { return }
+                                if isVisible {
+                                    enterTimelineFollow()
+                                }
+                            }
+                    }
                 }
                 .onGeometryChange(for: CGFloat.self) { geometry in
                     geometry.size.width
@@ -602,6 +596,19 @@ struct JobChatView: View {
             // 浏览态交回默认行为（保持内容偏移），新内容不会把视口从阅读位置拽走。
             .defaultScrollAnchor(timelineMode.isFollowing ? .bottom : nil, for: .sizeChanges)
             .accessibilityIdentifier("chat-timeline")
+            .overlay(alignment: .top) {
+                if earlierPageLoadInFlight {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(QuartetTheme.accent)
+                        .frame(height: 18)
+                        .padding(.horizontal, 8)
+                        .background(QuartetTheme.canvas.opacity(0.94), in: Capsule())
+                        .accessibilityLabel("加载更多".localizedForApp)
+                        .accessibilityIdentifier("chat-load-earlier")
+                        .allowsHitTesting(false)
+                }
+            }
             .overlay(alignment: .bottom) { backToBottomButton(proxy) }
             // 链接拦截统一在列表这一层注入，动作由 `linkOpener` 持有、全程同一个值。
             .environment(\.openURL, linkOpener.action)

@@ -226,6 +226,14 @@ final class AppModel: ObservableObject {
 #endif
     }
 
+    var seedsLongChatUITestTimeline: Bool {
+#if DEBUG
+        uiTestScenario == "--ui-testing-chat-layout"
+#else
+        false
+#endif
+    }
+
     var connectionState: ConnectionState {
         ConnectionState(
             phase: phase,

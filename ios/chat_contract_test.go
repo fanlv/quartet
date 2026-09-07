@@ -457,7 +457,7 @@ func TestBackwardsPagingRestoresTheReadingPositionExplicitly(t *testing.T) {
 		// The top sentinel is unconditional and fixed-height: a conditional one stops
 		// reporting visibility when it is removed, and a variable-height one adds and
 		// removes content above the viewport.
-		"static let earlierSentinelHeight: CGFloat = 34",
+		"static let earlierSentinelHeight: CGFloat = 1",
 		".frame(height: ChatTimelineWindow.earlierSentinelHeight)",
 	} {
 		if !strings.Contains(view, contract) {

@@ -413,7 +413,7 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
-    func startUITestPreview(route: ChatRoute) {
+    func startUITestPreview(route: ChatRoute, includesLongTimeline: Bool = false) {
         stopStreaming()
         jobID = route.summary.id
         isGraph = route.summary.mode == "graph"
@@ -454,6 +454,15 @@ final class ChatViewModel: ObservableObject {
                 ),
                 at: 0
             )
+        }
+        if includesLongTimeline {
+            previewMessages.append(contentsOf: (1...8).map { index in
+                ChatMessage(
+                    id: "preview-history-\(index)", kind: .assistant,
+                    content: "第 \(index) 条历史回复，用于验证长对话滚动到顶部后的首条消息位置。", detail: nil,
+                    isFinished: true, isFailed: false, timestamp: nil
+                )
+            })
         }
         messages = previewMessages
         loadedMessagesSessionID = sessionID

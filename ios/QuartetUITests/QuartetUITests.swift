@@ -87,7 +87,7 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(timeline.exists)
         XCTAssertTrue(firstUserMessage.exists)
         let firstMessageTopGap = firstUserMessage.frame.minY - navigationBar.frame.maxY
-        if firstMessageTopGap >= 80 {
+        if firstMessageTopGap >= 44 {
             let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
             attachment.name = "聊天页首条消息顶部间距"
             attachment.lifetime = .keepAlways
@@ -95,7 +95,7 @@ final class QuartetUITests: XCTestCase {
         }
         XCTAssertLessThan(
             firstMessageTopGap,
-            80,
+            44,
             "内容不足一屏时，第一条用户消息上方不应留出大片空白；navigationBar=\(navigationBar.frame)，message=\(firstUserMessage.frame)"
         )
         XCTAssertTrue(app.staticTexts["已完成第一轮检查。运行状态和操作反馈都已同步。"].exists)
@@ -115,6 +115,39 @@ final class QuartetUITests: XCTestCase {
         XCTAssertEqual(app.textFields["connection-server"].value as? String, "https://quartet.example.test/")
         XCTAssertEqual(app.textFields["connection-username"].value as? String, "admin")
         XCTAssertEqual(app.secureTextFields["connection-password"].value as? String, "请输入密码")
+    }
+
+    func testLongChatFirstMessageStartsNearNavigationBar() {
+        app.launchArguments = ["--ui-testing-chat-layout"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["new-conversation-button"].waitForExistence(timeout: 5))
+        app.buttons["job-job-chat-running"].tap()
+
+        let navigationBar = app.navigationBars["优化 iOS 交互体验"]
+        let timeline = app.scrollViews["chat-timeline"]
+        let firstUserMessage = app.descendants(matching: .any)["chat-message-preview-user"]
+        XCTAssertTrue(navigationBar.waitForExistence(timeout: 5))
+        XCTAssertTrue(timeline.exists)
+        XCTAssertTrue(firstUserMessage.exists)
+
+        // 长对话默认从最新消息打开；滚到最顶部后再检查首条消息，
+        // 覆盖真机截图中「顶部翻页哨兵把消息下推」的实际路径。
+        for _ in 0..<8 {
+            timeline.swipeDown()
+        }
+
+        let firstMessageTopGap = firstUserMessage.frame.minY - navigationBar.frame.maxY
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = "长对话首条消息顶部间距"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        XCTAssertGreaterThanOrEqual(firstMessageTopGap, -1)
+        XCTAssertLessThan(
+            firstMessageTopGap,
+            44,
+            "长对话滚到顶部后，第一条用户消息应贴近导航栏；navigationBar=\(navigationBar.frame)，message=\(firstUserMessage.frame)"
+        )
     }
 
     func testAgentManagementMoreMenuAndSingleUpgrade() {
