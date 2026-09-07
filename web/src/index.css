@@ -280,8 +280,8 @@ body {
 }
 
 /* Pin #root to the viewport via position:fixed so it never participates
-   in document scroll. Height is managed by visualViewport JS in main.tsx
-   when the virtual keyboard is open, otherwise CSS handles it. */
+   in document scroll. The CSS heights are startup fallbacks; main.tsx keeps
+   the live pixel height in sync with mobile browser chrome and keyboards. */
 #root {
   position: fixed;
   top: 0;

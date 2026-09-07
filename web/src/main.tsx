@@ -67,11 +67,10 @@ function setupViewportFixes() {
     document.body.scrollTop = 0
   }
 
-  // ② Sync #root height to the visual viewport ONLY when virtual keyboard
-  //    is open. Otherwise, let CSS handle sizing (100dvh).
-  //    On iPad Chrome, visualViewport.height excludes the bottom toolbar,
-  //    which makes the root shorter than the visible area — causing a gap.
-  //    By only applying JS sizing when the keyboard is open, we avoid that.
+  // ② Keep #root aligned with the usable browser viewport. iOS Chrome can
+  //    leave 100dvh or visualViewport.height one toolbar-height too short
+  //    after its chrome or keyboard animates, so neither value is sufficient
+  //    on its own.
   const root = document.getElementById('root')
   const vv = window.visualViewport
   if (root && vv) {
@@ -80,8 +79,14 @@ function setupViewportFixes() {
     // historical maximum is not a reliable keyboard signal.
     let baseHeight = vv.height
 
-    const clearRootHeight = () => {
-      root.style.removeProperty('height')
+    const layoutViewportHeight = () => {
+      const heights = [window.innerHeight, document.documentElement.clientHeight, vv.height]
+        .filter((height) => Number.isFinite(height) && height > 0)
+      return heights.length > 0 ? Math.max(...heights) : vv.height
+    }
+
+    const restoreRootHeight = () => {
+      root.style.height = `${layoutViewportHeight()}px`
     }
 
     const syncRootToViewport = () => {
@@ -96,9 +101,10 @@ function setupViewportFixes() {
       if (isKeyboardOpen) {
         root.style.height = `${vv.height}px`
       } else {
-        // No keyboard — clear inline height, let CSS 100dvh handle it
-        clearRootHeight()
-        if (!editingText) baseHeight = vv.height
+        // Do not hand sizing back to 100dvh here. On iOS Chrome it can stay
+        // one toolbar-height too short even after visualViewport recovers.
+        restoreRootHeight()
+        if (!editingText) baseHeight = layoutViewportHeight()
       }
 
       // Compensate for visual viewport offset on iPad Chrome, where the
@@ -121,8 +127,8 @@ function setupViewportFixes() {
     document.addEventListener('focusin', (event) => {
       if (!isTextEditingElement(event.target as Element | null)) return
       if (!isTextEditingElement(event.relatedTarget as Element | null)) {
-        clearRootHeight()
-        baseHeight = vv.height
+        restoreRootHeight()
+        baseHeight = layoutViewportHeight()
       }
       requestAnimationFrame(syncRootToViewport)
     })
@@ -135,8 +141,8 @@ function setupViewportFixes() {
 
       const restoreAfterKeyboard = () => {
         if (isTextEditingElement(document.activeElement)) return
-        clearRootHeight()
-        baseHeight = vv.height
+        restoreRootHeight()
+        baseHeight = layoutViewportHeight()
         resetScroll()
       }
 
@@ -148,26 +154,27 @@ function setupViewportFixes() {
     // Reset baseHeight on orientation change so portrait→landscape rotation
     // doesn't permanently false-detect the keyboard as open.
     window.addEventListener('orientationchange', () => {
-      clearRootHeight()
+      restoreRootHeight()
       setTimeout(() => {
-        baseHeight = vv.height
+        baseHeight = layoutViewportHeight()
         syncRootToViewport()
       }, 200)
     })
 
-    // Returning from another tab/app can restore stale viewport metrics. If
-    // no editor is active, CSS 100dvh must own the root height again.
+    // Returning from another tab/app can restore stale viewport metrics.
     const restoreVisibleViewport = () => {
       if (document.visibilityState === 'hidden' || isTextEditingElement(document.activeElement)) return
-      clearRootHeight()
-      baseHeight = vv.height
+      restoreRootHeight()
+      baseHeight = layoutViewportHeight()
       resetScroll()
     }
     window.addEventListener('pageshow', restoreVisibleViewport)
+    window.addEventListener('resize', syncRootToViewport)
     document.addEventListener('visibilitychange', restoreVisibleViewport)
 
     vv.addEventListener('resize', syncRootToViewport)
     vv.addEventListener('scroll', syncRootToViewport)
+    restoreRootHeight()
   }
 
   // ③ Prevent window-level scroll drift on iPad.
