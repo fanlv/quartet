@@ -121,6 +121,20 @@ function setupViewportFixes() {
       resetScroll()
     }
 
+    // Opening the page through another iOS app leaves the browser chrome in
+    // transition after pageshow. WebKit may update its viewport metrics
+    // without emitting resize, so sample through the whole transition.
+    const stabilizationDelays = [0, 50, 150, 300, 600, 1000, 1600, 2400]
+    let stabilizationGeneration = 0
+    const stabilizeViewport = () => {
+      const generation = ++stabilizationGeneration
+      for (const delay of stabilizationDelays) {
+        window.setTimeout(() => {
+          if (generation === stabilizationGeneration) syncRootToViewport()
+        }, delay)
+      }
+    }
+
     // Capture the viewport immediately before the keyboard opens. Moving
     // between two editors keeps the existing baseline because the keyboard
     // may already be visible during that focus transfer.
@@ -133,9 +147,8 @@ function setupViewportFixes() {
       requestAnimationFrame(syncRootToViewport)
     })
 
-    // Keyboard dismissal emits its final visualViewport resize after focusout
-    // on some iOS versions. Clear the inline height both now and after those
-    // late animation frames so a stale short root cannot survive.
+    // Keyboard dismissal emits its final viewport values after focusout on
+    // some iOS versions, sometimes without a resize event.
     document.addEventListener('focusout', (event) => {
       if (!isTextEditingElement(event.target as Element | null)) return
 
@@ -149,6 +162,7 @@ function setupViewportFixes() {
       requestAnimationFrame(restoreAfterKeyboard)
       setTimeout(restoreAfterKeyboard, 80)
       setTimeout(restoreAfterKeyboard, 300)
+      stabilizeViewport()
     })
 
     // Reset baseHeight on orientation change so portrait→landscape rotation
@@ -157,24 +171,27 @@ function setupViewportFixes() {
       restoreRootHeight()
       setTimeout(() => {
         baseHeight = layoutViewportHeight()
-        syncRootToViewport()
+        stabilizeViewport()
       }, 200)
     })
 
     // Returning from another tab/app can restore stale viewport metrics.
     const restoreVisibleViewport = () => {
-      if (document.visibilityState === 'hidden' || isTextEditingElement(document.activeElement)) return
-      restoreRootHeight()
-      baseHeight = layoutViewportHeight()
-      resetScroll()
+      if (document.visibilityState === 'hidden') return
+      if (!isTextEditingElement(document.activeElement)) {
+        restoreRootHeight()
+        baseHeight = layoutViewportHeight()
+      }
+      stabilizeViewport()
     }
     window.addEventListener('pageshow', restoreVisibleViewport)
+    window.addEventListener('focus', stabilizeViewport)
     window.addEventListener('resize', syncRootToViewport)
     document.addEventListener('visibilitychange', restoreVisibleViewport)
 
     vv.addEventListener('resize', syncRootToViewport)
     vv.addEventListener('scroll', syncRootToViewport)
-    restoreRootHeight()
+    stabilizeViewport()
   }
 
   // ③ Prevent window-level scroll drift on iPad.
