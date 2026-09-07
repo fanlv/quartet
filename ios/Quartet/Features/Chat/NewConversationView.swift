@@ -436,40 +436,6 @@ struct NewConversationView: View {
                     .foregroundStyle(QuartetTheme.secondaryText)
             }
 
-            Button {
-                composerFocused = false
-                loadSentMessageHistory()
-                loadingMessagePresets = true
-                showsMessageLibrary = true
-            } label: {
-                HStack(spacing: 11) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.quartet(.regular, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.accent)
-                        .frame(width: 32, height: 32)
-                        .background(QuartetTheme.accent.opacity(0.12), in: Circle())
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("预置消息与历史")
-                            .font(.quartet(.control, weight: .semibold))
-                            .foregroundStyle(QuartetTheme.primaryText)
-                        Text("当前项目、全部项目与最近发送")
-                            .font(.quartet(.compact))
-                            .foregroundStyle(QuartetTheme.secondaryText)
-                    }
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.up")
-                        .font(.quartet(.compact, weight: .bold))
-                        .foregroundStyle(QuartetTheme.secondaryText)
-                }
-                .padding(.horizontal, 12)
-                .frame(minHeight: 52)
-                .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("预置消息与历史")
-            .accessibilityHint("打开后可从分组列表中选择")
-            .accessibilityIdentifier("new-task-message-history")
-
             ZStack(alignment: .topLeading) {
                 if message.isEmpty {
                     Text("描述你想完成的事情…")
@@ -533,6 +499,18 @@ struct NewConversationView: View {
                     Button { showsDocumentPicker = true } label: {
                         attachmentActionLabel("文件", icon: "folder")
                     }
+                    Button {
+                        composerFocused = false
+                        loadSentMessageHistory()
+                        loadingMessagePresets = true
+                        showsMessageLibrary = true
+                    } label: {
+                        attachmentActionLabel("预置", icon: "clock.arrow.circlepath")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("预置消息与历史")
+                    .accessibilityHint("打开后可从分组列表中选择")
+                    .accessibilityIdentifier("new-task-message-history")
                 }
             }
         }

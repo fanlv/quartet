@@ -17663,6 +17663,22 @@
         }
       }
     },
+    "预置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Presets"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "预置"
+          }
+        }
+      }
+    },
     "预置消息" : {
       "extractionState" : "stale",
       "localizations" : {
