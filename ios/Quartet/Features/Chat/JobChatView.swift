@@ -86,8 +86,15 @@ struct JobChatView: View {
     @State private var timelineTopIsVisible = false
     @State private var timelineBottomIsVisible = true
     @State private var visibleTimelineMessageCount = ChatTimelineWindow.initialMessageCount
-    @State private var pendingTimelinePrependAnchor: String?
+    /// Keep SwiftUI's live scroll position bound to message identities. When an earlier
+    /// page is inserted above the viewport, SwiftUI can then preserve the currently
+    /// visible target at its existing relative position instead of jumping an arbitrary
+    /// window boundary to the top of the screen.
+    @State private var timelineScrollPosition = ScrollPosition(idType: String.self)
+    @State private var timelineWindowUpdateInFlight = false
     @State private var earlierPageRequestInFlight = false
+    @State private var timelinePrimeTask: Task<Void, Never>?
+    @State private var timelinePrimeGeneration = 0
     @State private var followBottomRequests = 0
     /// 时间线内容区的实际宽度（已扣掉列表的水平内边距），气泡按它算宽度上限。
     @State private var timelineContentWidth: CGFloat = 0
@@ -197,9 +204,13 @@ struct JobChatView: View {
         .task(id: workspaceContextKey) {
             await loadGitBranch()
         }
-        .onDisappear { chat.stopStreaming() }
+        .onDisappear {
+            cancelTimelinePrime()
+            chat.stopStreaming()
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
+                cancelTimelinePrime()
                 chat.stopStreaming()
             } else {
                 Task {
@@ -362,12 +373,6 @@ struct JobChatView: View {
         chat.messages.prefix(while: { $0.isRoundHeadPinned }).count
     }
 
-    /// 翻页后用来还原阅读位置的锚点：跳过轮首占位。占位在 prepend 前后都停在最前面，
-    /// 拿它当锚点等于没有位移，新插入的一页会把用户正在看的位置整段顶下去。
-    private var timelinePrependAnchorID: String? {
-        timelineMessages.first(where: { !$0.isRoundHeadPinned })?.id
-    }
-
     /// 渲染列表里距顶部一页的位置。用户滚到这里就该取下一页；只有不足一页可度量时
     /// 返回 nil，那种情况由顶部哨兵兜住。
     private var earlierBufferSentinelIndex: Int? {
@@ -398,21 +403,35 @@ struct JobChatView: View {
 
     private func beginTimelineBrowsing() {
         guard timelineMode.isFollowing else { return }
+        // Priming is only a launch-time optimization. If the user starts reading
+        // history while its prefetched page is still being consumed, do not let that
+        // background prepend mutate the content underneath an active gesture.
+        cancelTimelinePrime()
         timelineMode = .browsing(anchor: chat.scrollAnchor, messageCount: chat.messages.count)
     }
 
+    private func cancelTimelinePrime() {
+        timelinePrimeGeneration &+= 1
+        let wasPriming = timelinePrimeTask != nil
+        timelinePrimeTask?.cancel()
+        timelinePrimeTask = nil
+        // A user-triggered earlier-page request can only exist after browsing has
+        // already begun, so while entering browsing this flag belongs to priming.
+        if wasPriming { earlierPageRequestInFlight = false }
+    }
+
     /// 非懒加载窗口里的底部位置是完整布局后的真实位置，不再经过离屏 cell 高度估算。
-    private func scrollTimelineToBottom(_ proxy: ScrollViewProxy) {
+    private func scrollTimelineToBottom() {
         withTransaction(Transaction(animation: nil)) {
-            proxy.scrollTo("chat-bottom", anchor: .bottom)
+            timelineScrollPosition.scrollTo(edge: .bottom)
         }
     }
 
-    private func resumeTimelineFollow(_ proxy: ScrollViewProxy) {
-        pendingTimelinePrependAnchor = nil
+    private func resumeTimelineFollow() {
+        timelineWindowUpdateInFlight = false
         timelineMode = .following
         visibleTimelineMessageCount = ChatTimelineWindow.initialMessageCount
-        scrollTimelineToBottom(proxy)
+        scrollTimelineToBottom()
     }
 
     /// 首屏之后把缓冲补到两页。
@@ -422,26 +441,29 @@ struct JobChatView: View {
     /// 消费的是模型已经在后台预取好的那一页，不额外发请求；且不设 prepend 锚点，
     /// 让跟随态的底部锚定继续生效，补页不会把视口从底部拽走。
     private func primeEarlierTimelineBuffer() {
-        guard timelineMode.isFollowing, pendingTimelinePrependAnchor == nil, !earlierPageRequestInFlight else { return }
+        guard timelineMode.isFollowing, !timelineWindowUpdateInFlight, !earlierPageRequestInFlight else { return }
         if hiddenTimelineMessageCount > 0 {
             visibleTimelineMessageCount = chat.messages.count
         }
         guard chat.hasMoreEarlierMessages else { return }
+        timelinePrimeGeneration &+= 1
+        let generation = timelinePrimeGeneration
         earlierPageRequestInFlight = true
-        Task {
+        timelinePrimeTask = Task { @MainActor in
             let loadedCount = await chat.loadEarlierMessages()
+            guard generation == timelinePrimeGeneration, !Task.isCancelled else { return }
             earlierPageRequestInFlight = false
+            timelinePrimeTask = nil
             guard loadedCount > 0 else { return }
             visibleTimelineMessageCount += loadedCount
         }
     }
 
     private func loadEarlierTimelineMessages() {
-        guard pendingTimelinePrependAnchor == nil, !earlierPageRequestInFlight else { return }
+        guard !timelineWindowUpdateInFlight, !earlierPageRequestInFlight else { return }
         if hiddenTimelineMessageCount > 0 {
-            let anchor = timelinePrependAnchorID
             let revealedCount = min(hiddenTimelineMessageCount, ChatTimelineWindow.earlierPageSize)
-            pendingTimelinePrependAnchor = anchor
+            timelineWindowUpdateInFlight = true
             visibleTimelineMessageCount = min(
                 chat.messages.count,
                 visibleTimelineMessageCount + ChatTimelineWindow.earlierPageSize
@@ -457,6 +479,7 @@ struct JobChatView: View {
                     // 必须按新增条数扩窗，和另一条取页分支一致。否则整页新数据落进
                     // 窗口之外的隐藏区，而隐藏区就在列表顶部——用户刚刚还在看的那条
                     // （代表窗口之上那条消息的轮首占位）会当场从渲染里消失。
+                    timelineWindowUpdateInFlight = loadedCount > 0
                     visibleTimelineMessageCount += loadedCount
                 }
             }
@@ -464,175 +487,172 @@ struct JobChatView: View {
         }
 
         guard chat.hasMoreEarlierMessages else { return }
-        let anchor = timelinePrependAnchorID
-        pendingTimelinePrependAnchor = anchor
         earlierPageRequestInFlight = true
         Task {
             let loadedCount = await chat.loadEarlierMessages()
             earlierPageRequestInFlight = false
-            guard loadedCount > 0 else {
-                pendingTimelinePrependAnchor = nil
-                return
-            }
+            guard loadedCount > 0 else { return }
             if case .browsing(let anchor, let messageCount) = timelineMode {
                 timelineMode = .browsing(anchor: anchor, messageCount: messageCount + loadedCount)
             }
+            timelineWindowUpdateInFlight = true
             visibleTimelineMessageCount += loadedCount
         }
     }
 
     private var messageList: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                // 聊天气泡高度会在流式输出时持续变化。这里必须使用完整测量的 VStack；
-                // LazyVStack 会估算离屏高度，工具/思考卡收起时可能把视口留在没有 cell 的空白区。
-                VStack(spacing: 14) {
-                    if chat.loading && chat.messages.isEmpty && chat.outbox.isEmpty {
-                        VStack(spacing: 12) {
-                            ProgressView()
-                            Text("正在同步对话…")
-                                .font(.chat(.detail))
-                                .foregroundStyle(QuartetTheme.secondaryText)
-                        }
-                        .padding(.top, 80)
+        ScrollView {
+            // 聊天气泡高度会在流式输出时持续变化。这里必须使用完整测量的 VStack；
+            // LazyVStack 会估算离屏高度，工具/思考卡收起时可能把视口留在没有 cell 的空白区。
+            VStack(spacing: 14) {
+                if chat.loading && chat.messages.isEmpty && chat.outbox.isEmpty {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("正在同步对话…")
+                            .font(.chat(.detail))
+                            .foregroundStyle(QuartetTheme.secondaryText)
                     }
-                    if hiddenTimelineMessageCount > 0 || chat.hasMoreEarlierMessages {
-                        Group {
-                            if hiddenTimelineMessageCount > 0 {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .tint(QuartetTheme.accent)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 8)
-                                    .accessibilityLabel("加载更多".localizedForApp)
-                                    .accessibilityIdentifier("chat-load-earlier")
-                            } else {
-                                Color.clear.frame(height: 1)
-                            }
-                        }
-                        .onScrollVisibilityChange { isVisible in
-                            timelineTopIsVisible = isVisible
-                            guard isVisible, !timelineMode.isFollowing else { return }
-                            loadEarlierTimelineMessages()
-                        }
-                    }
-                    ForEach(Array(timelineMessages.enumerated()), id: \.element.id) { index, message in
-                        if index == earlierBufferSentinelIndex {
-                            // 距顶部一页的哨兵：滚到这里就说明用户已经进入最上面那一页，
-                            // 此时取下一页，而不是等他滚到最顶再干等一次网络往返。
-                            Color.clear
-                                .frame(height: 1)
-                                .onScrollVisibilityChange { isVisible in
-                                    guard isVisible, !timelineMode.isFollowing else { return }
-                                    loadEarlierTimelineMessages()
-                                }
-                        }
-                        ChatBubble(
-                            message: message,
-                            fallbackAgentName: chat.agentDisplayLabel,
-                            fallbackAgentIconUrl: chat.agentDisplayIconUrl,
-                            contentWidth: timelineContentWidth
-                        )
-                            .equatable()
-                            .id(message.id)
-                    }
-                    ForEach(chat.timelineOutboxItems) { item in
-                        OutboxBubble(item: item, contentWidth: timelineContentWidth)
-                            .id(item.id)
-                    }
-                    if chat.isRunning {
-                        HStack(spacing: 9) {
-                            Spacer(minLength: 0)
+                    .padding(.top, 80)
+                }
+                if hiddenTimelineMessageCount > 0 || chat.hasMoreEarlierMessages {
+                    Group {
+                        if hiddenTimelineMessageCount > 0 {
                             ProgressView()
                                 .controlSize(.small)
                                 .tint(QuartetTheme.accent)
-                            Text("AI 正在思考...")
-                                .font(.chat(.control, weight: .medium))
-                                .foregroundStyle(QuartetTheme.secondaryText)
-                            Spacer(minLength: 0)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .accessibilityLabel("加载更多".localizedForApp)
+                                .accessibilityIdentifier("chat-load-earlier")
+                        } else {
+                            Color.clear.frame(height: 1)
                         }
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 6)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("AI 正在思考")
                     }
-                    Color.clear
-                        .frame(height: 1)
-                        .id("chat-bottom")
-                        .onScrollVisibilityChange { isVisible in
-                            timelineBottomIsVisible = isVisible
-                            guard !userIsScrollingTimeline else { return }
-                            if isVisible {
-                                timelineMode = .following
-                            }
-                        }
-                }
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.width
-                } action: { width in
-                    timelineContentWidth = width
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 18)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .defaultScrollAnchor(.bottom, for: .initialOffset)
-            .defaultScrollAnchor(timelineMode.isFollowing ? .bottom : nil, for: .sizeChanges)
-            .overlay(alignment: .bottom) { backToBottomButton(proxy) }
-            // 链接拦截统一在列表这一层注入，动作由 `linkOpener` 持有、全程同一个值。
-            .environment(\.openURL, linkOpener.action)
-            .onAppear {
-                linkOpener.presentError = { [appModel] error in appModel.present(error) }
-                linkOpener.presentDestination = { destination in webDestination = destination }
-                configureLinkOpener()
-            }
-            .onChange(of: workspaceContextKey) { _, _ in configureLinkOpener() }
-            .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
-            .onScrollPhaseChange { oldPhase, newPhase in
-                let wasUserScrolling = oldPhase.isScrolling && oldPhase != .animating
-                let isUserScrolling = newPhase.isScrolling && newPhase != .animating
-                userIsScrollingTimeline = isUserScrolling
-                if isUserScrolling {
-                    beginTimelineBrowsing()
-                    if timelineTopIsVisible {
+                    .onScrollVisibilityChange { isVisible in
+                        timelineTopIsVisible = isVisible
+                        guard isVisible, !timelineMode.isFollowing else { return }
                         loadEarlierTimelineMessages()
                     }
-                    return
                 }
-                if newPhase == .idle, wasUserScrolling, timelineBottomIsVisible {
-                    timelineMode = .following
+                ForEach(Array(timelineMessages.enumerated()), id: \.element.id) { index, message in
+                    if index == earlierBufferSentinelIndex {
+                        // 距顶部一页的哨兵：滚到这里就说明用户已经进入最上面那一页，
+                        // 此时取下一页，而不是等他滚到最顶再干等一次网络往返。
+                        Color.clear
+                            .frame(height: 1)
+                            .onScrollVisibilityChange { isVisible in
+                                guard isVisible, !timelineMode.isFollowing else { return }
+                                loadEarlierTimelineMessages()
+                            }
+                    }
+                    ChatBubble(
+                        message: message,
+                        fallbackAgentName: chat.agentDisplayLabel,
+                        fallbackAgentIconUrl: chat.agentDisplayIconUrl,
+                        contentWidth: timelineContentWidth
+                    )
+                        .equatable()
+                        .id(message.id)
                 }
-            }
-            .onChange(of: followBottomRequests) { _, _ in
-                resumeTimelineFollow(proxy)
-            }
-            .onChange(of: visibleTimelineMessageCount) { _, _ in
-                guard let anchor = pendingTimelinePrependAnchor else { return }
-                // 新页已经进入这次视图树，将加载前的第一条固定在顶部，阅读位置不跳。
-                withTransaction(Transaction(animation: nil)) {
-                    proxy.scrollTo(anchor, anchor: .top)
+                ForEach(chat.timelineOutboxItems) { item in
+                    OutboxBubble(item: item, contentWidth: timelineContentWidth)
+                        .id(item.id)
                 }
-                pendingTimelinePrependAnchor = nil
+                if chat.isRunning {
+                    HStack(spacing: 9) {
+                        Spacer(minLength: 0)
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(QuartetTheme.accent)
+                        Text("AI 正在思考...")
+                            .font(.chat(.control, weight: .medium))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 6)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("AI 正在思考")
+                }
+                Color.clear
+                    .frame(height: 1)
+                    .id("chat-bottom")
+                    .onScrollVisibilityChange { isVisible in
+                        timelineBottomIsVisible = isVisible
+                        guard !userIsScrollingTimeline else { return }
+                        if isVisible {
+                            timelineMode = .following
+                        }
+                    }
             }
-            .onChange(of: route.summary.id) { _, _ in
-                pendingTimelinePrependAnchor = nil
-                earlierPageRequestInFlight = false
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                timelineContentWidth = width
+            }
+            .scrollTargetLayout()
+            .padding(.horizontal, 14)
+            .padding(.vertical, 18)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        // A bound target-aware position preserves the current visible message
+        // when pagination inserts variable-height rows above it. The former
+        // manual restore aligned the render window's first message to `.top`;
+        // because loading starts one page early, that visibly jumped backwards
+        // by roughly a full page.
+        .scrollPosition($timelineScrollPosition)
+        .defaultScrollAnchor(.bottom, for: .initialOffset)
+        .defaultScrollAnchor(timelineMode.isFollowing ? .bottom : nil, for: .sizeChanges)
+        .overlay(alignment: .bottom) { backToBottomButton }
+        // 链接拦截统一在列表这一层注入，动作由 `linkOpener` 持有、全程同一个值。
+        .environment(\.openURL, linkOpener.action)
+        .onAppear {
+            linkOpener.presentError = { [appModel] error in appModel.present(error) }
+            linkOpener.presentDestination = { destination in webDestination = destination }
+            configureLinkOpener()
+        }
+        .onChange(of: workspaceContextKey) { _, _ in configureLinkOpener() }
+        .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
+        .onScrollPhaseChange { oldPhase, newPhase in
+            let wasUserScrolling = oldPhase.isScrolling && oldPhase != .animating
+            let isUserScrolling = newPhase.isScrolling && newPhase != .animating
+            userIsScrollingTimeline = isUserScrolling
+            if isUserScrolling {
+                beginTimelineBrowsing()
+                if timelineTopIsVisible {
+                    loadEarlierTimelineMessages()
+                }
+                return
+            }
+            if newPhase == .idle, wasUserScrolling, timelineBottomIsVisible {
                 timelineMode = .following
-                userIsScrollingTimeline = false
-                timelineTopIsVisible = false
-                timelineBottomIsVisible = true
-                visibleTimelineMessageCount = ChatTimelineWindow.initialMessageCount
-                scrollTimelineToBottom(proxy)
             }
+        }
+        .onChange(of: followBottomRequests) { _, _ in
+            resumeTimelineFollow()
+        }
+        .onChange(of: visibleTimelineMessageCount) { _, _ in
+            timelineWindowUpdateInFlight = false
+        }
+        .onChange(of: route.summary.id) { _, _ in
+            cancelTimelinePrime()
+            timelineWindowUpdateInFlight = false
+            earlierPageRequestInFlight = false
+            timelineMode = .following
+            userIsScrollingTimeline = false
+            timelineTopIsVisible = false
+            timelineBottomIsVisible = true
+            visibleTimelineMessageCount = ChatTimelineWindow.initialMessageCount
+            scrollTimelineToBottom()
         }
     }
 
     @ViewBuilder
-    private func backToBottomButton(_ proxy: ScrollViewProxy) -> some View {
+    private var backToBottomButton: some View {
         if !timelineMode.isFollowing, !timelineBottomIsVisible {
             Button {
                 composerFocused = false
-                resumeTimelineFollow(proxy)
+                resumeTimelineFollow()
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.down")

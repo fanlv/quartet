@@ -696,6 +696,7 @@ final class ChatViewModel: ObservableObject {
     }
 
     func loadEarlierMessages() async -> Int {
+        guard !Task.isCancelled else { return 0 }
         let expectedGeneration = historyGeneration
         var collected: [ChatMessage] = []
         while true {
@@ -706,6 +707,7 @@ final class ChatViewModel: ObservableObject {
                     await ensureEarlierPagePrefetched()
                 }
             }
+            guard !Task.isCancelled else { return 0 }
             guard let prefetched = prefetchedHistoryPage else { break }
             guard historyGeneration == expectedGeneration else { return 0 }
             prefetchedHistoryPage = nil
@@ -715,6 +717,7 @@ final class ChatViewModel: ObservableObject {
             collected.append(contentsOf: prefetched.messages)
             if !prefetched.messages.isEmpty || !hasMoreEarlierMessages { break }
         }
+        guard !Task.isCancelled else { return 0 }
         // A pinned round head is a stand-in for a record the page may now be
         // carrying for real, so it must not make that record look like a
         // duplicate — exclude it from the dedup set and drop it below instead.

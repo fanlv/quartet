@@ -378,7 +378,7 @@ func TestNewestHistoryPageIsSplicedInsteadOfReplacingTheList(t *testing.T) {
 // Pinning is pointless if the render window drops it: the timeline only renders
 // a tail-aligned slice, and the pinned round head sits at the very front, which
 // is exactly what that window discards first.
-func TestPinnedRoundHeadIsAlwaysRenderedAndNeverUsedAsThePrependAnchor(t *testing.T) {
+func TestPinnedRoundHeadIsAlwaysRenderedOutsideTheTimelineWindow(t *testing.T) {
 	view := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
 	for _, contract := range []string{
 		"private var pinnedRoundHeadCount: Int",
@@ -389,16 +389,10 @@ func TestPinnedRoundHeadIsAlwaysRenderedAndNeverUsedAsThePrependAnchor(t *testin
 		// Not counted as hidden earlier history, so the load-earlier affordance
 		// still describes the real remainder.
 		"max(0, chat.messages.count - pinnedRoundHeadCount - effectiveTimelineMessageCount)",
-		// A pin does not move across a prepend, so it cannot anchor the restore.
-		"private var timelinePrependAnchorID: String?",
-		"timelineMessages.first(where: { !$0.isRoundHeadPinned })?.id",
 	} {
 		if !strings.Contains(view, contract) {
 			t.Fatalf("pinned round head rendering contract missing %q", contract)
 		}
-	}
-	if strings.Contains(view, "let anchor = timelineMessages.first?.id") {
-		t.Fatal("prepend anchor must skip pinned round heads")
 	}
 }
 
@@ -410,12 +404,21 @@ func TestBackwardsPagingKeepsTwoPagesBufferedAndRendersEveryLoadedRecord(t *test
 		// Two pages buffered after the first paint, without a prepend anchor so
 		// the follow-the-bottom anchoring is not disturbed.
 		"private func primeEarlierTimelineBuffer() {",
-		"guard timelineMode.isFollowing, pendingTimelinePrependAnchor == nil, !earlierPageRequestInFlight else { return }",
+		"guard timelineMode.isFollowing, !timelineWindowUpdateInFlight, !earlierPageRequestInFlight else { return }",
 		"await chat.start(route: route, client: client)\n                primeEarlierTimelineBuffer()",
 		// One page from the top is the fetch trigger, not the top itself.
 		"private var earlierBufferSentinelIndex: Int?",
 		"let index = pinnedRoundHeadCount + ChatTimelineWindow.earlierPageSize",
 		"if index == earlierBufferSentinelIndex {",
+		// Prepending variable-height rows keeps the live visible target stable; it
+		// must not align the render window's first row to the top of the viewport.
+		"@State private var timelineScrollPosition = ScrollPosition(idType: String.self)",
+		".scrollTargetLayout()",
+		".scrollPosition($timelineScrollPosition)",
+		// Launch-time priming yields to an actual user scroll instead of inserting
+		// a page under the active gesture.
+		"timelinePrimeTask?.cancel()",
+		"guard generation == timelinePrimeGeneration, !Task.isCancelled else { return }",
 	} {
 		if !strings.Contains(view, contract) {
 			t.Fatalf("earlier-page buffering contract missing %q", contract)
@@ -427,5 +430,12 @@ func TestBackwardsPagingKeepsTwoPagesBufferedAndRendersEveryLoadedRecord(t *test
 	// reading. Three sites: prime, reveal-chained fetch, direct fetch.
 	if got := strings.Count(view, "visibleTimelineMessageCount += loadedCount"); got != 3 {
 		t.Fatalf("every prepend must widen the render window: got %d sites, want 3", got)
+	}
+	if strings.Contains(view, "proxy.scrollTo(anchor, anchor: .top)") {
+		t.Fatal("pagination must not align the render window's first row to the viewport top")
+	}
+	model := chatSource(t, "Quartet/Features/Chat/ChatViewModel.swift")
+	if got := strings.Count(model, "guard !Task.isCancelled else { return 0 }"); got < 2 {
+		t.Fatalf("cancelled launch-time priming must not prepend history: got %d cancellation guards", got)
 	}
 }
