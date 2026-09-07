@@ -627,13 +627,21 @@ final class ChatViewModel: ObservableObject {
 
     private func loadHistory(sessionID: String) async throws {
         guard let client else { return }
+        // 同一 session 的重新读取只是把最新一页 splice 回列表，用户已经翻进来的更早几页
+        // 还在。这种情况下必须保留翻页游标：把它退回最新一页，会让接下来的每一次向前
+        // 翻页先把已经在列表里的页重新拉一遍、去重后什么都没加载，表现成「转了一下没反应」。
+        // 上一次也走单 session 这条路径才算延续，否则 `oldestLoadedSessionIndex` 指的是
+        // 另一个会话列表里的位置，沿用会错位。
+        let continuesSameSession = loadedMessagesSessionID == sessionID && historySessionIDs == [sessionID]
         historyGeneration &+= 1
         historyPrefetchTask?.cancel()
         historyPrefetchTask = nil
         prefetchedHistoryPage = nil
         historySessionIDs = [sessionID]
-        oldestLoadedSessionIndex = 0
-        historyPageInfoBySession[sessionID] = nil
+        if !continuesSameSession {
+            oldestLoadedSessionIndex = 0
+            historyPageInfoBySession[sessionID] = nil
+        }
         let response = try await client.sessionMessages(id: sessionID, limit: Self.historyPageSize)
         let agentInfo = await resolveAgentDisplayInfo(for: response)
         applySessionMetadata(response, agentInfo: agentInfo)
@@ -641,8 +649,10 @@ final class ChatViewModel: ObservableObject {
         // 上面有 await，缓冲里可能又攒了新 delta；紧贴写入点 flush，别让它们在替换之后才落地。
         flushPendingDeltas()
         applyNewestHistoryPage(historyMessages, sessionID: sessionID)
-        historyPageInfoBySession[sessionID] = response.page ?? MessagePageInfo(hasMoreBefore: false, beforeCursor: nil)
-        hasMoreEarlierMessages = (response.page?.hasMoreBefore == true) || oldestLoadedSessionIndex > 0
+        if !continuesSameSession {
+            historyPageInfoBySession[sessionID] = response.page ?? MessagePageInfo(hasMoreBefore: false, beforeCursor: nil)
+        }
+        updateHasMoreEarlierMessages()
         removeEchoedOutboxItems()
         bumpScrollAnchor()
         preloadEarlierMessages()
@@ -651,27 +661,48 @@ final class ChatViewModel: ObservableObject {
 
     private func loadInteractiveHistory(sessionIDs: [String]) async throws {
         guard let client else { return }
+        let nonEmptySessionIDs = sessionIDs.filter { !$0.isEmpty }
+        guard let currentSessionID = nonEmptySessionIDs.last else { return }
+        // 会话列表只会在尾部追加，所以旧列表是新列表前缀时，`oldestLoadedSessionIndex`
+        // 指向的还是同一个 session，翻页游标可以照常沿用。
+        let continuesSameSession = loadedMessagesSessionID == currentSessionID
+            && nonEmptySessionIDs.starts(with: historySessionIDs)
         historyGeneration &+= 1
         historyPrefetchTask?.cancel()
         historyPrefetchTask = nil
         prefetchedHistoryPage = nil
-        let nonEmptySessionIDs = sessionIDs.filter { !$0.isEmpty }
-        guard let currentSessionID = nonEmptySessionIDs.last else { return }
         historySessionIDs = nonEmptySessionIDs
-        oldestLoadedSessionIndex = nonEmptySessionIDs.count - 1
-        historyPageInfoBySession = [:]
+        if !continuesSameSession {
+            oldestLoadedSessionIndex = nonEmptySessionIDs.count - 1
+            historyPageInfoBySession = [:]
+        }
         let response = try await client.sessionMessages(id: currentSessionID, limit: Self.historyPageSize)
         let agentInfo = await resolveAgentDisplayInfo(for: response)
         let combined = convertHistoryMessages(response.messages, agentInfo: agentInfo)
         applySessionMetadata(response, agentInfo: agentInfo)
-        historyPageInfoBySession[currentSessionID] = response.page ?? MessagePageInfo(hasMoreBefore: false, beforeCursor: nil)
+        if !continuesSameSession {
+            historyPageInfoBySession[currentSessionID] = response.page ?? MessagePageInfo(hasMoreBefore: false, beforeCursor: nil)
+        }
         flushPendingDeltas()
         applyNewestHistoryPage(combined, sessionID: currentSessionID)
-        hasMoreEarlierMessages = (response.page?.hasMoreBefore == true) || oldestLoadedSessionIndex > 0
+        updateHasMoreEarlierMessages()
         removeEchoedOutboxItems()
         bumpScrollAnchor()
         preloadEarlierMessages()
         refreshSessionTokenUsage(sessionID: currentSessionID, generation: historyGeneration)
+    }
+
+    /// 还有更早历史吗：看最老那个已加载 session 的游标，以及它前面是否还有别的 session。
+    /// 判断依据和 `fetchEarlierPage` 推进游标时用的完全一致——没有 `beforeCursor` 就取不到
+    /// 下一页，这里不能报告成「还有更早」，否则顶部会挂着一个永远取不出东西的加载态。
+    private func updateHasMoreEarlierMessages() {
+        guard historySessionIDs.indices.contains(oldestLoadedSessionIndex) else {
+            hasMoreEarlierMessages = false
+            return
+        }
+        let pageInfo = historyPageInfoBySession[historySessionIDs[oldestLoadedSessionIndex]]
+        let oldestSessionHasMore = pageInfo?.hasMoreBefore == true && pageInfo?.beforeCursor != nil
+        hasMoreEarlierMessages = oldestSessionHasMore || oldestLoadedSessionIndex > 0
     }
 
     /// Applies a freshly-read newest history page to the visible timeline.
@@ -699,7 +730,13 @@ final class ChatViewModel: ObservableObject {
         guard !Task.isCancelled else { return 0 }
         let expectedGeneration = historyGeneration
         var collected: [ChatMessage] = []
-        while true {
+        var collectedIDs: Set<String> = []
+        // 一页可能整页都是列表里已经有的记录（游标重叠、别的客户端并发写入）。这种页
+        // 拿回来等于什么都没加载，用户会觉得「上滑一次没反应」，所以继续往前取；上限
+        // 兜住任何「游标不推进」的异常，避免在这里空转。
+        var remainingAttempts = 8
+        while remainingAttempts > 0 {
+            remainingAttempts -= 1
             if prefetchedHistoryPage == nil {
                 if let historyPrefetchTask {
                     await historyPrefetchTask.value
@@ -713,20 +750,32 @@ final class ChatViewModel: ObservableObject {
             prefetchedHistoryPage = nil
             historyPageInfoBySession[prefetched.sessionID] = prefetched.page
             oldestLoadedSessionIndex = prefetched.sessionIndex
-            hasMoreEarlierMessages = prefetched.page.hasMoreBefore || prefetched.sessionIndex > 0
-            collected.append(contentsOf: prefetched.messages)
-            if !prefetched.messages.isEmpty || !hasMoreEarlierMessages { break }
+            updateHasMoreEarlierMessages()
+            // 轮首占位是「窗口之上那条记录」的替身，页把真实记录带回来时它才算被顶掉，
+            // 所以它不能让那条真实记录看起来像重复的——判断新增时要排除它。
+            let pinnedIDs = Set(messages.filter(\.isRoundHeadPinned).map(\.id))
+            let known = Set(messages.map(\.id)).subtracting(pinnedIDs).union(collectedIDs)
+            let broughtNewRecords = prefetched.messages.contains { !known.contains($0.id) }
+            // 每一轮取到的页都比上一轮更老，所以要插在前面：`collected` 必须保持时间升序，
+            // prepend 才会把它按正确顺序接到列表头部。
+            collected.insert(contentsOf: prefetched.messages, at: 0)
+            collectedIDs.formUnion(prefetched.messages.map(\.id))
+            if broughtNewRecords || !hasMoreEarlierMessages { break }
         }
         guard !Task.isCancelled else { return 0 }
-        // A pinned round head is a stand-in for a record the page may now be
-        // carrying for real, so it must not make that record look like a
-        // duplicate — exclude it from the dedup set and drop it below instead.
         let pinnedIDs = Set(messages.filter(\.isRoundHeadPinned).map(\.id))
         let existingIDs = Set(messages.map(\.id)).subtracting(pinnedIDs)
-        let uniqueEarlier = collected.filter { !existingIDs.contains($0.id) }
+        // 跨页也要去重：连着取了几页时两页可能有交集，重复的 id 进到列表里会让
+        // 渲染层拿到两条同 id 的记录。
+        var seenIDs = existingIDs
+        var uniqueEarlier: [ChatMessage] = []
+        for message in collected where !seenIDs.contains(message.id) {
+            seenIDs.insert(message.id)
+            uniqueEarlier.append(message)
+        }
         if !uniqueEarlier.isEmpty || !pinnedIDs.isEmpty {
             flushPendingDeltas()
-            messages = Self.prependEarlierPage(uniqueEarlier, into: messages, pageIDs: Set(collected.map(\.id)))
+            messages = Self.prependEarlierPage(uniqueEarlier, into: messages, pageIDs: collectedIDs)
             bumpScrollAnchor()
         }
         preloadEarlierMessages()

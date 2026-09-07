@@ -333,7 +333,7 @@ func TestRunningQueueMessageOutsideTheWindowIsPinnedAboveItInsteadOfAppended(t *
 		// Backwards paging hands the position back to the real record.
 		"let pinnedIDs = Set(messages.filter(\\.isRoundHeadPinned).map(\\.id))",
 		"Set(messages.map(\\.id)).subtracting(pinnedIDs)",
-		"prependEarlierPage(uniqueEarlier, into: messages, pageIDs: Set(collected.map(\\.id)))",
+		"prependEarlierPage(uniqueEarlier, into: messages, pageIDs: collectedIDs)",
 	} {
 		if !strings.Contains(source, contract) {
 			t.Fatalf("running queue message placement contract missing %q", contract)
@@ -375,20 +375,20 @@ func TestNewestHistoryPageIsSplicedInsteadOfReplacingTheList(t *testing.T) {
 	}
 }
 
-// Pinning is pointless if the render window drops it: the timeline only renders
-// a tail-aligned slice, and the pinned round head sits at the very front, which
-// is exactly what that window discards first.
+// Pinning is pointless if the render window drops it: the timeline renders a
+// window over the loaded history and the pinned round head sits at the very
+// front, which is exactly what a tail-aligned window discards first.
 func TestPinnedRoundHeadIsAlwaysRenderedOutsideTheTimelineWindow(t *testing.T) {
 	view := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
 	for _, contract := range []string{
 		"private var pinnedRoundHeadCount: Int",
 		"chat.messages.prefix(while: { $0.isRoundHeadPinned }).count",
 		// Outside the window quota, always rendered in front of it.
-		"return Array(chat.messages.prefix(pinnedCount))",
-		"+ Array(chat.messages.dropFirst(pinnedCount).suffix(effectiveTimelineMessageCount))",
-		// Not counted as hidden earlier history, so the load-earlier affordance
-		// still describes the real remainder.
-		"max(0, chat.messages.count - pinnedRoundHeadCount - effectiveTimelineMessageCount)",
+		"return Array(chat.messages.prefix(pinnedCount)) + Array(body)",
+		// The window skips a count of BODY entries, so the pinned head appearing or
+		// disappearing cannot shift which record the window starts at.
+		"let body = chat.messages.dropFirst(pinnedCount + hiddenTimelineMessageCount)",
+		"max(0, chat.messages.count - pinnedRoundHeadCount)",
 	} {
 		if !strings.Contains(view, contract) {
 			t.Fatalf("pinned round head rendering contract missing %q", contract)
@@ -396,46 +396,110 @@ func TestPinnedRoundHeadIsAlwaysRenderedOutsideTheTimelineWindow(t *testing.T) {
 	}
 }
 
-// Backwards paging must not park a prepended page above the render window, and
-// must not make the user hit the very top before the next page is fetched.
-func TestBackwardsPagingKeepsTwoPagesBufferedAndRendersEveryLoadedRecord(t *testing.T) {
+// The render window is described by "how many earlier records to SKIP", never by
+// "how many records to render". A length-based, tail-aligned window silently
+// moves its own start every time streaming appends a bubble, which drops rows off
+// the TOP of the list - above the viewport - and drags the reading position with
+// it. A skip-based window is invariant under tail appends, under the merge that
+// collapses streamed bubbles, and under a prepended page.
+func TestTimelineWindowIsAnchoredByASkipCountNotALength(t *testing.T) {
 	view := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
 	for _, contract := range []string{
-		// Two pages buffered after the first paint, without a prepend anchor so
-		// the follow-the-bottom anchoring is not disturbed.
-		"private func primeEarlierTimelineBuffer() {",
-		"guard timelineMode.isFollowing, !timelineWindowUpdateInFlight, !earlierPageRequestInFlight else { return }",
-		"await chat.start(route: route, client: client)\n                primeEarlierTimelineBuffer()",
-		// One page from the top is the fetch trigger, not the top itself.
-		"private var earlierBufferSentinelIndex: Int?",
-		"let index = pinnedRoundHeadCount + ChatTimelineWindow.earlierPageSize",
-		"if index == earlierBufferSentinelIndex {",
-		// Prepending variable-height rows keeps the live visible target stable; it
-		// must not align the render window's first row to the top of the viewport.
-		"@State private var timelineScrollPosition = ScrollPosition(idType: String.self)",
-		".scrollTargetLayout()",
-		".scrollPosition($timelineScrollPosition)",
-		// Launch-time priming yields to an actual user scroll instead of inserting
-		// a page under the active gesture.
-		"timelinePrimeTask?.cancel()",
-		"guard generation == timelinePrimeGeneration, !Task.isCancelled else { return }",
+		"@State private var hiddenEarlierMessageCount: Int?",
+		"private var hiddenTimelineMessageCount: Int {",
+		// nil means tail-aligned; the moment the user starts reading upwards the
+		// window start is pinned down so nothing can move it underneath them.
+		"guard let fixed = hiddenEarlierMessageCount, fixed < timelineBodyCount else {",
+		"return max(0, timelineBodyCount - ChatTimelineWindow.initialMessageCount)",
+		"hiddenEarlierMessageCount = hiddenTimelineMessageCount\n        timelineMode = .browsing(anchor: chat.scrollAnchor)",
 	} {
 		if !strings.Contains(view, contract) {
-			t.Fatalf("earlier-page buffering contract missing %q", contract)
+			t.Fatalf("timeline window contract missing %q", contract)
 		}
 	}
-	// Both prepend paths must widen the window by what they added. The reveal
-	// branch used to skip it, which parked the whole new page above the window -
-	// and that region is the TOP of the list, so it un-rendered what the user was
-	// reading. Three sites: prime, reveal-chained fetch, direct fetch.
-	if got := strings.Count(view, "visibleTimelineMessageCount += loadedCount"); got != 3 {
-		t.Fatalf("every prepend must widen the render window: got %d sites, want 3", got)
+	// A render-window LENGTH is exactly the representation this replaced.
+	for _, banned := range []string{
+		"visibleTimelineMessageCount",
+		"effectiveTimelineMessageCount",
+		"browsingMessageCount",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("the render window must not be described by a length: found %q", banned)
+		}
 	}
-	if strings.Contains(view, "proxy.scrollTo(anchor, anchor: .top)") {
-		t.Fatal("pagination must not align the render window's first row to the viewport top")
+}
+
+// Paging inserts a whole page ABOVE the viewport. Nothing in a scroll view
+// preserves the reading position across that on its own, so the restore has to be
+// an explicit command, and the anchor has to be a row that is actually in the
+// viewport when paging starts - which is only guaranteed if paging triggers at the
+// very top rather than a page early.
+func TestBackwardsPagingRestoresTheReadingPositionExplicitly(t *testing.T) {
+	view := chatSource(t, "Quartet/Features/Chat/JobChatView.swift")
+	for _, contract := range []string{
+		// Single-directional scrolling: commands only, no position written back to
+		// state and no implicit repositioning on content change.
+		"ScrollViewReader { proxy in",
+		"proxy.scrollTo(anchorID, anchor: .top)",
+		"proxy.scrollTo(\"chat-bottom\", anchor: .bottom)",
+		// The anchor is the first rendered record, valid because paging only starts
+		// once the user has reached the top sentinel.
+		"guard let anchorID = timelineMessages.first(where: { !$0.isRoundHeadPinned })?.id else { return }",
+		// Content change and restore land in the same view update, keyed off a
+		// dedicated counter so streaming appends cannot trigger a restore.
+		"private func requestTimelineAnchorRestore(_ anchorID: String) {",
+		"timelineAnchorRestoreRequests &+= 1",
+		".onChange(of: timelineAnchorRestoreRequests) { _, _ in\n                restorePendingTimelineAnchor(proxy)",
+		"guard timelineMessages.contains(where: { $0.id == anchorID }) else { return }",
+		// One gate covers reveal, fetch and restore, and it is only released by the
+		// restore (or by an explicit cancel) - not by the state write that opened it.
+		"guard !earlierPageLoadInFlight, pendingTimelineAnchorID == nil else { return }",
+		// The top sentinel is unconditional and fixed-height: a conditional one stops
+		// reporting visibility when it is removed, and a variable-height one adds and
+		// removes content above the viewport.
+		"static let earlierSentinelHeight: CGFloat = 34",
+		".frame(height: ChatTimelineWindow.earlierSentinelHeight)",
+	} {
+		if !strings.Contains(view, contract) {
+			t.Fatalf("earlier-page restore contract missing %q", contract)
+		}
+	}
+	for _, banned := range []string{
+		// A two-way bound position lets the scroll view write its own value back and
+		// reposition content on its own schedule - unreproducible position jumps.
+		".scrollPosition($timelineScrollPosition)",
+		// Fetching a page early puts the anchor outside the viewport, which turns the
+		// restore into a blind alignment that visibly jumps backwards.
+		"earlierBufferSentinelIndex",
+		// Launch-time priming prepends under a possibly-active gesture for no gain:
+		// the model already prefetches the next page, so paging does not wait on IO.
+		"primeEarlierTimelineBuffer",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("position restore must not rely on implicit behavior: found %q", banned)
+		}
 	}
 	model := chatSource(t, "Quartet/Features/Chat/ChatViewModel.swift")
-	if got := strings.Count(model, "guard !Task.isCancelled else { return 0 }"); got < 2 {
-		t.Fatalf("cancelled launch-time priming must not prepend history: got %d cancellation guards", got)
+	for _, contract := range []string{
+		// Re-reading the newest page of the SAME session splices it in, so the paging
+		// cursor must survive: rewinding it makes every later page-up re-fetch pages
+		// the list already holds and load nothing.
+		"let continuesSameSession = loadedMessagesSessionID == sessionID && historySessionIDs == [sessionID]",
+		"&& nonEmptySessionIDs.starts(with: historySessionIDs)",
+		"private func updateHasMoreEarlierMessages() {",
+		"pageInfo?.hasMoreBefore == true && pageInfo?.beforeCursor != nil",
+		// A page carrying only records already on screen must not end up reported as
+		// "loaded nothing"; keep walking back, with a hard attempt ceiling.
+		"var remainingAttempts = 8",
+		"if broughtNewRecords || !hasMoreEarlierMessages { break }",
+		// Several pages in one call may overlap each other, not just the list.
+		"for message in collected where !seenIDs.contains(message.id) {",
+	} {
+		if !strings.Contains(model, contract) {
+			t.Fatalf("earlier-page fetch contract missing %q", contract)
+		}
+	}
+	if got := strings.Count(model, "guard !Task.isCancelled else { return 0 }"); got < 3 {
+		t.Fatalf("a cancelled earlier-page load must not prepend history: got %d cancellation guards", got)
 	}
 }

@@ -25,8 +25,30 @@ final class ChatImageLoader {
     }()
 
     private var inFlight: [String: Task<UIImage, Error>] = [:]
+    /// 缩略图上一次渲染出来的高度。位图会被 `NSCache` 在内存压力下逐出，但一个高度只有
+    /// 几个字节，留着就能让「还没加载出来」的占位按同样高度预留空间：图片落地时不再撑开
+    /// 内容。撑开如果发生在视口上方，会把用户正在读的位置顶走。
+    private var thumbnailHeights: [String: CGFloat] = [:]
 
     private init() {}
+
+    /// 同步取已解码的图片。命中时视图第一帧就能用真实图片渲染，不必先摆一个高度不同的
+    /// 占位、加载完再换。
+    func cachedImage(path: String, namespace: String, maxPixelSize: PixelSize?) -> UIImage? {
+        cache.object(forKey: cacheKey(path: path, namespace: namespace, maxPixelSize: maxPixelSize) as NSString)
+    }
+
+    /// 这张缩略图之前渲染过的高度，供占位预留出一致的空间。
+    func knownThumbnailHeight(path: String, namespace: String, maxPixelSize: PixelSize?) -> CGFloat? {
+        thumbnailHeights[cacheKey(path: path, namespace: namespace, maxPixelSize: maxPixelSize)]
+    }
+
+    func rememberThumbnailHeight(
+        _ height: CGFloat, path: String, namespace: String, maxPixelSize: PixelSize?
+    ) {
+        guard height > 0 else { return }
+        thumbnailHeights[cacheKey(path: path, namespace: namespace, maxPixelSize: maxPixelSize)] = height
+    }
 
     /// 载入并缓存图片。`maxPixelSize` 为展示区域的最大边长（point 会在内部换成 pixel）；
     /// 传 `nil` 表示不降采样。

@@ -25,16 +25,27 @@ struct AuthenticatedMessageImage: View {
     @State private var error: String?
     @State private var presentsViewer = false
 
+    /// 时间线缩略图的展示边长上限。占位、解码降采样和 `maxHeight` 都得用同一个值，
+    /// 否则占位和最终图片高度不一致。
+    private static let thumbnailMaxSize: CGFloat = 280
+
     var body: some View {
-        Group {
-            if let image {
+        // 服务地址取成局部常量，下面几处缓存查询共用。
+        let namespace = appModel.serverAddress
+        // 缓存命中就直接用真实图片渲染这一帧。异步等一帧再换，会让高度先按占位算一次
+        // 再跳到实际值；这种跳动落在视口上方时就是「阅读位置被顶走」。
+        let displayed = image ?? ChatImageLoader.shared.cachedImage(
+            path: path, namespace: namespace, maxPixelSize: Self.thumbnailMaxSize
+        )
+        return Group {
+            if let displayed {
                 Button {
                     presentsViewer = true
                 } label: {
-                    Image(uiImage: image)
+                    Image(uiImage: displayed)
                         .resizable()
                         .scaledToFit()
-                        .frame(maxHeight: 280)
+                        .frame(maxHeight: Self.thumbnailMaxSize)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -50,12 +61,20 @@ struct AuthenticatedMessageImage: View {
                                 .accessibilityHidden(true)
                         }
                         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        // 记下真实渲染高度，下次这张图还没解码出来时占位就能预留同样的空间。
+                        .onGeometryChange(for: CGFloat.self) { geometry in
+                            geometry.size.height
+                        } action: { height in
+                            ChatImageLoader.shared.rememberThumbnailHeight(
+                                height, path: path, namespace: namespace, maxPixelSize: Self.thumbnailMaxSize
+                            )
+                        }
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("查看图片".localizedForApp)
                 .accessibilityHint("打开支持缩放的图片查看器".localizedForApp)
                 .fullScreenCover(isPresented: $presentsViewer) {
-                    MessageImageViewer(path: path, thumbnail: image)
+                    MessageImageViewer(path: path, thumbnail: displayed)
                 }
             } else if let error {
                 Button {
@@ -67,9 +86,15 @@ struct AuthenticatedMessageImage: View {
                 }
                 .buttonStyle(.plain)
             } else {
+                // 之前渲染过就按记下的高度占位，图片落地不会改变内容高度。首次加载拿不到
+                // 尺寸，只能给一个固定值，那一次高度变化要彻底消掉得让消息带上图片尺寸。
                 ProgressView()
                     .frame(maxWidth: .infinity)
-                    .frame(height: 80)
+                    .frame(
+                        height: ChatImageLoader.shared.knownThumbnailHeight(
+                            path: path, namespace: namespace, maxPixelSize: Self.thumbnailMaxSize
+                        ) ?? 80
+                    )
                     .accessibilityLabel("正在加载图片".localizedForApp)
             }
         }
@@ -80,8 +105,8 @@ struct AuthenticatedMessageImage: View {
                 let client = try appModel.apiClient()
                 image = try await ChatImageLoader.shared.image(
                     path: path,
-                    namespace: appModel.serverAddress,
-                    maxPixelSize: 280
+                    namespace: namespace,
+                    maxPixelSize: Self.thumbnailMaxSize
                 ) {
                     try await client.fileData(path: path)
                 }

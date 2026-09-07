@@ -89,8 +89,6 @@ struct JobChatView: View {
     /// 用户一旦开始向上读就把它固化下来，此后流式追加、历史折叠、翻页 prepend 都不再
     /// 移动窗口起点，用户正在看的那条消息不会被窗口挤出渲染。
     @State private var hiddenEarlierMessageCount: Int?
-    /// 程序化滚动通道：只用来显式滚动，不指望它跨内容变更自动维持位置。
-    @State private var timelineScrollPosition = ScrollPosition(idType: String.self)
     /// 翻页期间的还原锚点：翻页前视口顶部那条消息，新内容进入视图树后把它重新对齐回顶部。
     @State private var pendingTimelineAnchorID: String?
     @State private var timelineAnchorRestoreRequests = 0
@@ -359,7 +357,7 @@ struct JobChatView: View {
     /// 只渲染最近一段历史，确保非懒加载容器的工作量有界。
     ///
     /// 钉在最前面的轮首占位不占窗口配额：它代表的就是「已加载窗口之上那条用户消息」，
-    /// 而尾部对齐的窗口恰好最先把它切掉，钉住也就白钉了。
+    /// 而窗口的跳过量是相对它之后那段算的，所以它总是被单独放回列表最前面。
     private var timelineMessages: [ChatMessage] {
         let pinnedCount = pinnedRoundHeadCount
         let body = chat.messages.dropFirst(pinnedCount + hiddenTimelineMessageCount)
@@ -404,9 +402,9 @@ struct JobChatView: View {
     }
 
     /// 非懒加载窗口里的底部位置是完整布局后的真实位置，不再经过离屏 cell 高度估算。
-    private func scrollTimelineToBottom() {
+    private func scrollTimelineToBottom(_ proxy: ScrollViewProxy) {
         withTransaction(Transaction(animation: nil)) {
-            timelineScrollPosition.scrollTo(edge: .bottom)
+            proxy.scrollTo("chat-bottom", anchor: .bottom)
         }
     }
 
@@ -425,9 +423,9 @@ struct JobChatView: View {
         hiddenEarlierMessageCount = nil
     }
 
-    private func resumeTimelineFollow() {
+    private func resumeTimelineFollow(_ proxy: ScrollViewProxy) {
         enterTimelineFollow()
-        scrollTimelineToBottom()
+        scrollTimelineToBottom(proxy)
     }
 
     private func cancelEarlierPageLoad() {
@@ -482,162 +480,169 @@ struct JobChatView: View {
 
     /// 显式把锚点滚回视口顶部。
     ///
-    /// 绑定的 `ScrollPosition` 只在被外部改写时才会滚动，它不会替我们跨内容变更维持
-    /// 位置；视口上方插进来的整页内容全靠这一次显式还原抵掉，缺了它滚动条就会瞬间
-    /// 跑到顶部附近。
-    private func restorePendingTimelineAnchor() {
+    /// 翻页在视口上方插进来的整页内容全靠这一次还原抵掉，缺了它滚动条就会瞬间跑到
+    /// 顶部附近。位置维持必须是这样一条显式命令：滚动容器只保证「内容尺寸变化时按
+    /// `.sizeChanges` 锚点处理」，从不保证「插入内容时替你认住某一行」。
+    private func restorePendingTimelineAnchor(_ proxy: ScrollViewProxy) {
         guard let anchorID = pendingTimelineAnchorID else { return }
         pendingTimelineAnchorID = nil
         earlierPageLoadInFlight = false
+        // 锚点必须真的在渲染列表里，`scrollTo` 才有可对齐的目标。
         guard timelineMessages.contains(where: { $0.id == anchorID }) else { return }
         withTransaction(Transaction(animation: nil)) {
-            timelineScrollPosition.scrollTo(id: anchorID, anchor: .top)
+            proxy.scrollTo(anchorID, anchor: .top)
         }
     }
 
     private var messageList: some View {
-        ScrollView {
-            // 聊天气泡高度会在流式输出时持续变化。这里必须使用完整测量的 VStack；
-            // LazyVStack 会估算离屏高度，工具/思考卡收起时可能把视口留在没有 cell 的空白区。
-            VStack(spacing: 14) {
-                if chat.loading && chat.messages.isEmpty && chat.outbox.isEmpty {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                        Text("正在同步对话…")
-                            .font(.chat(.detail))
-                            .foregroundStyle(QuartetTheme.secondaryText)
+        // 位置维持全程走单向命令：`proxy.scrollTo` 只在本文件明确调用时滚动。
+        // 双向绑定的 `ScrollPosition` 会把滚动结果写回状态，容器何时拿这个值去重新
+        // 定位内容并无契约保证，正是「滚动条偶发瞬间跳到顶部」这类问题的来源。
+        ScrollViewReader { proxy in
+            ScrollView {
+                // 聊天气泡高度会在流式输出时持续变化。这里必须使用完整测量的 VStack；
+                // LazyVStack 会估算离屏高度，工具/思考卡收起时可能把视口留在没有 cell 的空白区。
+                VStack(spacing: 14) {
+                    if chat.loading && chat.messages.isEmpty && chat.outbox.isEmpty {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                            Text("正在同步对话…")
+                                .font(.chat(.detail))
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                        }
+                        .padding(.top, 80)
                     }
-                    .padding(.top, 80)
-                }
-                // 顶部翻页哨兵：无条件渲染，高度恒定。
-                //
-                // 条件渲染过的哨兵被移除时收不到可见性回调，`timelineTopIsVisible` 会一直
-                // 停在旧值；高度随加载状态变化又会在视口上方凭空增减内容，把阅读位置顶走。
-                Group {
-                    if hiddenTimelineMessageCount > 0 || earlierPageLoadInFlight {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(QuartetTheme.accent)
-                            .accessibilityLabel("加载更多".localizedForApp)
-                            .accessibilityIdentifier("chat-load-earlier")
-                    } else {
-                        Color.clear
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: ChatTimelineWindow.earlierSentinelHeight)
-                .onScrollVisibilityChange { isVisible in
-                    timelineTopIsVisible = isVisible
-                    guard isVisible, !timelineMode.isFollowing else { return }
-                    loadEarlierTimelineMessages()
-                }
-                ForEach(timelineMessages, id: \.id) { message in
-                    ChatBubble(
-                        message: message,
-                        fallbackAgentName: chat.agentDisplayLabel,
-                        fallbackAgentIconUrl: chat.agentDisplayIconUrl,
-                        contentWidth: timelineContentWidth
-                    )
-                        .equatable()
-                        .id(message.id)
-                }
-                ForEach(chat.timelineOutboxItems) { item in
-                    OutboxBubble(item: item, contentWidth: timelineContentWidth)
-                        .id(item.id)
-                }
-                if chat.isRunning {
-                    HStack(spacing: 9) {
-                        Spacer(minLength: 0)
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(QuartetTheme.accent)
-                        Text("AI 正在思考...")
-                            .font(.chat(.control, weight: .medium))
-                            .foregroundStyle(QuartetTheme.secondaryText)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 6)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("AI 正在思考")
-                }
-                Color.clear
-                    .frame(height: 1)
-                    .id("chat-bottom")
-                    .onScrollVisibilityChange { isVisible in
-                        timelineBottomIsVisible = isVisible
-                        guard !userIsScrollingTimeline else { return }
-                        if isVisible {
-                            enterTimelineFollow()
+                    // 顶部翻页哨兵：无条件渲染，高度恒定。
+                    //
+                    // 条件渲染过的哨兵被移除时收不到可见性回调，`timelineTopIsVisible` 会
+                    // 一直停在旧值；高度随加载状态变化又会在视口上方凭空增减内容高度，
+                    // 把用户正在读的位置顶走。所以这里只在固定高度的容器里换内容，
+                    // 而且只有真的在等网络时才转圈——「还有更早但没加载」是常态，
+                    // 挂一个常驻的离屏动画没有意义。
+                    Group {
+                        if earlierPageLoadInFlight {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(QuartetTheme.accent)
+                                .accessibilityLabel("加载更多".localizedForApp)
+                                .accessibilityIdentifier("chat-load-earlier")
+                        } else {
+                            Color.clear
                         }
                     }
-            }
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.width
-            } action: { width in
-                timelineContentWidth = width
-            }
-            .scrollTargetLayout()
-            .padding(.horizontal, 14)
-            .padding(.vertical, 18)
-        }
-        .scrollDismissesKeyboard(.interactively)
-        // 只作程序化滚动的通道。绑定的位置不会替我们跨内容变更维持视口——翻页在视口
-        // 上方插入内容后的位置还原一律由 `restorePendingTimelineAnchor()` 显式完成。
-        .scrollPosition($timelineScrollPosition)
-        .defaultScrollAnchor(.bottom, for: .initialOffset)
-        .defaultScrollAnchor(timelineMode.isFollowing ? .bottom : nil, for: .sizeChanges)
-        .overlay(alignment: .bottom) { backToBottomButton }
-        // 链接拦截统一在列表这一层注入，动作由 `linkOpener` 持有、全程同一个值。
-        .environment(\.openURL, linkOpener.action)
-        .onAppear {
-            linkOpener.presentError = { [appModel] error in appModel.present(error) }
-            linkOpener.presentDestination = { destination in webDestination = destination }
-            configureLinkOpener()
-        }
-        .onChange(of: workspaceContextKey) { _, _ in configureLinkOpener() }
-        .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
-        .onScrollPhaseChange { oldPhase, newPhase in
-            let wasUserScrolling = oldPhase.isScrolling && oldPhase != .animating
-            let isUserScrolling = newPhase.isScrolling && newPhase != .animating
-            userIsScrollingTimeline = isUserScrolling
-            if isUserScrolling {
-                beginTimelineBrowsing()
-                // 可见性回调只在「变化」时触发，用户停在顶部再次起滑时不会重放，
-                // 所以这里按当前状态补一次。
-                if timelineTopIsVisible {
-                    loadEarlierTimelineMessages()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: ChatTimelineWindow.earlierSentinelHeight)
+                    .onScrollVisibilityChange { isVisible in
+                        timelineTopIsVisible = isVisible
+                        guard isVisible, !timelineMode.isFollowing else { return }
+                        loadEarlierTimelineMessages()
+                    }
+                    ForEach(timelineMessages, id: \.id) { message in
+                        ChatBubble(
+                            message: message,
+                            fallbackAgentName: chat.agentDisplayLabel,
+                            fallbackAgentIconUrl: chat.agentDisplayIconUrl,
+                            contentWidth: timelineContentWidth
+                        )
+                            .equatable()
+                            .id(message.id)
+                    }
+                    ForEach(chat.timelineOutboxItems) { item in
+                        OutboxBubble(item: item, contentWidth: timelineContentWidth)
+                            .id(item.id)
+                    }
+                    if chat.isRunning {
+                        HStack(spacing: 9) {
+                            Spacer(minLength: 0)
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(QuartetTheme.accent)
+                            Text("AI 正在思考...")
+                                .font(.chat(.control, weight: .medium))
+                                .foregroundStyle(QuartetTheme.secondaryText)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 6)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("AI 正在思考")
+                    }
+                    Color.clear
+                        .frame(height: 1)
+                        .id("chat-bottom")
+                        .onScrollVisibilityChange { isVisible in
+                            timelineBottomIsVisible = isVisible
+                            guard !userIsScrollingTimeline else { return }
+                            if isVisible {
+                                enterTimelineFollow()
+                            }
+                        }
                 }
-                return
+                .onGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.size.width
+                } action: { width in
+                    timelineContentWidth = width
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 18)
             }
-            if newPhase == .idle, wasUserScrolling, timelineBottomIsVisible {
-                enterTimelineFollow()
+            .scrollDismissesKeyboard(.interactively)
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            // 跟随态由容器把内容尺寸变化锚到底部，流式输出不必每个 delta 都下滚动命令；
+            // 浏览态交回默认行为（保持内容偏移），新内容不会把视口从阅读位置拽走。
+            .defaultScrollAnchor(timelineMode.isFollowing ? .bottom : nil, for: .sizeChanges)
+            .overlay(alignment: .bottom) { backToBottomButton(proxy) }
+            // 链接拦截统一在列表这一层注入，动作由 `linkOpener` 持有、全程同一个值。
+            .environment(\.openURL, linkOpener.action)
+            .onAppear {
+                linkOpener.presentError = { [appModel] error in appModel.present(error) }
+                linkOpener.presentDestination = { destination in webDestination = destination }
+                configureLinkOpener()
             }
-        }
-        .onChange(of: followBottomRequests) { _, _ in
-            resumeTimelineFollow()
-        }
-        // 翻页的新内容已经进入这次视图树，把翻页前视口顶部那条重新对齐回顶部。
-        .onChange(of: timelineAnchorRestoreRequests) { _, _ in
-            restorePendingTimelineAnchor()
-        }
-        .onChange(of: route.summary.id) { _, _ in
-            cancelEarlierPageLoad()
-            timelineMode = .following
-            hiddenEarlierMessageCount = nil
-            userIsScrollingTimeline = false
-            timelineTopIsVisible = false
-            timelineBottomIsVisible = true
-            scrollTimelineToBottom()
+            .onChange(of: workspaceContextKey) { _, _ in configureLinkOpener() }
+            .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
+            .onScrollPhaseChange { oldPhase, newPhase in
+                let wasUserScrolling = oldPhase.isScrolling && oldPhase != .animating
+                let isUserScrolling = newPhase.isScrolling && newPhase != .animating
+                userIsScrollingTimeline = isUserScrolling
+                if isUserScrolling {
+                    beginTimelineBrowsing()
+                    // 可见性回调只在「变化」时触发，用户停在顶部再次起滑时不会重放，
+                    // 所以这里按当前状态补一次。
+                    if timelineTopIsVisible {
+                        loadEarlierTimelineMessages()
+                    }
+                    return
+                }
+                if newPhase == .idle, wasUserScrolling, timelineBottomIsVisible {
+                    enterTimelineFollow()
+                }
+            }
+            .onChange(of: followBottomRequests) { _, _ in
+                resumeTimelineFollow(proxy)
+            }
+            // 翻页的新内容已经进入这次视图树，把翻页前视口顶部那条重新对齐回顶部。
+            .onChange(of: timelineAnchorRestoreRequests) { _, _ in
+                restorePendingTimelineAnchor(proxy)
+            }
+            .onChange(of: route.summary.id) { _, _ in
+                cancelEarlierPageLoad()
+                timelineMode = .following
+                hiddenEarlierMessageCount = nil
+                userIsScrollingTimeline = false
+                timelineTopIsVisible = false
+                timelineBottomIsVisible = true
+                scrollTimelineToBottom(proxy)
+            }
         }
     }
 
     @ViewBuilder
-    private var backToBottomButton: some View {
+    private func backToBottomButton(_ proxy: ScrollViewProxy) -> some View {
         if !timelineMode.isFollowing, !timelineBottomIsVisible {
             Button {
                 composerFocused = false
-                resumeTimelineFollow()
+                resumeTimelineFollow(proxy)
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.down")
