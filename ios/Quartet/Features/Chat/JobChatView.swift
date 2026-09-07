@@ -495,6 +495,12 @@ struct JobChatView: View {
     }
 
     private var messageList: some View {
+        GeometryReader { viewport in
+            messageList(viewportHeight: viewport.size.height)
+        }
+    }
+
+    private func messageList(viewportHeight: CGFloat) -> some View {
         // 位置维持全程走单向命令：`proxy.scrollTo` 只在本文件明确调用时滚动。
         // 双向绑定的 `ScrollPosition` 会把滚动结果写回状态，容器何时拿这个值去重新
         // 定位内容并无契约保证，正是「滚动条偶发瞬间跳到顶部」这类问题的来源。
@@ -545,6 +551,7 @@ struct JobChatView: View {
                             contentWidth: timelineContentWidth
                         )
                             .equatable()
+                            .accessibilityIdentifier("chat-message-\(message.id)")
                             .id(message.id)
                     }
                     ForEach(chat.timelineOutboxItems) { item in
@@ -585,12 +592,16 @@ struct JobChatView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 18)
+                // 至少撑满可视区并把自然内容放在顶部。这样短会话不会被初始的底部滚动
+                // 锚点整体下推；长会话仍可依靠该锚点打开在最新消息处。
+                .frame(minHeight: viewportHeight, alignment: .top)
             }
             .scrollDismissesKeyboard(.interactively)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             // 跟随态由容器把内容尺寸变化锚到底部，流式输出不必每个 delta 都下滚动命令；
             // 浏览态交回默认行为（保持内容偏移），新内容不会把视口从阅读位置拽走。
             .defaultScrollAnchor(timelineMode.isFollowing ? .bottom : nil, for: .sizeChanges)
+            .accessibilityIdentifier("chat-timeline")
             .overlay(alignment: .bottom) { backToBottomButton(proxy) }
             // 链接拦截统一在列表这一层注入，动作由 `linkOpener` 持有、全程同一个值。
             .environment(\.openURL, linkOpener.action)

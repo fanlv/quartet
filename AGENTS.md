@@ -61,6 +61,8 @@ make clean                # Remove bin/ and static/
 
 > `make autostart-install` 会用 launchd（默认 `~/Library/LaunchAgents/com.fanlv.quartet.plist`）守护 `scripts/watchdog.sh`：自动起 watchdog 并拉起后端，watchdog 崩溃时 launchd 重新拉起。`AUTOSTART_SCOPE=daemon` 时改为安装 `/Library/LaunchDaemons` 的系统级 LaunchDaemon（真正开机即跑、无需登录，装卸需要 sudo；plist 写入 `UserName` 让后端仍以当前用户身份写 LOCAL_MEMORY）。两种 scope 互斥，装一个会自动卸掉另一个。安装时会写入当时的 `LOCAL_MEMORY` 和显式 PATH（launchd 读不到 shell 的环境变量），改了 `LOCAL_MEMORY` 后需要重装一次。`make web-stop` / `web-watch-stop` 发 SIGTERM 让 watchdog 正常退出，launchd 不会再拉起；要彻底关掉自启用 `make autostart-uninstall`（只移除 launchd 任务，不动后端）。
 
+> macOS 上每次构建都会用稳定身份给 `bin/quartet-web` 重新签名（`scripts/codesign-darwin.sh`，可用 `QUARTET_SIGN_IDENTITY` 覆盖，无可用证书时跳过并告警）：Go 产出的 ad-hoc 二进制每次 CDHash 都不同，macOS TCC 会把每次重建当成新程序，「文稿/桌面/下载」等文件夹授权即使点过允许也会再次弹窗。首次部署后到「系统设置 → 隐私与安全性 → 完全磁盘访问权限」把 `bin/quartet-web` 加入一次即可长期覆盖全部文件夹授权；更换签名证书后需要重新授权一次。
+
 Frontend (from `web/`):
 
 ```bash

@@ -166,9 +166,14 @@ install-eino-cli: build-eino-cli
 		printf 'warning: %s is installed but eino-cli is not resolvable on PATH (found=%q); add %s to PATH\n' "$$installed" "$$found" "$$(cd "$(INSTALL_BIN_DIR)" && pwd)" >&2; \
 	fi
 
+# quartet-web is signed with a stable identity after every build (see
+# scripts/codesign-darwin.sh): ad-hoc binaries get a new CDHash per build and
+# macOS TCC then treats each rebuild as a new app, re-asking folder-permission
+# prompts (Documents/Desktop/Downloads) even after the user allowed them.
 build-web:
 	@mkdir -p bin
 	go build -ldflags "$(WEB_LDFLAGS)" -o bin/quartet-web ./cmd/web
+	@bash "$(CURDIR)/scripts/codesign-darwin.sh" bin/quartet-web
 
 # Build only the frontend SPA into static/ (no backend build, no restart). Safe
 # to run from inside an agent shell — it never touches the running backend.
@@ -203,6 +208,7 @@ stage-web:
 	@echo "📦 Building candidate backend..."; \
 	go build -ldflags "$(WEB_LDFLAGS)" -o "$(WEB_STAGE_DIR)/quartet-web" ./cmd/web || exit 1; \
 	test -x "$(WEB_STAGE_DIR)/quartet-web" || { echo "❌ Candidate backend is not executable"; exit 1; }; \
+	bash "$(CURDIR)/scripts/codesign-darwin.sh" "$(WEB_STAGE_DIR)/quartet-web"; \
 	echo "✅ Candidate backend built successfully"
 
 # Internal hand-off used only by services/runtime after stage-web and the
@@ -277,6 +283,7 @@ web:
 	@echo "📦 Building backend..."; \
 	mkdir -p bin; \
 	go build -ldflags "$(WEB_LDFLAGS)" -o bin/quartet-web ./cmd/web || exit 1; \
+	bash "$(CURDIR)/scripts/codesign-darwin.sh" bin/quartet-web; \
 	echo "✅ Backend built successfully"
 	@bash "$(CURDIR)/scripts/web-serve.sh" "$(CURDIR)" "$(BACKEND_PORT)" "$(SUDO)" "$(BACKEND_PROTO)"
 

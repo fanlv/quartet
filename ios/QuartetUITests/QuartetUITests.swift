@@ -81,6 +81,23 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["优化 iOS 交互体验"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)["main-tab-bar"].exists)
         XCTAssertTrue(app.textFields["chat-composer"].exists)
+        let timeline = app.scrollViews["chat-timeline"]
+        let navigationBar = app.navigationBars["优化 iOS 交互体验"]
+        let firstUserMessage = app.descendants(matching: .any)["chat-message-preview-user"]
+        XCTAssertTrue(timeline.exists)
+        XCTAssertTrue(firstUserMessage.exists)
+        let firstMessageTopGap = firstUserMessage.frame.minY - navigationBar.frame.maxY
+        if firstMessageTopGap >= 80 {
+            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            attachment.name = "聊天页首条消息顶部间距"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        XCTAssertLessThan(
+            firstMessageTopGap,
+            80,
+            "内容不足一屏时，第一条用户消息上方不应留出大片空白；navigationBar=\(navigationBar.frame)，message=\(firstUserMessage.frame)"
+        )
         XCTAssertTrue(app.staticTexts["已完成第一轮检查。运行状态和操作反馈都已同步。"].exists)
         XCTAssertTrue(app.staticTexts["TraeCode"].exists)
         XCTAssertFalse(app.staticTexts["ASSISTANT"].exists)
