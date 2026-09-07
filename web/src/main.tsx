@@ -12,6 +12,26 @@ import { AUTH_EXPIRED_EVENT, getCSRFToken, setAuthPrincipal } from './auth'
 
 markBootStage('main-module-executing')
 
+const SOFT_KEYBOARD_INPUT_TYPES = new Set([
+  'email',
+  'number',
+  'password',
+  'search',
+  'tel',
+  'text',
+  'url',
+])
+
+function isTextEditingElement(element: Element | null): element is HTMLElement {
+  if (element instanceof HTMLTextAreaElement) {
+    return !element.disabled && !element.readOnly
+  }
+  if (element instanceof HTMLInputElement) {
+    return !element.disabled && !element.readOnly && SOFT_KEYBOARD_INPUT_TYPES.has(element.type)
+  }
+  return element instanceof HTMLElement && element.isContentEditable
+}
+
 /* ── iOS / iPad Chrome viewport fixes ─────────────────────────────────
  * On iOS Safari & Chrome, the virtual keyboard does NOT shrink the
  * layout viewport — it pushes content up by scrolling the visual
@@ -55,22 +75,30 @@ function setupViewportFixes() {
   const root = document.getElementById('root')
   const vv = window.visualViewport
   if (root && vv) {
-    // baseHeight needs to be the largest height we've ever seen so the
-    // keyboard-open delta is meaningful. Capturing it at module load can
-    // miss the URL bar collapse on iPhone Chrome and cause false positives.
-    let baseHeight = Math.max(vv.height, window.innerHeight || 0)
+    // Keep the latest non-keyboard viewport as the baseline. Browser chrome
+    // expanding can also shrink visualViewport by more than 100px, so a
+    // historical maximum is not a reliable keyboard signal.
+    let baseHeight = vv.height
+
+    const clearRootHeight = () => {
+      root.style.removeProperty('height')
+    }
 
     const syncRootToViewport = () => {
-      // Detect keyboard: viewport shrinks significantly (>100px) from base
+      const editingText = isTextEditingElement(document.activeElement)
       const heightDiff = baseHeight - vv.height
-      const isKeyboardOpen = heightDiff > 100
+      // Mobile browser toolbars can consume roughly 100px on their own. Only
+      // treat a shrink as the soft keyboard while a real text editor is
+      // focused, and scale the threshold for taller phone/tablet viewports.
+      const keyboardThreshold = Math.max(100, baseHeight * 0.2)
+      const isKeyboardOpen = editingText && heightDiff > keyboardThreshold
 
       if (isKeyboardOpen) {
         root.style.height = `${vv.height}px`
       } else {
         // No keyboard — clear inline height, let CSS 100dvh handle it
-        root.style.height = ''
-        baseHeight = Math.max(baseHeight, vv.height)
+        clearRootHeight()
+        if (!editingText) baseHeight = vv.height
       }
 
       // Compensate for visual viewport offset on iPad Chrome, where the
@@ -86,32 +114,63 @@ function setupViewportFixes() {
 
       resetScroll()
     }
+
+    // Capture the viewport immediately before the keyboard opens. Moving
+    // between two editors keeps the existing baseline because the keyboard
+    // may already be visible during that focus transfer.
+    document.addEventListener('focusin', (event) => {
+      if (!isTextEditingElement(event.target as Element | null)) return
+      if (!isTextEditingElement(event.relatedTarget as Element | null)) {
+        clearRootHeight()
+        baseHeight = vv.height
+      }
+      requestAnimationFrame(syncRootToViewport)
+    })
+
+    // Keyboard dismissal emits its final visualViewport resize after focusout
+    // on some iOS versions. Clear the inline height both now and after those
+    // late animation frames so a stale short root cannot survive.
+    document.addEventListener('focusout', (event) => {
+      if (!isTextEditingElement(event.target as Element | null)) return
+
+      const restoreAfterKeyboard = () => {
+        if (isTextEditingElement(document.activeElement)) return
+        clearRootHeight()
+        baseHeight = vv.height
+        resetScroll()
+      }
+
+      requestAnimationFrame(restoreAfterKeyboard)
+      setTimeout(restoreAfterKeyboard, 80)
+      setTimeout(restoreAfterKeyboard, 300)
+    })
+
     // Reset baseHeight on orientation change so portrait→landscape rotation
     // doesn't permanently false-detect the keyboard as open.
     window.addEventListener('orientationchange', () => {
-      setTimeout(() => { baseHeight = vv.height }, 200)
+      clearRootHeight()
+      setTimeout(() => {
+        baseHeight = vv.height
+        syncRootToViewport()
+      }, 200)
     })
+
+    // Returning from another tab/app can restore stale viewport metrics. If
+    // no editor is active, CSS 100dvh must own the root height again.
+    const restoreVisibleViewport = () => {
+      if (document.visibilityState === 'hidden' || isTextEditingElement(document.activeElement)) return
+      clearRootHeight()
+      baseHeight = vv.height
+      resetScroll()
+    }
+    window.addEventListener('pageshow', restoreVisibleViewport)
+    document.addEventListener('visibilitychange', restoreVisibleViewport)
 
     vv.addEventListener('resize', syncRootToViewport)
     vv.addEventListener('scroll', syncRootToViewport)
   }
 
-  // ③ focusout path — extra safety net for keyboard dismiss via blur
-  document.addEventListener('focusout', (e) => {
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-      requestAnimationFrame(() => {
-        if (document.activeElement instanceof HTMLInputElement ||
-            document.activeElement instanceof HTMLTextAreaElement) {
-          return
-        }
-        resetScroll()
-        setTimeout(resetScroll, 80)
-        setTimeout(resetScroll, 300)
-      })
-    }
-  })
-
-  // ④ Prevent window-level scroll drift on iPad.
+  // ③ Prevent window-level scroll drift on iPad.
   //    On iPad Safari/Chrome, the outer window can scroll even when
   //    html/body have overflow:hidden, especially during rapid content
   //    updates. Immediately reset any window scroll.
