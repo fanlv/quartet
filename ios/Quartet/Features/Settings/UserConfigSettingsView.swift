@@ -33,8 +33,8 @@ struct UserConfigSettingsView: View {
         }
         .background(QuartetTheme.canvas)
         .task { await initialLoad() }
-        .onChange(of: scenePhase) { _, phase in
-            guard phase == .active, hasLoaded, !isDirty, !isSaving else { return }
+        .onChange(of: model.connectionRevision) { _, _ in
+            guard scenePhase == .active, hasLoaded, !isDirty, !isSaving else { return }
             Task { await load() }
         }
         .sheet(isPresented: $showsLanguagePicker) {

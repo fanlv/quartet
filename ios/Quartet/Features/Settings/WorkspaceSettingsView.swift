@@ -50,8 +50,8 @@ struct WorkspaceSettingsView: View {
         }
         .background(QuartetTheme.canvas)
         .task { await initialLoad() }
-        .onChange(of: scenePhase) { _, phase in
-            guard phase == .active, !isLoading, !isWorking, editingWorkspace == nil, !isCreating else { return }
+        .onChange(of: model.connectionRevision) { _, _ in
+            guard scenePhase == .active, !isLoading, !isWorking, editingWorkspace == nil, !isCreating else { return }
             Task { await load() }
         }
         .toolbar {

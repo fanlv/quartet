@@ -4,7 +4,6 @@ import UIKit
 
 struct StatsView: View {
     @EnvironmentObject private var model: AppModel
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.locale) private var locale
     @Environment(\.mainTabBarInset) private var mainTabBarInset
 
@@ -69,11 +68,6 @@ struct StatsView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .task(id: loadKey) {
             await loadStats()
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active, report != nil {
-                refreshRevision &+= 1
-            }
         }
     }
 
@@ -187,7 +181,7 @@ struct StatsView: View {
     private var loadKey: String {
         let from = preset == .custom ? StatsFormat.dateKey(customFrom) : ""
         let to = preset == .custom ? StatsFormat.dateKey(customTo) : ""
-        return "\(preset.rawValue)|\(from)|\(to)|\(refreshRevision)"
+        return "\(preset.rawValue)|\(from)|\(to)|\(refreshRevision)|\(model.connectionRevision)"
     }
 
     private func loadStats() async {

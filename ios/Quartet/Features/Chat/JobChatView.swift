@@ -213,13 +213,15 @@ struct JobChatView: View {
             if phase != .active {
                 cancelEarlierPageLoad()
                 chat.stopStreaming()
-            } else {
-                Task {
-                    do {
-                        await chat.start(route: route, client: try appModel.apiClient())
-                    } catch {
-                        appModel.present(error)
-                    }
+            }
+        }
+        .onChange(of: appModel.connectionRevision) { _, _ in
+            guard scenePhase == .active else { return }
+            Task {
+                do {
+                    await chat.start(route: route, client: try appModel.apiClient())
+                } catch {
+                    appModel.present(error)
                 }
             }
         }

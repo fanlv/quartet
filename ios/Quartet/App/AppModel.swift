@@ -86,6 +86,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var isRestartingWeb = false
     @Published var presentedError: PresentedError?
     @Published private(set) var permissions: Set<String> = []
+    /// 每次全局连接完成后推进，供仍停留在前台的页面重建其短期持有的客户端与流。
+    @Published private(set) var connectionRevision: UInt64 = 0
     /// 本机保存的服务地址清单，供设置页和连接页快速切换后端。
     @Published private(set) var serverBookmarks: [ServerBookmark] = []
 
@@ -268,10 +270,10 @@ final class AppModel: ObservableObject {
             phase = .disconnected
             return
         }
-        await connect()
+        await connect(refreshEntryAddress: true)
     }
 
-    func connect() async {
+    func connect(refreshEntryAddress: Bool = false) async {
         guard phase != .connecting else { return }
         connectionGeneration &+= 1
         let generation = connectionGeneration
@@ -284,8 +286,16 @@ final class AppModel: ObservableObject {
         do {
             let entryClient = try APIClient(serverAddress: requestedServerAddress)
             let resolvedBaseURL: URL
+            let cachedResolvedBaseURL: URL?
             if hasResolvedServerAddress, let resolvedServerAddress {
-                resolvedBaseURL = try APIClient(serverAddress: resolvedServerAddress).baseURL
+                cachedResolvedBaseURL = try APIClient(serverAddress: resolvedServerAddress).baseURL
+            } else {
+                cachedResolvedBaseURL = nil
+            }
+            let cachedAddressIsRedirectTarget = cachedResolvedBaseURL != nil
+                && cachedResolvedBaseURL != entryClient.baseURL
+            if let cachedResolvedBaseURL, !(refreshEntryAddress && cachedAddressIsRedirectTarget) {
+                resolvedBaseURL = cachedResolvedBaseURL
             } else {
                 resolvedBaseURL = try await entryClient.resolvedBaseURL()
             }
@@ -354,6 +364,7 @@ final class AppModel: ObservableObject {
             recordCurrentServerBookmark()
             self.health = health
             lastSyncFailureMessage = nil
+            connectionRevision &+= 1
             await prepareJobCompletionNotifications()
             await refreshDashboard(
                 userInitiated: false,
@@ -1653,8 +1664,16 @@ final class AppModel: ObservableObject {
         switch phase {
         case .active:
             if defaults.bool(forKey: StorageKey.connectionValidated) {
+                if self.phase == .connecting {
+                    // A connection started before suspension may still be resolving the old target.
+                    // Supersede it so this foreground transition always owns a fresh entry lookup.
+                    connectionGeneration &+= 1
+                    self.phase = .disconnected
+                }
                 if self.phase == .disconnected || self.phase == .connected {
-                    await connect()
+                    // `serverAddress` 始终保留用户填写的入口地址。每次回到前台都绕过已缓存的
+                    // 跳转结果重新访问入口，路由器重启导致 NAT 地址变化时即可切到新目标。
+                    await connect(refreshEntryAddress: true)
                 }
             }
         case .background:

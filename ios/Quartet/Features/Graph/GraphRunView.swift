@@ -99,8 +99,8 @@ struct GraphRunView: View {
                 await refresh(silent: true)
             }
         }
-        .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
+        .onChange(of: appModel.connectionRevision) { _, _ in
+            guard scenePhase == .active else { return }
             Task { await refresh(silent: snapshot != nil) }
         }
         .sheet(isPresented: Binding(
