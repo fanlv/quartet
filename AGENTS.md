@@ -41,9 +41,9 @@ make web-logs             # Follow backend log (/tmp/quartet-backend.log)
 make web-watch            # Start detached watchdog; revive the backend only after its port goes down
 make web-watch-stop       # Stop the watchdog; leave a running backend untouched
 make web-watch-logs       # Follow watchdog log (/tmp/quartet-watchdog.log)
-make autostart-install    # Install and load the launchd LaunchAgent: auto-start watchdog at login + revive it after a crash
-make autostart-status     # Show LaunchAgent, watchdog, and backend status
-make autostart-uninstall  # Unload and remove the LaunchAgent (backend keeps running)
+make autostart-install    # Install and load the launchd job: auto-start watchdog + revive it after a crash (AUTOSTART_SCOPE=agent for login-time LaunchAgent, daemon for boot-time LaunchDaemon)
+make autostart-status     # Show launchd job, watchdog, and backend status
+make autostart-uninstall  # Unload and remove the launchd job (backend keeps running)
 make install-project-tools # Install quartet-cli and all three project skills
 make install-eino-cli     # Build/install eino-cli into INSTALL_BIN_DIR
 make install-skill        # Build/install quartet-cli, then register one skill selected by SKILL_NAME
@@ -59,7 +59,7 @@ make clean                # Remove bin/ and static/
 > agent 不要自己执行 `make web` 重启后端：当前 agent（ACP 子进程）跑在后端进程树之下，`make web` 会 kill 旧后端，旧后端一死，agent 这条 ACP 链会被 `Pdeathsig` 连带 SIGKILL，重启过程当场失去执行者。重启后端这一步交给用户在机器上手动执行。需要"挂掉自动拉起"时用 `make web-watch`：它 detached 在后端进程树之外，只在端口已空时才拉起服务、从不 kill 活着的进程，所以既不会误伤 agent，也能在后端宕掉后自动恢复。`make web-stop` 会同时停止 watchdog 与后端；只想停后端时使用 `make backend-stop`。
 > 修改前端后可以执行 `make build-frontend` 更新 `static/`；后端会直接提供新构建，刷新页面即可查看，无需重启后端。
 
-> `make autostart-install` 会用 launchd LaunchAgent（`~/Library/LaunchAgents/com.fanlv.quartet.plist`）守护 `scripts/watchdog.sh`：登录后自动起 watchdog 并拉起后端，watchdog 崩溃时 launchd 重新拉起。安装时会写入当时的 `LOCAL_MEMORY` 和显式 PATH（launchd 读不到 shell 的环境变量），改了 `LOCAL_MEMORY` 后需要重装一次。`make web-stop` / `web-watch-stop` 发 SIGTERM 让 watchdog 正常退出，launchd 不会再拉起；要彻底关掉自启用 `make autostart-uninstall`（只移除 LaunchAgent，不动后端）。
+> `make autostart-install` 会用 launchd（默认 `~/Library/LaunchAgents/com.fanlv.quartet.plist`）守护 `scripts/watchdog.sh`：自动起 watchdog 并拉起后端，watchdog 崩溃时 launchd 重新拉起。`AUTOSTART_SCOPE=daemon` 时改为安装 `/Library/LaunchDaemons` 的系统级 LaunchDaemon（真正开机即跑、无需登录，装卸需要 sudo；plist 写入 `UserName` 让后端仍以当前用户身份写 LOCAL_MEMORY）。两种 scope 互斥，装一个会自动卸掉另一个。安装时会写入当时的 `LOCAL_MEMORY` 和显式 PATH（launchd 读不到 shell 的环境变量），改了 `LOCAL_MEMORY` 后需要重装一次。`make web-stop` / `web-watch-stop` 发 SIGTERM 让 watchdog 正常退出，launchd 不会再拉起；要彻底关掉自启用 `make autostart-uninstall`（只移除 launchd 任务，不动后端）。
 
 Frontend (from `web/`):
 

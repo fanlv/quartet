@@ -32,6 +32,9 @@ WATCHDOG_LOG := /tmp/quartet-watchdog.log
 WATCHDOG_PID := /tmp/quartet-watchdog.pid
 WATCHDOG := $(CURDIR)/scripts/watchdog.sh
 AUTOSTART_SH := $(CURDIR)/scripts/autostart.sh
+# agent = LaunchAgent (starts at login, no sudo); daemon = LaunchDaemon
+# (starts at boot before login, needs sudo for install/uninstall).
+AUTOSTART_SCOPE ?= agent
 FRONTEND_ENV_CHECK := $(CURDIR)/scripts/frontend-env-check.sh
 FRONTEND_DEPS := $(CURDIR)/scripts/frontend-deps.sh
 BUILD_TIME ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -86,8 +89,8 @@ help:
 	@printf '  %-24s %s\n' 'web-watch' 'Start detached backend watchdog'
 	@printf '  %-24s %s\n' 'web-watch-stop' 'Stop backend watchdog'
 	@printf '  %-24s %s\n\n' 'web-watch-logs' 'Follow watchdog log'
-	@printf 'Autostart targets (macOS launchd, login auto-start + crash auto-revival):\n'
-	@printf '  %-24s %s\n' 'autostart-install' 'Install and load the LaunchAgent for watchdog.sh'
+	@printf 'Autostart targets (macOS launchd watchdog supervision; AUTOSTART_SCOPE=agent|daemon):\n'
+	@printf '  %-24s %s\n' 'autostart-install' 'Install and load the LaunchAgent (default) or LaunchDaemon'
 	@printf '  %-24s %s\n' 'autostart-status' 'Show LaunchAgent, watchdog, and backend status'
 	@printf '  %-24s %s\n\n' 'autostart-uninstall' 'Unload and remove the LaunchAgent (backend keeps running)'
 	@printf 'Install targets:\n'
@@ -341,13 +344,13 @@ web-watch-logs:
 # relaunches it after a crash (KeepAlive.SuccessfulExit=false). A SIGTERM stop
 # (`make web-stop` / `web-watch-stop`) exits 0, so launchd leaves it stopped.
 autostart-install:
-	@bash "$(AUTOSTART_SH)" install "$(CURDIR)"
+	@bash "$(AUTOSTART_SH)" install "$(CURDIR)" "$(AUTOSTART_SCOPE)"
 
 autostart-uninstall:
-	@bash "$(AUTOSTART_SH)" uninstall "$(CURDIR)"
+	@bash "$(AUTOSTART_SH)" uninstall "$(CURDIR)" "$(AUTOSTART_SCOPE)"
 
 autostart-status:
-	@bash "$(AUTOSTART_SH)" status "$(CURDIR)"
+	@bash "$(AUTOSTART_SH)" status "$(CURDIR)" "$(AUTOSTART_SCOPE)"
 
 web-stop:
 	@$(MAKE) --no-print-directory web-watch-stop
