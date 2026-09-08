@@ -24,6 +24,7 @@ import (
 	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 	"github.com/fanlv/quartet/types/msgextra"
+	typepath "github.com/fanlv/quartet/types/path"
 	"github.com/google/uuid"
 )
 
@@ -719,8 +720,11 @@ func executeShellNode(ctx context.Context, run *model.GraphRun, node model.Graph
 	// overlaid so {{QUARTET_LOOP_INDEX}} & co. resolve inside a loop body.
 	displayScript := substituteVariables(node.Config.Script, mergeLoopVars(vars, loopVars), disabled)
 	script := graphShellHelpers + "\n" + displayScript
-	tmpDir := workdir
-	if tmpDir == "" {
+	// Shell scripts and control files are process-owned artifacts, so keep them
+	// under Quartet's reconstructable temp directory instead of dirtying the
+	// workflow workdir when the backend exits before deferred cleanup runs.
+	tmpDir, err := typepath.ShellTempDir()
+	if err != nil {
 		tmpDir = os.TempDir()
 	}
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
