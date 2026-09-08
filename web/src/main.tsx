@@ -42,7 +42,6 @@ function isTextEditingElement(element: Element | null): element is HTMLElement {
  * ------------------------------------------------------------------- */
 function setupViewportFixes() {
   const ua = navigator.userAgent
-  const isIPhone = /iPhone|iPod/.test(ua)
   // WebKit Safari (iOS, iPadOS and macOS) reports window.innerHeight as the
   // *large* viewport: the height the page would get once the browser chrome
   // collapses. Our shell never scrolls the document (body is overflow:hidden),
@@ -126,16 +125,9 @@ function setupViewportFixes() {
         if (!editingText) baseHeight = layoutViewportHeight()
       }
 
-      // Compensate for visual viewport offset on iPad Chrome, where the
-      // visual viewport can scroll independently and shift #root off-screen.
-      // iPhone Chrome's bottom URL bar produces sub-pixel offsetTop drift
-      // that ends up pushing #root downward into a white gap, so skip it.
-      if (!isIPhone) {
-        const offset = vv.offsetTop
-        root.style.top = offset > 1 ? `${offset}px` : ''
-      } else {
-        root.style.top = ''
-      }
+      // Ignore sub-pixel toolbar drift, but compensate real viewport panning on every device.
+      const offset = vv.offsetTop
+      root.style.top = offset > 1 ? `${offset}px` : ''
 
       resetScroll()
     }
