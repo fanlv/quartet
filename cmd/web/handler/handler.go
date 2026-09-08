@@ -314,7 +314,7 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 		scheduleService:      schSvc,
 		usageStats:           usageStats,
 		usageModelAliases:    make(map[string]string),
-		usageService:         usage.NewService(ss),
+		usageService:         usage.NewService(ss, agentCatalog),
 		agentVersions:        agentversion.NewService(agentCatalog),
 		acpProbeCache:        acpProbeCache,
 		einoCLI:              einocli.NewService(),

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { copyToClipboard } from '../utils/clipboard';
+import { showToast } from '../utils/toast';
 import {
   agentUsageProvider,
   fetchAgentUsage,
@@ -22,10 +24,6 @@ import './AgentUsageCard.css';
 interface AgentUsageCardProps {
   agentType?: string;
   displayName?: string;
-}
-
-function money(n: number): string {
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function pctClass(pct: number): string {
@@ -153,7 +151,17 @@ function UsageRing({
  *  the usage rings use, so non-ring content (e.g. the QoderCN credits meter)
  *  can carry a rich multi-line tooltip without duplicating the positioning
  *  logic. The tooltip reuses the `.usage-ring-tip` style. */
-function HoverTip({ tip, children }: { tip: ReactNode; children: ReactNode }) {
+function HoverTip({
+  tip,
+  children,
+  ariaLabel,
+  onActivate,
+}: {
+  tip: ReactNode;
+  children: ReactNode;
+  ariaLabel?: string;
+  onActivate?: () => void;
+}) {
   const [hover, setHover] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [pos, setPos] = useState({ left: 0, top: 0 });
@@ -194,11 +202,16 @@ function HoverTip({ tip, children }: { tip: ReactNode; children: ReactNode }) {
       className="usage-tip-anchor"
       role="button"
       tabIndex={0}
-      onClick={() => setPinned((v) => !v)}
+      aria-label={ariaLabel}
+      onClick={() => {
+        setPinned((v) => !v);
+        onActivate?.();
+      }}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
           setPinned((value) => !value);
+          onActivate?.();
         }
       }}
       onMouseEnter={() => setHover(true)}
@@ -213,6 +226,23 @@ function HoverTip({ tip, children }: { tip: ReactNode; children: ReactNode }) {
           document.body,
         )}
     </span>
+  );
+}
+
+function UsageErrorIndicator({ message }: { message: string }) {
+  const { t } = useTranslation();
+  return (
+    <HoverTip
+      tip={<span className="usage-error-detail">{message}</span>}
+      ariaLabel={t('agentUsage.error')}
+      onActivate={() => {
+        void copyToClipboard(message)
+          .then(() => showToast(t('common.copySuccess')))
+          .catch(() => showToast(t('common.copyFailed')));
+      }}
+    >
+      <span className="usage-inline-error" title={message}>!</span>
+    </HoverTip>
   );
 }
 
@@ -334,29 +364,31 @@ function formatExpiry(unixSec: number): string {
 }
 
 /** Compact inline usage strip shown in the composer footer (after the
- *  image-upload button). Codex / Claude get a full quota view; every other
+ *  image-upload button). Supported providers get their quota view; every other
  *  known ACP agent gets a version chip. Returns null for agents that are
  *  neither (no quota view and no parseable version, e.g. the built-in runner). */
 export function AgentUsageCard({ agentType, displayName }: AgentUsageCardProps) {
   const provider = agentUsageProvider(agentType, displayName);
-  if (provider) return <AgentQuotaCard provider={provider} />;
+  if (provider && agentType) return <AgentQuotaCard provider={provider} command={agentType} />;
   if (agentType) return <AgentVersionChip command={agentType} />;
   return null;
 }
 
-/** Full quota view for the Codex / Claude agents (rate-limit rings + version,
- *  or today/total spend + version).
+/** Full quota view for supported agents (rate-limit rings + version and any
+ *  provider-specific plan details).
  *
  *  Switching agent type keeps the previously-fetched plan info on screen (from
  *  a localStorage cache that also survives page reloads) and refreshes it
  *  asynchronously — the new data swaps in only once its request returns, so
- *  there is no loading flash. A failed refresh is silent: the last cached data
- *  stays on screen, and if nothing was ever cached the strip shows no data (no
- *  error message). */
-function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
+ *  there is no loading flash. A failed refresh keeps the last cached data and
+ *  exposes the full error through a compact warning control. */
+function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; command: string }) {
   const { t } = useTranslation();
 
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fallbackVersion, setFallbackVersion] = useState(() => getCachedVersion(command));
+  const requestSequence = useRef(0);
   const [codex, setCodex] = useState<CodexUsage | null>(
     () => (getCachedUsage('codex') as CodexUsage | null) ?? null,
   );
@@ -374,11 +406,12 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
   );
 
   const load = useCallback((p: AgentUsageProvider) => {
-    let cancelled = false;
+    const sequence = ++requestSequence.current;
     setLoading(true);
+    setError(null);
     fetchAgentUsage(p)
       .then((data) => {
-        if (cancelled) return;
+        if (sequence !== requestSequence.current) return;
         setCachedUsage(p, data);
         if (p === 'codex') setCodex(data.codex ?? null);
         else if (p === 'claude') setClaude(data.claude ?? null);
@@ -386,25 +419,41 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
         else if (p === 'kimi') setKimi(data.kimi ?? null);
         else if (p === 'qoder') setQoder(data.qoder ?? null);
       })
-      .catch(() => {
-        // Swallow: keep the last successful data on screen (if any) and never
-        // surface the request error to the user.
+      .catch((reason: unknown) => {
+        if (sequence !== requestSequence.current) return;
+        // Preserve the last successful snapshot, but do not hide the live
+        // refresh failure. The warning exposes the complete server message.
+        setError(reason instanceof Error ? reason.message : String(reason));
+        void fetchAgentVersion(command).then((version) => {
+          if (sequence !== requestSequence.current) return;
+          setCachedVersion(command, version);
+          setFallbackVersion(version);
+        }).catch(() => {
+          // The complete quota error is already visible. Version fallback is
+          // supplementary and must not replace that primary failure.
+        });
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (sequence === requestSequence.current) setLoading(false);
       });
     return () => {
-      cancelled = true;
+      if (sequence === requestSequence.current) requestSequence.current += 1;
     };
-  }, []);
+  }, [command]);
 
-  useEffect(() => load(provider), [provider, load]);
+  useEffect(() => () => { requestSequence.current += 1; }, []);
+
+  useEffect(() => {
+    setFallbackVersion(getCachedVersion(command));
+    return load(provider);
+  }, [command, provider, load]);
 
   // Tooltip for a usage ring, e.g. "5h 1% · 15:30 重置".
-  const ringTitle = (label: string, w: UsageWindow, withDate?: boolean) =>
-    `${label} ${Math.round(w.used_percent)}% · ${t('agentUsage.resetAt', {
-      time: formatResetAt(w, withDate),
-    })}`;
+  const ringTitle = (label: string, w: UsageWindow, withDate?: boolean) => {
+    const usage = `${label} ${Math.round(w.used_percent)}%`;
+    if (w.reset_at <= 0 && w.reset_after_seconds <= 0) return usage;
+    return `${usage} · ${t('agentUsage.resetAt', { time: formatResetAt(w, withDate) })}`;
+  };
 
   const current =
     provider === 'codex'
@@ -416,6 +465,7 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
           : provider === 'qoder'
             ? qoder
             : kimi;
+  const currentVersion = current?.version;
 
   return (
     <div className="agent-usage-inline" data-testid="agent-usage-card" data-provider={provider}>
@@ -457,37 +507,39 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
       ) : provider === 'claude' && claude ? (
         <>
           {claude.version && <span className="usage-inline-ver">{claude.version}</span>}
-          <span className="usage-inline-metric" title={t('agentUsage.today')}>
-            <svg
-              className="usage-metric-icon today"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
+          {claude.plan_type && <span className="usage-inline-ver">{prettifyPlan(claude.plan_type)}</span>}
+          {[
+            { label: '5h', window: claude.five_hour },
+            { label: '7d', window: claude.seven_day },
+            { label: 'Opus', window: claude.seven_day_opus },
+            ...(claude.weekly_scoped ?? []).map((window) => ({ label: window.label, window })),
+          ].map(({ label, window }, index) => {
+            if (!window) return null;
+            return (
+              <UsageRing
+                key={`${label}-${index}`}
+                percent={window.used_percent}
+                label={label}
+                title={ringTitle(label, window)}
+              />
+            );
+          })}
+          {claude.extra_usage?.is_enabled && (
+            <HoverTip
+              tip={t('agentUsage.claudeExtraUsage', {
+                used: formatCredits(claude.extra_usage.used_credits ?? 0),
+                limit: claude.extra_usage.monthly_limit == null
+                  ? '—'
+                  : formatCredits(claude.extra_usage.monthly_limit),
+                currency: claude.extra_usage.currency || 'USD',
+              })}
             >
-              <rect x="3" y="4.5" width="18" height="16.5" rx="2" />
-              <path d="M16 2.5v4M8 2.5v4M3 9.5h18" />
-            </svg>
-            <b className="today">${money(claude.today_cost)}</b>
-          </span>
-          <span className="usage-inline-metric" title={t('agentUsage.total')}>
-            <svg
-              className="usage-metric-icon"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M17 5H7l5 7-5 7h10" />
-            </svg>
-            <b>${money(claude.total_cost)}</b>
-          </span>
+              <span className="usage-inline-metric">
+                <b>{formatCredits(claude.extra_usage.used_credits ?? 0)}</b>
+                <span>{claude.extra_usage.currency || 'USD'}</span>
+              </span>
+            </HoverTip>
+          )}
         </>
       ) : provider === 'antigravity' && antigravity ? (
         <span className="usage-antigravity">
@@ -608,8 +660,10 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
           )}
         </>
       ) : null}
+      {!currentVersion && fallbackVersion && <span className="usage-inline-ver">{fallbackVersion}</span>}
 
       <RefreshButton loading={loading} onClick={() => load(provider)} />
+      {error && <UsageErrorIndicator message={error} />}
     </div>
   );
 }
@@ -625,26 +679,32 @@ function AgentQuotaCard({ provider }: { provider: AgentUsageProvider }) {
 function AgentVersionChip({ command }: { command: string }) {
   const [version, setVersion] = useState<string>(() => getCachedVersion(command));
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const requestSequence = useRef(0);
 
   const load = useCallback((cmd: string) => {
-    let cancelled = false;
+    const sequence = ++requestSequence.current;
     setLoading(true);
+    setError(null);
     fetchAgentVersion(cmd)
       .then((v) => {
-        if (cancelled) return;
+        if (sequence !== requestSequence.current) return;
         setCachedVersion(cmd, v);
         setVersion(v);
       })
-      .catch(() => {
-        // Swallow: keep the last cached version (if any); never surface errors.
+      .catch((reason: unknown) => {
+        if (sequence !== requestSequence.current) return;
+        setError(reason instanceof Error ? reason.message : String(reason));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (sequence === requestSequence.current) setLoading(false);
       });
     return () => {
-      cancelled = true;
+      if (sequence === requestSequence.current) requestSequence.current += 1;
     };
   }, []);
+
+  useEffect(() => () => { requestSequence.current += 1; }, []);
 
   useEffect(() => {
     // Swap to the cached version for the newly-selected agent instantly, then
@@ -653,12 +713,13 @@ function AgentVersionChip({ command }: { command: string }) {
     return load(command);
   }, [command, load]);
 
-  if (!version) return null;
+  if (!version && !error) return null;
 
   return (
     <div className="agent-usage-inline" data-testid="agent-usage-card" data-provider="version">
       <span className="usage-inline-ver">{version}</span>
       <RefreshButton loading={loading} onClick={() => load(command)} />
+      {error && <UsageErrorIndicator message={error} />}
     </div>
   );
 }

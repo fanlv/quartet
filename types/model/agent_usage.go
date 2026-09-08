@@ -38,22 +38,39 @@ type CodexUsage struct {
 }
 
 // AgentVersionResponse is the envelope for GET /api/v1/agent/version. It
-// reports the installed CLI version of a known ACP agent (e.g. "v1.17.18"),
-// used by the composer usage strip for agents that have no quota view of their
-// own (everything except Codex / Claude). Version is empty when the agent's
-// binary advertises no parseable version.
+// reports the installed CLI version of a built-in or custom ACP agent (e.g.
+// "v1.17.18"). Version is empty when the binary advertises no parseable version.
 type AgentVersionResponse struct {
 	Code    int    `json:"code"`
 	Version string `json:"version,omitempty"`
 }
 
-// ClaudeUsage is the current Claude key's spend in USD (today + total).
+// ClaudeUsage is the current Claude Code subscription and rate-limit snapshot
+// returned by Anthropic's OAuth usage endpoint.
 type ClaudeUsage struct {
-	Name      string  `json:"name,omitempty"`
-	KeySuffix string  `json:"key_suffix,omitempty"`
-	Version   string  `json:"version,omitempty"` // effective Claude Code version used by claude-agent-acp, e.g. "v2.1.202"
-	TodayCost float64 `json:"today_cost"`
-	TotalCost float64 `json:"total_cost"`
+	PlanType      string                    `json:"plan_type,omitempty"`
+	RateLimitTier string                    `json:"rate_limit_tier,omitempty"`
+	Version       string                    `json:"version,omitempty"` // effective Claude Code version used by claude-agent-acp, e.g. "v2.1.202"
+	FiveHour      *UsageWindow              `json:"five_hour,omitempty"`
+	SevenDay      *UsageWindow              `json:"seven_day,omitempty"`
+	SevenDayOpus  *UsageWindow              `json:"seven_day_opus,omitempty"`
+	WeeklyScoped  []ClaudeScopedUsageWindow `json:"weekly_scoped,omitempty"`
+	ExtraUsage    *ClaudeExtraUsage         `json:"extra_usage,omitempty"`
+}
+
+// ClaudeScopedUsageWindow is a model-specific weekly limit returned through
+// the generic limits array (for example, Fable).
+type ClaudeScopedUsageWindow struct {
+	Label string `json:"label"`
+	UsageWindow
+}
+
+// ClaudeExtraUsage describes the optional monthly pay-as-you-go allowance.
+type ClaudeExtraUsage struct {
+	Enabled      bool     `json:"is_enabled"`
+	MonthlyLimit *float64 `json:"monthly_limit,omitempty"`
+	UsedCredits  *float64 `json:"used_credits,omitempty"`
+	Currency     string   `json:"currency,omitempty"`
 }
 
 // AntigravityUsage is the Antigravity (agy) built-in plan snapshot: the agy CLI

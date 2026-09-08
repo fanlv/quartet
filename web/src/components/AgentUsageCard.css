@@ -23,10 +23,7 @@
   flex-shrink: 0;
 }
 
-/* Icon labels for the Claude cost metrics: a calendar "day" icon for today's
- * cost and a sigma (Σ) "sum" icon for the cumulative total, replacing the old
- * "now" / "sum" text labels. The day icon inherits the today accent so it reads
- * as a pair with the orange value; the sum icon stays muted. */
+/* Compact metric icon shared by quota amount callouts. */
 .agent-usage-inline .usage-metric-icon {
   width: 12px;
   height: 12px;
@@ -34,17 +31,9 @@
   color: #7a897f;
 }
 
-.agent-usage-inline .usage-metric-icon.today {
-  color: #ea580c;
-}
-
 .agent-usage-inline .usage-inline-metric b {
   font-weight: 700;
   color: #142019;
-}
-
-.agent-usage-inline .usage-inline-metric b.today {
-  color: #ea580c;
 }
 
 .agent-usage-inline .usage-inline-metric b.pct-lo {
@@ -315,6 +304,14 @@
   margin-bottom: 2px;
 }
 
+.usage-ring-tip .usage-error-detail {
+  display: block;
+  width: min(420px, calc(100vw - 32px));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
 .agent-usage-inline .usage-inline-ver {
   color: var(--muted-2);
   font-family: var(--font-mono);
@@ -354,6 +351,20 @@
 
 .agent-usage-inline .usage-inline-refresh.spinning svg {
   animation: usage-spin 1s linear infinite;
+}
+
+.agent-usage-inline .usage-inline-error {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .agent-usage-inline .usage-spin {

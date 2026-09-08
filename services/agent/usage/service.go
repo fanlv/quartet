@@ -11,15 +11,16 @@ import (
 
 	"github.com/fanlv/quartet/pkg/executil"
 	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/services/agent/catalog"
 	"github.com/fanlv/quartet/services/agent/probe"
 	"github.com/fanlv/quartet/services/agent/runtimeenv"
 	"github.com/fanlv/quartet/services/config"
 	"github.com/fanlv/quartet/types/model"
 )
 
-// Service fetches the current subscription / quota info for the Codex and
-// Claude ACP agents. Each call fetches live data — the Home page requests a
-// refresh on every agent-type switch, so nothing is cached here.
+// Service fetches current subscription / quota information for supported ACP
+// agents. Each call fetches live data; clients own their short-lived display
+// caches.
 type Service interface {
 	CodexUsage(ctx context.Context) (*model.CodexUsage, error)
 	ClaudeUsage(ctx context.Context) (*model.ClaudeUsage, error)
@@ -39,6 +40,7 @@ type Service interface {
 
 type serviceImpl struct {
 	settings config.SettingsService
+	catalog  *catalog.Service
 
 	// agy is a short-lived per-request process, so a usage poll frequently misses
 	// its live window. These fields hold the last successful Antigravity quota so
@@ -48,10 +50,10 @@ type serviceImpl struct {
 	agyCachedAt time.Time
 }
 
-// NewService builds the usage service. It depends on the settings service to
-// resolve the environment used by Codex and Claude ACP adapters.
-func NewService(settings config.SettingsService) Service {
-	return &serviceImpl{settings: settings}
+// NewService builds the usage service. It depends on settings for effective ACP
+// environments and on the catalog for resolving custom Agent binaries.
+func NewService(settings config.SettingsService, agentCatalog *catalog.Service) Service {
+	return &serviceImpl{settings: settings, catalog: agentCatalog}
 }
 
 // acpCommandByBin resolves an ACP agent's full serve command from the
@@ -91,11 +93,19 @@ var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+`)
 // an agent whose binary advertises no parseable version yields "" with no error
 // so the UI simply shows nothing for it.
 func (s *serviceImpl) AgentVersion(ctx context.Context, command string) (string, error) {
-	bin, ok := probe.HeadlessBin(command)
-	if !ok {
-		return "", fmt.Errorf("unknown ACP agent command %q", command)
+	if bin, ok := probe.HeadlessBin(command); ok {
+		return s.binVersion(ctx, bin), nil
 	}
-	return s.binVersion(ctx, bin), nil
+	if s.catalog != nil {
+		agent, found, err := s.catalog.Resolve(ctx, command)
+		if err != nil {
+			return "", fmt.Errorf("resolve ACP agent %q for version probe failed: %w", command, err)
+		}
+		if found {
+			return s.binVersion(ctx, agent.Bin), nil
+		}
+	}
+	return "", fmt.Errorf("unknown ACP agent command %q", command)
 }
 
 // binVersion runs `<bin> --version` and returns the first semver found in

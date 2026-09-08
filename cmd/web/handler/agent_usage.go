@@ -10,10 +10,9 @@ import (
 	"github.com/fanlv/quartet/types/model"
 )
 
-// AgentUsage returns the live subscription / quota info for the Codex or
-// Claude ACP agent. The Home page requests a refresh on every agent-type
-// switch, so this always fetches fresh (no caching). Errors are returned in
-// full per the project convention.
+// AgentUsage returns live subscription / quota information for a supported ACP
+// agent. Clients refresh when the selected agent changes, so this endpoint does
+// not use an HTTP cache. Errors are returned in full per the project convention.
 func (h *Handler) AgentUsage(ctx context.Context, c *app.RequestContext) {
 	// Never cache: this quota reading changes continuously, and a cached GET
 	// response (browser or any intermediary) would surface a stale window
@@ -61,10 +60,9 @@ func (h *Handler) AgentUsage(ctx context.Context, c *app.RequestContext) {
 	}
 }
 
-// AgentVersion returns the installed CLI version of a known ACP agent, keyed by
-// its serve command (the string stored in AgentInfo.Type). It backs the
-// composer usage strip for agents that have no quota view of their own —
-// everything except Codex / Claude, which carry their version in AgentUsage.
+// AgentVersion returns the installed CLI version of a known built-in or custom
+// ACP agent, keyed by AgentInfo.Type. It backs the composer usage strip for
+// agents that have no quota view of their own.
 func (h *Handler) AgentVersion(ctx context.Context, c *app.RequestContext) {
 	c.Header("Cache-Control", "no-store")
 	command := string(c.Query("command"))

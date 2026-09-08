@@ -263,7 +263,12 @@ struct StatsView: View {
             guard !Task.isCancelled, sequence == agentRequestSequence else { return }
             let displayAgents = usageAgents(from: loadedAgents)
             agents = displayAgents
-            await agentUsageStore.load(agents: displayAgents, model: model, force: force)
+            var seen: Set<String> = []
+            let targets = displayAgents.compactMap { agent -> AgentUsageProbeTarget? in
+                guard !agent.type.isEmpty, seen.insert(agent.type).inserted else { return nil }
+                return AgentUsageProbeTarget(command: agent.type, displayName: agent.displayName)
+            }
+            await agentUsageStore.load(targets: targets, model: model, force: force)
         } catch is CancellationError {
             return
         } catch {
@@ -280,10 +285,10 @@ struct StatsView: View {
             return loaded
         }
         return loaded + [AgentSummary(
-            agentId: "codex",
-            type: "codex",
-            modelId: "gpt-5.4",
-            displayName: "Codex",
+            agentId: "claude",
+            type: "claude",
+            modelId: "claude-sonnet-4-6",
+            displayName: "Claude",
             availability: "available",
             available: true,
             refreshing: false,
@@ -588,14 +593,16 @@ private struct StatsAgentUsageRow: View {
                         .foregroundStyle(QuartetTheme.primaryText)
                         .textSelection(.enabled)
                 }
-            } else if entry?.loading == true, entry?.usage == nil, version == nil {
+            }
+
+            if entry?.loading == true, entry?.usage == nil, version == nil {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small).tint(QuartetTheme.accent)
                     Text("正在获取 Agent 用量".localized(in: locale))
                         .font(.quartet(.detail))
                         .foregroundStyle(QuartetTheme.secondaryText)
                 }
-            } else {
+            } else if agent.available || entry?.usage != nil || version != nil {
                 usageContent
             }
 
@@ -688,17 +695,33 @@ private struct StatsAgentUsageRow: View {
 
     @ViewBuilder
     private func claudeUsage(_ value: ClaudeAgentUsage) -> some View {
-        let name = AgentUsageFormat.trimmed(value.name)
-        let suffix = AgentUsageFormat.trimmed(value.keySuffix).map { "••••\($0)" }
-        if name != nil || suffix != nil {
+        let plan = AgentUsageFormat.trimmed(value.planType).map { prettyPlan($0) }
+        let tier = AgentUsageFormat.trimmed(value.rateLimitTier)
+        if plan != nil || tier != nil {
             StatsAgentMetadataRow(items: [
-                name.map { ("账号".localized(in: locale), $0) },
-                suffix.map { ("Key", $0) }
+                plan.map { ("套餐".localized(in: locale), $0) },
+                tier.map { ("限额等级".localized(in: locale), $0) }
             ].compactMap { $0 })
         }
-        HStack(spacing: 10) {
-            StatsAgentMetric(title: "今日花费", value: AgentUsageFormat.money(value.todayCost), color: QuartetTheme.running)
-            StatsAgentMetric(title: "累计花费", value: AgentUsageFormat.money(value.totalCost), color: QuartetTheme.primaryText)
+        if let window = value.fiveHour {
+            StatsAgentQuotaMeter(label: "5h", window: window, locale: locale)
+        }
+        if let window = value.sevenDay {
+            StatsAgentQuotaMeter(label: "7d", window: window, locale: locale)
+        }
+        if let window = value.sevenDayOpus {
+            StatsAgentQuotaMeter(label: "Opus", window: window, locale: locale)
+        }
+        ForEach(Array((value.weeklyScoped ?? []).enumerated()), id: \.offset) { _, scoped in
+            StatsAgentQuotaMeter(label: scoped.label, window: scoped.window, locale: locale)
+        }
+        if let extra = value.extraUsage, extra.enabled {
+            StatsAgentExtraUsage(extra: extra, locale: locale)
+        }
+        if plan == nil, tier == nil, value.fiveHour == nil, value.sevenDay == nil,
+           value.sevenDayOpus == nil, (value.weeklyScoped ?? []).isEmpty,
+           value.extraUsage?.enabled != true {
+            noUsageDetails
         }
     }
 
@@ -814,28 +837,6 @@ private struct StatsAgentMetadataRow: View {
     }
 }
 
-private struct StatsAgentMetric: View {
-    @Environment(\.locale) private var locale
-    let title: String
-    let value: String
-    let color: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title.localized(in: locale))
-                .font(.quartet(.compact, weight: .medium))
-                .foregroundStyle(QuartetTheme.secondaryText)
-            Text(value)
-                .font(.quartet(.control, weight: .bold, design: .monospaced))
-                .foregroundStyle(color)
-                .monospacedDigit()
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-    }
-}
-
 private struct StatsAgentQuotaGroup: View {
     let title: String
     let windows: [(String, AgentUsageWindow?)]
@@ -852,6 +853,37 @@ private struct StatsAgentQuotaGroup: View {
         }
         .padding(10)
         .background(QuartetTheme.elevated.opacity(0.72), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private struct StatsAgentExtraUsage: View {
+    let extra: ClaudeExtraAgentUsage
+    let locale: Locale
+
+    private var currency: String {
+        AgentUsageFormat.trimmed(extra.currency) ?? "USD"
+    }
+
+    private var value: String {
+        let used = extra.usedCredits.map(AgentUsageFormat.credits) ?? "—"
+        guard let limit = extra.monthlyLimit else { return "\(used) \(currency)" }
+        return "\(used) / \(AgentUsageFormat.credits(limit)) \(currency)"
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Label("额外用量".localized(in: locale), systemImage: "creditcard")
+                .font(.quartet(.detail, weight: .semibold))
+                .foregroundStyle(QuartetTheme.secondaryText)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.quartet(.detail, weight: .bold, design: .monospaced))
+                .foregroundStyle(QuartetTheme.primaryText)
+                .monospacedDigit()
+        }
+        .padding(10)
+        .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 }
 

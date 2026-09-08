@@ -4,11 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
-	"net/url"
-	"os"
-	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,156 +15,235 @@ import (
 )
 
 const (
-	// claudeDefaultBase is used when ~/.claude/settings.json has no
-	// ANTHROPIC_BASE_URL. This host is directly reachable (it is in no_proxy),
-	// so the Claude requests never go through a proxy.
-	claudeDefaultBase     = "https://9mwkeekm.fn.sinf.net"
-	claudeSettingsRelPath = ".claude/settings.json"
-	claudeRetries         = 3
+	claudeUsageURL          = "https://api.anthropic.com/api/oauth/usage"
+	claudeOAuthBeta         = "oauth-2025-04-20"
+	claudeSessionWindowSecs = int64(5 * 60 * 60)
+	claudeWeeklyWindowSecs  = int64(7 * 24 * 60 * 60)
+	claudeUsageMaxAttempts  = 3
+	claudeRetryDelayCap     = 5 * time.Second
 )
 
-type claudeSettingsFile struct {
-	Env struct {
-		AuthToken string `json:"ANTHROPIC_AUTH_TOKEN"`
-		BaseURL   string `json:"ANTHROPIC_BASE_URL"`
-	} `json:"env"`
+type claudeCodeCredentials struct {
+	ClaudeAIOAuth struct {
+		AccessToken      any `json:"accessToken"`
+		SubscriptionType any `json:"subscriptionType"`
+		RateLimitTier    any `json:"rateLimitTier"`
+	} `json:"claudeAiOauth"`
+}
+
+type claudeUsageWindow struct {
+	Utilization *float64 `json:"utilization"`
+	ResetsAt    string   `json:"resets_at"`
 }
 
 type claudeUsageResp struct {
-	Date  string `json:"date"`
-	Users []struct {
-		Name      string  `json:"name"`
-		KeySuffix string  `json:"key_suffix"`
-		Cost      float64 `json:"cost"`
-	} `json:"users"`
+	FiveHour     *claudeUsageWindow `json:"five_hour"`
+	SevenDay     *claudeUsageWindow `json:"seven_day"`
+	SevenDayOpus *claudeUsageWindow `json:"seven_day_opus"`
+	Limits       []struct {
+		Kind     string   `json:"kind"`
+		Percent  *float64 `json:"percent"`
+		ResetsAt string   `json:"resets_at"`
+		Scope    *struct {
+			Model *struct {
+				ID          *string `json:"id"`
+				DisplayName *string `json:"display_name"`
+			} `json:"model"`
+		} `json:"scope"`
+	} `json:"limits"`
+	ExtraUsage *model.ClaudeExtraUsage `json:"extra_usage"`
 }
 
+// ClaudeUsage reads Claude Code's own OAuth credentials and queries Anthropic's
+// public usage endpoint. It does not consult any custom API base configured for
+// model traffic, so it works for regular Claude Code accounts on macOS, Linux,
+// and Windows.
 func (s *serviceImpl) ClaudeUsage(ctx context.Context) (*model.ClaudeUsage, error) {
-	// Fetch the Claude CLI version in parallel so it adds no serial latency.
-	verCh := s.claudeVersionAsync(ctx)
-
-	home, err := os.UserHomeDir()
+	credentials, source, err := readClaudeCodeCredentials(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("get home dir failed: %w", err)
+		return nil, err
 	}
-	settingsPath := filepath.Join(home, claudeSettingsRelPath)
-	raw, err := os.ReadFile(settingsPath)
-	if err != nil {
-		return nil, fmt.Errorf("read %s failed: %w", settingsPath, err)
-	}
-	var cs claudeSettingsFile
-	if err := json.Unmarshal(raw, &cs); err != nil {
-		return nil, fmt.Errorf("parse %s failed: %w", settingsPath, err)
-	}
-	token := cs.Env.AuthToken
+	token, _ := credentials.ClaudeAIOAuth.AccessToken.(string)
+	token = strings.TrimSpace(token)
 	if token == "" {
-		return nil, fmt.Errorf("%s: env.ANTHROPIC_AUTH_TOKEN is empty", settingsPath)
-	}
-	suffix := token
-	if len(token) > 8 {
-		suffix = token[len(token)-8:]
-	}
-	base := cs.Env.BaseURL
-	if base == "" {
-		base = claudeDefaultBase
+		return nil, fmt.Errorf("Claude Code OAuth access token is missing in %s; run 'claude' to sign in", source)
 	}
 
-	// Direct client (no proxy): explicitly disable proxy so a global proxy
-	// setting in the process env can't misroute it. Force IPv6 because the sinf IPv4
-	// load-balancer path intermittently stalls during the TLS handshake.
-	dialer := &net.Dialer{}
+	verCh := s.claudeVersionAsync(ctx)
 	client := &http.Client{
-		Timeout: 15 * time.Second,
-		Transport: &http.Transport{
-			Proxy: nil,
-			DialContext: func(ctx context.Context, _ string, address string) (net.Conn, error) {
-				return dialer.DialContext(ctx, "tcp6", address)
-			},
-		},
+		Timeout:   15 * time.Second,
+		Transport: proxyTransport(s.effectiveACPEnv("claude")),
+	}
+	body, err := fetchClaudeUsage(ctx, client, token)
+	if err != nil {
+		return nil, err
 	}
 
-	total, err := s.claudeCost(ctx, client, base, suffix, "")
-	if err != nil {
-		return nil, fmt.Errorf("query total usage failed: %w", err)
-	}
-	// The claude_code daily usage buckets are keyed by UTC date, so "today"
-	// must be computed in UTC. Using local time (UTC+8) would query tomorrow's
-	// empty bucket during the 00:00–08:00 local window and report $0.
-	today := time.Now().UTC().Format("2006-01-02")
-	todayCost, err := s.claudeCost(ctx, client, base, suffix, today)
-	if err != nil {
-		return nil, fmt.Errorf("query today usage failed: %w", err)
-	}
-
+	now := time.Now()
 	return &model.ClaudeUsage{
-		Name:      total.name,
-		KeySuffix: suffix,
-		Version:   <-verCh,
-		TodayCost: todayCost.cost,
-		TotalCost: total.cost,
+		PlanType:      claudeCredentialString(credentials.ClaudeAIOAuth.SubscriptionType),
+		RateLimitTier: claudeCredentialString(credentials.ClaudeAIOAuth.RateLimitTier),
+		Version:       <-verCh,
+		FiveHour:      convertClaudeWindow(body.FiveHour, claudeSessionWindowSecs, now),
+		SevenDay:      convertClaudeWindow(body.SevenDay, claudeWeeklyWindowSecs, now),
+		SevenDayOpus:  convertClaudeWindow(body.SevenDayOpus, claudeWeeklyWindowSecs, now),
+		WeeklyScoped:  convertClaudeScopedWindows(body, now),
+		ExtraUsage:    body.ExtraUsage,
 	}, nil
 }
 
-type claudeCostResult struct {
-	name string
-	cost float64
+func claudeCredentialString(value any) string {
+	switch value := value.(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case float64:
+		return strings.TrimSpace(fmt.Sprint(value))
+	case bool:
+		return fmt.Sprint(value)
+	default:
+		return ""
+	}
 }
 
-// claudeCost fetches one usage view and returns the current key's row. When
-// date is empty it queries type=total; otherwise type=claude_code for that
-// date. The endpoint occasionally times out, so it retries.
-func (s *serviceImpl) claudeCost(ctx context.Context, client *http.Client, base, suffix, date string) (claudeCostResult, error) {
-	q := url.Values{}
-	if date == "" {
-		q.Set("type", "total")
-	} else {
-		q.Set("type", "claude_code")
-		q.Set("date", date)
-	}
-	endpoint := base + "/v1/usage?" + q.Encode()
-
-	var lastErr error
-	for attempt := 1; attempt <= claudeRetries; attempt++ {
-		res, err := s.fetchClaudeUsage(ctx, client, endpoint)
-		if err == nil {
-			for _, u := range res.Users {
-				if u.KeySuffix == suffix {
-					return claudeCostResult{name: u.Name, cost: u.Cost}, nil
-				}
-			}
-			// No matching key: not an error worth retrying — the token simply
-			// isn't tracked by this usage backend. Report zero with the empty
-			// name so the UI still renders.
-			return claudeCostResult{}, nil
+func fetchClaudeUsage(ctx context.Context, client *http.Client, token string) (*claudeUsageResp, error) {
+	for attempt := 1; attempt <= claudeUsageMaxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, claudeUsageURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("build Claude OAuth usage request failed: %w", err)
 		}
-		lastErr = err
-		logger.Warnf(ctx, "[agent.usage] claude usage attempt %d/%d failed: %v", attempt, claudeRetries, err)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("anthropic-beta", claudeOAuthBeta)
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("request Claude OAuth usage failed: %w", err)
+		}
+		body, readErr := readAllLimited(resp)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read Claude OAuth usage response failed: %w", readErr)
+		}
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var usage claudeUsageResp
+			if err := json.Unmarshal(body, &usage); err != nil {
+				return nil, fmt.Errorf("parse Claude OAuth usage response failed: %w (body: %s)", err, string(body))
+			}
+			return &usage, nil
+		}
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, fmt.Errorf("Claude Code OAuth token expired; run 'claude' to sign in again (HTTP %d: %s)", resp.StatusCode, string(body))
+		}
+
+		delay, serverDelay := claudeRetryDelay(resp.Header.Get("Retry-After"), attempt, time.Now())
+		// Do not hammer a 429: Claude's usage endpoint has a shared budget with
+		// Claude Code itself, and immediate retries can extend the cooldown. A
+		// short 503 is safe to retry; long server-directed delays are surfaced.
+		retryable := resp.StatusCode == http.StatusServiceUnavailable
+		if !retryable || attempt == claudeUsageMaxAttempts || delay > claudeRetryDelayCap {
+			retrySuffix := ""
+			if serverDelay {
+				retrySuffix = fmt.Sprintf("; Retry-After=%s", resp.Header.Get("Retry-After"))
+			}
+			return nil, fmt.Errorf("Claude OAuth usage returned HTTP %d%s: %s", resp.StatusCode, retrySuffix, string(body))
+		}
+		if err := waitClaudeRetry(ctx, delay); err != nil {
+			return nil, fmt.Errorf("wait to retry Claude OAuth usage after HTTP %d failed: %w", resp.StatusCode, err)
+		}
 	}
-	return claudeCostResult{}, lastErr
+	return nil, fmt.Errorf("Claude OAuth usage request exhausted all attempts")
 }
 
-func (s *serviceImpl) fetchClaudeUsage(ctx context.Context, client *http.Client, endpoint string) (*claudeUsageResp, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, err
+func claudeRetryDelay(retryAfter string, attempt int, now time.Time) (time.Duration, bool) {
+	retryAfter = strings.TrimSpace(retryAfter)
+	if seconds, err := strconv.ParseInt(retryAfter, 10, 64); err == nil && seconds >= 0 {
+		return time.Duration(seconds) * time.Second, true
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
+	if at, err := http.ParseTime(retryAfter); err == nil {
+		return max(0, at.Sub(now)), true
 	}
-	defer resp.Body.Close()
-	body, _ := readAllLimited(resp)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-	var u claudeUsageResp
-	if err := json.Unmarshal(body, &u); err != nil {
-		return nil, fmt.Errorf("parse usage response failed: %w (body: %s)", err, string(body))
-	}
-	return &u, nil
+	return time.Duration(attempt) * 1500 * time.Millisecond, false
 }
 
-// claudeVersionAsync runs the version probe in parallel with the usage calls.
+func waitClaudeRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func convertClaudeWindow(window *claudeUsageWindow, durationSeconds int64, now time.Time) *model.UsageWindow {
+	if window == nil || window.Utilization == nil {
+		return nil
+	}
+	usedPercent := max(0, min(100, *window.Utilization))
+	resetAt := parseClaudeResetAt(window.ResetsAt)
+	resetAfter := int64(0)
+	if resetAt > now.Unix() {
+		resetAfter = resetAt - now.Unix()
+	}
+	return &model.UsageWindow{
+		UsedPercent:        usedPercent,
+		LimitWindowSeconds: durationSeconds,
+		ResetAfterSeconds:  resetAfter,
+		ResetAt:            resetAt,
+	}
+}
+
+func convertClaudeScopedWindows(body *claudeUsageResp, now time.Time) []model.ClaudeScopedUsageWindow {
+	if body == nil {
+		return nil
+	}
+	out := make([]model.ClaudeScopedUsageWindow, 0)
+	seen := make(map[string]bool)
+	for _, limit := range body.Limits {
+		if limit.Kind != "weekly_scoped" || limit.Percent == nil || limit.Scope == nil || limit.Scope.Model == nil {
+			continue
+		}
+		label := firstNonEmpty(pointerString(limit.Scope.Model.DisplayName), pointerString(limit.Scope.Model.ID))
+		if label == "" {
+			continue
+		}
+		if body.SevenDayOpus != nil && strings.EqualFold(label, "opus") {
+			continue
+		}
+		key := strings.ToLower(label)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		window := convertClaudeWindow(&claudeUsageWindow{
+			Utilization: limit.Percent,
+			ResetsAt:    limit.ResetsAt,
+		}, claudeWeeklyWindowSecs, now)
+		if window == nil {
+			continue
+		}
+		out = append(out, model.ClaudeScopedUsageWindow{Label: label, UsageWindow: *window})
+	}
+	return out
+}
+
+func pointerString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
+func parseClaudeResetAt(value string) int64 {
+	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value))
+	if err != nil {
+		return 0
+	}
+	return parsed.Unix()
+}
+
+// claudeVersionAsync runs the version probe in parallel with the usage call.
 func (s *serviceImpl) claudeVersionAsync(ctx context.Context) <-chan string {
 	ch := make(chan string, 1)
 	go func() { ch <- s.claudeVersion(ctx) }()

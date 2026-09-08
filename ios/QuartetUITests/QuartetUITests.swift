@@ -439,8 +439,8 @@ final class QuartetUITests: XCTestCase {
         for _ in 0..<3 where !agentUsage.exists { app.swipeUp() }
         XCTAssertTrue(agentUsage.waitForExistence(timeout: 2))
         XCTAssertTrue(app.staticTexts["Agent 版本与套餐"].exists)
-        XCTAssertTrue(app.staticTexts["Codex"].exists)
-        XCTAssertTrue(app.staticTexts["Plus"].exists)
+        XCTAssertTrue(app.staticTexts["Claude"].exists)
+        XCTAssertTrue(app.staticTexts["Max"].exists)
         let trend = app.otherElements["stats-trend"]
         for _ in 0..<3 where !trend.exists { app.swipeUp() }
         XCTAssertTrue(trend.waitForExistence(timeout: 2))

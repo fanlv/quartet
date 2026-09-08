@@ -1,5 +1,5 @@
-// Agent subscription / quota info shown on the Home page for the Codex and
-// Claude ACP agents. Fetched fresh on every agent-type switch.
+// Agent subscription / quota info shown on the Home page for supported ACP
+// agents. Fetched fresh on every agent-type switch.
 
 export interface UsageWindow {
   used_percent: number;
@@ -20,11 +20,19 @@ export interface CodexUsage {
 }
 
 export interface ClaudeUsage {
-  name?: string;
-  key_suffix?: string;
+  plan_type?: string;
+  rate_limit_tier?: string;
   version?: string; // e.g. "v2.1.202"
-  today_cost: number;
-  total_cost: number;
+  five_hour?: UsageWindow;
+  seven_day?: UsageWindow;
+  seven_day_opus?: UsageWindow;
+  weekly_scoped?: Array<UsageWindow & { label: string }>;
+  extra_usage?: {
+    is_enabled: boolean;
+    monthly_limit?: number;
+    used_credits?: number;
+    currency?: string;
+  };
 }
 
 // Antigravity (agy) plan snapshot: the agy CLI version plus the two model
@@ -68,20 +76,20 @@ export interface QoderUsage {
 
 export type AgentUsageProvider = 'codex' | 'claude' | 'antigravity' | 'kimi' | 'qoder';
 
-// agentUsageProvider maps a selected agent to a usage provider, or null when
-// the agent has no quota view. ACP agent `type` is the full serve
-// command (e.g. "codex-acp", "antigravity-acp"), so match on the command and
-// display name together.
+// agentUsageProvider maps a selected built-in agent to a usage provider, or
+// null when the agent has no quota view. Match only stable built-in IDs and
+// declared historical commands: display names are user-controlled for custom
+// agents and must never opt them into another account's quota data.
 export function agentUsageProvider(
   agentType?: string,
-  displayName?: string,
+  _displayName?: string,
 ): AgentUsageProvider | null {
-  const s = `${agentType || ''} ${displayName || ''}`.toLowerCase();
-  if (s.includes('antigravity')) return 'antigravity';
-  if (s.includes('codex')) return 'codex';
-  if (s.includes('claude')) return 'claude';
-  if (s.includes('qoder') || s.includes('qcode')) return 'qoder';
-  if (s.includes('kimi')) return 'kimi';
+  const command = (agentType || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  if (['antigravity', 'agy', 'antigravity-acp'].includes(command)) return 'antigravity';
+  if (['codex', 'codex-acp', 'npx @agentclientprotocol/codex-acp', 'npx @zed-industries/codex-acp'].includes(command)) return 'codex';
+  if (['claude', 'claude-agent-acp', 'npx @agentclientprotocol/claude-agent-acp'].includes(command)) return 'claude';
+  if (['qoderclicn', 'qoderclicn --acp', 'qwen', 'qwen --acp'].includes(command)) return 'qoder';
+  if (['kimi', 'kimi acp'].includes(command)) return 'kimi';
   return null;
 }
 
@@ -93,20 +101,50 @@ export interface AgentUsagePayload {
   qoder?: QoderUsage;
 }
 
+async function readJSONResponse(response: Response, operation: string): Promise<Record<string, unknown>> {
+  const body = await response.text();
+  let data: Record<string, unknown> | null = null;
+  if (body) {
+    try {
+      const parsed: unknown = JSON.parse(body);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        data = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // The raw response remains part of the error below.
+    }
+  }
+  if (!response.ok || data?.code !== 0) {
+    const detail = body || '(empty response body)';
+    throw new Error(`${operation} failed (HTTP ${response.status}): ${detail}`);
+  }
+  if (!data) {
+    throw new Error(`${operation} returned invalid JSON (HTTP ${response.status}): ${body || '(empty response body)'}`);
+  }
+  return data;
+}
+
 export async function fetchAgentUsage(provider: AgentUsageProvider): Promise<AgentUsagePayload> {
   // `cache: 'no-store'` is required: this quota reading changes continuously
   // (Codex windows especially), so a browser/intermediary HTTP-cache hit
   // would serve an old snapshot and — since the result is re-written to the
   // localStorage cache — make the stale value stick across refreshes.
-  const res = await fetch(`/api/v1/agent/usage?type=${provider}`, { cache: 'no-store' });
-  const data = await res.json().catch(() => null);
-  if (!res.ok || !data || data.code !== 0) {
-    const msg =
-      (data && (data.msg || data.message || data.error)) ||
-      `get agent usage failed (status ${res.status})`;
-    throw new Error(msg);
+  const url = `/api/v1/agent/usage?type=${provider}`;
+  const operation = `GET ${new URL(url, window.location.href).toString()}`;
+  let res: Response;
+  try {
+    res = await fetch(url, { cache: 'no-store' });
+  } catch (error) {
+    throw new Error(`${operation} failed: ${error instanceof Error ? error.message : String(error)}`);
   }
-  return { codex: data.codex, claude: data.claude, antigravity: data.antigravity, kimi: data.kimi, qoder: data.qoder };
+  const data = await readJSONResponse(res, operation);
+  return {
+    codex: data.codex as CodexUsage | undefined,
+    claude: data.claude as ClaudeUsage | undefined,
+    antigravity: data.antigravity as AntigravityUsage | undefined,
+    kimi: data.kimi as KimiUsage | undefined,
+    qoder: data.qoder as QoderUsage | undefined,
+  };
 }
 
 // fetchAgentVersion returns the installed CLI version of a known ACP agent
@@ -115,16 +153,15 @@ export async function fetchAgentUsage(provider: AgentUsageProvider): Promise<Age
 // the command to a binary and runs `<bin> --version`. Returns "" when the agent
 // advertises no parseable version; throws on request / unknown-command errors.
 export async function fetchAgentVersion(command: string): Promise<string> {
-  const res = await fetch(`/api/v1/agent/version?command=${encodeURIComponent(command)}`, {
-    cache: 'no-store',
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok || !data || data.code !== 0) {
-    const msg =
-      (data && (data.msg || data.message || data.error)) ||
-      `get agent version failed (status ${res.status})`;
-    throw new Error(msg);
+  const url = `/api/v1/agent/version?command=${encodeURIComponent(command)}`;
+  const operation = `GET ${new URL(url, window.location.href).toString()}`;
+  let res: Response;
+  try {
+    res = await fetch(url, { cache: 'no-store' });
+  } catch (error) {
+    throw new Error(`${operation} failed: ${error instanceof Error ? error.message : String(error)}`);
   }
+  const data = await readJSONResponse(res, operation);
   return typeof data.version === 'string' ? data.version : '';
 }
 

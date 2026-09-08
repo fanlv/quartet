@@ -55,14 +55,25 @@ enum AgentUsageProvider: String {
     case kimi
     case qoder
 
-    static func resolve(command: String, displayName: String) -> Self? {
-        let candidate = "\(command) \(displayName)".lowercased()
-        if candidate.contains("antigravity") { return .antigravity }
-        if candidate.contains("codex") { return .codex }
-        if candidate.contains("claude") { return .claude }
-        if candidate.contains("qoder") || candidate.contains("qcode") { return .qoder }
-        if candidate.contains("kimi") { return .kimi }
-        return nil
+    /// Only stable built-in IDs and declared historical commands participate.
+    /// A custom display name such as "Claude Reviewer" must not expose the
+    /// machine owner's Claude account quota on that custom Agent's row.
+    static func resolve(command: String, displayName _: String) -> Self? {
+        let normalized = command
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .lowercased()
+        switch normalized {
+        case "antigravity", "agy", "antigravity-acp": return .antigravity
+        case "codex", "codex-acp",
+             "npx @agentclientprotocol/codex-acp",
+             "npx @zed-industries/codex-acp": return .codex
+        case "claude", "claude-agent-acp",
+             "npx @agentclientprotocol/claude-agent-acp": return .claude
+        case "qoderclicn", "qoderclicn --acp", "qwen", "qwen --acp": return .qoder
+        case "kimi", "kimi acp": return .kimi
+        default: return nil
+        }
     }
 }
 
@@ -118,8 +129,6 @@ extension AgentUsageWindow {
 
 /// 用量数字的统一格式化入口。
 enum AgentUsageFormat {
-    static func money(_ value: Double) -> String { String(format: "$%.2f", value) }
-
     static func credits(_ value: Double) -> String {
         value.rounded() == value ? String(Int64(value)) : String(format: "%.1f", value)
     }
@@ -211,6 +220,7 @@ final class AgentUsageSummaryStore: ObservableObject {
     private var lastProbedAt: [String: Date] = [:]
     private var inFlight: Set<String> = []
     private var namespace = ""
+    private var generation: UInt64 = 0
 
     /// 弹窗打开时调用：先把本地缓存补进内存，再刷新过期的命令。
     /// 请求失败不占用节流窗口，所以“重试”就是再调一次本方法。
@@ -219,41 +229,53 @@ final class AgentUsageSummaryStore: ObservableObject {
     }
 
     func load(targets: [AgentUsageProbeTarget], model: AppModel, force: Bool = false) async {
+        let requestNamespace = model.serverAddress
+        if requestNamespace != namespace {
+            namespace = requestNamespace
+            generation &+= 1
+            entries = [:]
+            lastProbedAt = [:]
+            inFlight = []
+        }
         guard !targets.isEmpty else { return }
+        let requestGeneration = generation
         if model.isRunningUITests {
             applyUITestStub(targets: targets)
             return
         }
+        restoreCache(targets)
         let client: APIClient
         do {
             client = try model.apiClient()
         } catch {
+            guard requestGeneration == generation, requestNamespace == namespace else { return }
             // 服务地址本身不可用：错误直接落到对应行上，用户能看到全文也能点重试。
             recordFailure(targets: targets, error: error)
             return
         }
-        await refresh(targets: targets, namespace: model.serverAddress, client: client, force: force)
+        await refresh(
+            targets: targets,
+            namespace: requestNamespace,
+            generation: requestGeneration,
+            client: client,
+            force: force
+        )
     }
 
     private func refresh(
         targets: [AgentUsageProbeTarget],
         namespace: String,
+        generation: UInt64,
         client: APIClient,
         force: Bool
     ) async {
-        if namespace != self.namespace {
-            self.namespace = namespace
-            entries = [:]
-            lastProbedAt = [:]
-        }
-
-        restoreCache(targets)
+        guard generation == self.generation, namespace == self.namespace else { return }
 
         let jobs = plannedJobs(targets, force: force)
         guard !jobs.isEmpty else { return }
         beginProbing(jobs)
-        defer { endProbing(jobs) }
-        await runProbes(jobs, client: client)
+        defer { endProbing(jobs, generation: generation, namespace: namespace) }
+        await runProbes(jobs, client: client, generation: generation, namespace: namespace)
     }
 
     private func recordFailure(targets: [AgentUsageProbeTarget], error: Error) {
@@ -270,7 +292,7 @@ final class AgentUsageSummaryStore: ObservableObject {
 
     /// UI 测试不打真实后端：为套餐型 Agent 塞入完整用量，其余 Agent 提供占位版本号。
     private func applyUITestStub(targets: [AgentUsageProbeTarget]) {
-        for target in targets where entries[target.command] == nil {
+        for target in targets {
             guard let provider = AgentUsageProvider.resolve(
                 command: target.command,
                 displayName: target.displayName
@@ -318,8 +340,9 @@ final class AgentUsageSummaryStore: ObservableObject {
             AgentUsageResponse(
                 code: 0, type: provider.rawValue, codex: nil,
                 claude: ClaudeAgentUsage(
-                    name: "Quartet", keySuffix: "8K2P", version: "v2.1.202",
-                    todayCost: 3.42, totalCost: 86.75
+                    planType: "max", rateLimitTier: "tier-1", version: "v2.1.202",
+                    fiveHour: fiveHours, sevenDay: sevenDays, sevenDayOpus: nil,
+                    weeklyScoped: nil, extraUsage: nil
                 ),
                 antigravity: nil, kimi: nil, qoder: nil
             )
@@ -460,7 +483,8 @@ final class AgentUsageSummaryStore: ObservableObject {
         }
     }
 
-    private func endProbing(_ jobs: [ProbeJob]) {
+    private func endProbing(_ jobs: [ProbeJob], generation: UInt64, namespace: String) {
+        guard generation == self.generation, namespace == self.namespace else { return }
         for command in jobs.flatMap(\.commands) {
             inFlight.remove(command)
             guard var entry = entries[command] else { continue }
@@ -469,7 +493,12 @@ final class AgentUsageSummaryStore: ObservableObject {
         }
     }
 
-    private func runProbes(_ jobs: [ProbeJob], client: APIClient) async {
+    private func runProbes(
+        _ jobs: [ProbeJob],
+        client: APIClient,
+        generation: UInt64,
+        namespace: String
+    ) async {
         var next = 0
         await withTaskGroup(of: ProbeResult.self) { group in
             while next < jobs.count, next < Self.maxConcurrentProbes {
@@ -478,7 +507,11 @@ final class AgentUsageSummaryStore: ObservableObject {
                 next += 1
             }
             while let result = await group.next() {
-                apply(result)
+                guard generation == self.generation, namespace == self.namespace else {
+                    group.cancelAll()
+                    return
+                }
+                apply(result, namespace: namespace)
                 guard !Task.isCancelled, next < jobs.count else { continue }
                 let job = jobs[next]
                 group.addTask { await Self.probe(job: job, client: client) }
@@ -490,8 +523,18 @@ final class AgentUsageSummaryStore: ObservableObject {
     private nonisolated static func probe(job: ProbeJob, client: APIClient) async -> ProbeResult {
         do {
             if let provider = job.provider {
-                let response = try await client.agentUsage(provider: provider.rawValue)
-                return ProbeResult(job: job, usage: response, version: nil, failure: nil)
+                do {
+                    let response = try await client.agentUsage(provider: provider.rawValue)
+                    return ProbeResult(job: job, usage: response, version: nil, failure: nil)
+                } catch {
+                    // Quota access can fail independently (expired OAuth, provider
+                    // outage). Still ask the lightweight version endpoint so the
+                    // Agent row keeps its useful local-version information.
+                    let version = try? await client.agentVersion(command: job.versionCommand).version
+                    let failure = (error as? APIError)
+                        ?? APIError(summary: "Agent 用量加载失败", detail: String(describing: error))
+                    return ProbeResult(job: job, usage: nil, version: version, failure: failure)
+                }
             }
             let response = try await client.agentVersion(command: job.versionCommand)
             return ProbeResult(
@@ -512,7 +555,7 @@ final class AgentUsageSummaryStore: ObservableObject {
         }
     }
 
-    private func apply(_ result: ProbeResult) {
+    private func apply(_ result: ProbeResult, namespace: String) {
         for command in result.job.commands {
             var entry = entries[command] ?? Entry()
             entry.loading = false
@@ -549,8 +592,12 @@ final class AgentUsageSummaryStore: ObservableObject {
         case .claude:
             guard let value = usage.claude else { return [] }
             var parts = [AgentUsageFormat.trimmed(value.version)].compactMap { $0 }
-            parts.append("Today \(AgentUsageFormat.money(value.todayCost))")
-            parts.append("Sum \(AgentUsageFormat.money(value.totalCost))")
+            if let window = value.fiveHour { parts.append(window.usageLabel) }
+            if let window = value.sevenDay { parts.append(window.usageLabel) }
+            if let window = value.sevenDayOpus { parts.append("Opus \(window.percentLabel)") }
+            for window in value.weeklyScoped ?? [] {
+                parts.append("\(window.label) \(window.percentLabel)")
+            }
             return parts
         case .antigravity:
             guard let value = usage.antigravity else { return [] }
@@ -730,8 +777,21 @@ struct AgentUsageStrip: View {
             case .qoder:
                 if let value = usage.qoder { qoderContent(value) }
             }
+            if usageVersion(provider: provider, usage: usage) == nil, !version.isEmpty {
+                versionLabel(version)
+            }
         } else if !version.isEmpty {
             versionLabel(version)
+        }
+    }
+
+    private func usageVersion(provider: AgentUsageProvider, usage: AgentUsageResponse) -> String? {
+        switch provider {
+        case .codex: return displayValue(usage.codex?.version)
+        case .claude: return displayValue(usage.claude?.version)
+        case .antigravity: return displayValue(usage.antigravity?.version)
+        case .kimi: return displayValue(usage.kimi?.version)
+        case .qoder: return displayValue(usage.qoder?.version)
         }
     }
 
@@ -755,8 +815,12 @@ struct AgentUsageStrip: View {
     private func claudeContent(_ value: ClaudeAgentUsage) -> some View {
         Group {
             if let version = displayValue(value.version) { versionLabel(version) }
-            usageMetric(icon: "calendar", text: money(value.todayCost), emphasis: QuartetTheme.running, label: "今日花费 \(money(value.todayCost))")
-            usageMetric(icon: "sum", text: money(value.totalCost), emphasis: QuartetTheme.primaryText, label: "累计花费 \(money(value.totalCost))")
+            if let window = value.fiveHour { usageRing(label: "5h", window: window) }
+            if let window = value.sevenDay { usageRing(label: "7d", window: window) }
+            if let window = value.sevenDayOpus { usageRing(label: "Opus", window: window) }
+            ForEach(Array((value.weeklyScoped ?? []).enumerated()), id: \.offset) { _, window in
+                usageRing(label: window.label, window: window.window)
+            }
         }
     }
 
@@ -851,20 +915,6 @@ struct AgentUsageStrip: View {
             .accessibilityLabel("Agent 版本 \(value)")
     }
 
-    private func usageMetric(icon: String, text: String, emphasis: Color, label: String) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: icon)
-                .font(.chat(.detail, weight: .medium))
-            Text(text)
-                .font(.chat(.detail, weight: .bold, design: .monospaced))
-                .foregroundStyle(emphasis)
-        }
-        .font(.chat(.detail, design: .monospaced))
-        .foregroundStyle(QuartetTheme.secondaryText)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(label)
-    }
-
     private func antigravityQuotaGroup(
         name: String,
         windows: [(String, AgentUsageWindow?)]
@@ -943,13 +993,16 @@ struct AgentUsageStrip: View {
     }
 
     private func usageRing(label: String, window: AgentUsageWindow) -> some View {
-        usageRing(
+        let resetLines = window.resetAt > 0 || window.resetAfterSeconds > 0
+            ? ["\(formatReset(window)) \("重置".localizedForApp)"]
+            : []
+        return usageRing(
             label: label,
             percent: window.usedPercent,
             color: usageColor(window.usedPercent),
             detail: AgentUsageDetail(
                 title: "\(label) \(window.percentLabel)",
-                lines: ["\(formatReset(window)) 重置"]
+                lines: resetLines
             )
         )
     }
@@ -979,9 +1032,7 @@ struct AgentUsageStrip: View {
         usage = provider.flatMap {
             AgentUsageCache.usage(provider: $0, namespace: appModel.serverAddress)
         }
-        version = provider == nil
-            ? AgentUsageCache.version(command: command, namespace: appModel.serverAddress)
-            : ""
+        version = AgentUsageCache.version(command: command, namespace: appModel.serverAddress)
     }
 
     private func refresh() async {
@@ -1004,10 +1055,36 @@ struct AgentUsageStrip: View {
         } catch is CancellationError {
             return
         } catch let error as APIError {
+            if provider != nil {
+                do {
+                    try await refreshVersionOnly()
+                } catch is CancellationError {
+                    return
+                } catch {
+                    // The quota error remains the primary failure shown to the
+                    // user; the best-effort version fallback is supplementary.
+                }
+            }
             requestError = error
         } catch {
+            if provider != nil {
+                do {
+                    try await refreshVersionOnly()
+                } catch is CancellationError {
+                    return
+                } catch {
+                    // Keep the original quota error below.
+                }
+            }
             requestError = APIError(summary: "Agent 用量加载失败", detail: String(describing: error))
         }
+    }
+
+    private func refreshVersionOnly() async throws {
+        let response = try await appModel.apiClient().agentVersion(command: command)
+        try Task.checkCancellation()
+        version = response.version?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        AgentUsageCache.setVersion(version, command: command, namespace: appModel.serverAddress)
     }
 
     private func usageColor(_ percent: Double) -> Color {
@@ -1049,8 +1126,6 @@ struct AgentUsageStrip: View {
         let formatter = includesDate ? Self.dateTimeFormatter : Self.timeOnlyFormatter
         return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(unixSeconds)))
     }
-
-    private func money(_ value: Double) -> String { AgentUsageFormat.money(value) }
 
     private func credits(_ value: Double) -> String { AgentUsageFormat.credits(value) }
 

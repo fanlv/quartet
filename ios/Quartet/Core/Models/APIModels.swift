@@ -637,18 +637,77 @@ struct CodexAgentUsage: Codable, Hashable, Sendable {
 }
 
 struct ClaudeAgentUsage: Codable, Hashable, Sendable {
-    let name: String?
-    let keySuffix: String?
+    let planType: String?
+    let rateLimitTier: String?
     let version: String?
-    let todayCost: Double
-    let totalCost: Double
+    let fiveHour: AgentUsageWindow?
+    let sevenDay: AgentUsageWindow?
+    let sevenDayOpus: AgentUsageWindow?
+    let weeklyScoped: [ClaudeScopedAgentUsageWindow]?
+    let extraUsage: ClaudeExtraAgentUsage?
 
     enum CodingKeys: String, CodingKey {
-        case name
-        case keySuffix = "key_suffix"
+        case planType = "plan_type"
+        case rateLimitTier = "rate_limit_tier"
         case version
-        case todayCost = "today_cost"
-        case totalCost = "total_cost"
+        case fiveHour = "five_hour"
+        case sevenDay = "seven_day"
+        case sevenDayOpus = "seven_day_opus"
+        case weeklyScoped = "weekly_scoped"
+        case extraUsage = "extra_usage"
+    }
+}
+
+struct ClaudeScopedAgentUsageWindow: Codable, Hashable, Sendable {
+    let label: String
+    let usedPercent: Double
+    let limitWindowSeconds: Int64
+    let resetAfterSeconds: Int64
+    let resetAt: Int64
+
+    var window: AgentUsageWindow {
+        AgentUsageWindow(
+            usedPercent: usedPercent,
+            limitWindowSeconds: limitWindowSeconds,
+            resetAfterSeconds: resetAfterSeconds,
+            resetAt: resetAt
+        )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case label
+        case usedPercent = "used_percent"
+        case limitWindowSeconds = "limit_window_seconds"
+        case resetAfterSeconds = "reset_after_seconds"
+        case resetAt = "reset_at"
+    }
+
+    init(
+        label: String,
+        usedPercent: Double,
+        limitWindowSeconds: Int64,
+        resetAfterSeconds: Int64,
+        resetAt: Int64
+    ) {
+        self.label = label
+        self.usedPercent = usedPercent
+        self.limitWindowSeconds = limitWindowSeconds
+        self.resetAfterSeconds = resetAfterSeconds
+        self.resetAt = resetAt
+    }
+}
+
+struct ClaudeExtraAgentUsage: Codable, Hashable, Sendable {
+    let enabled: Bool
+    let monthlyLimit: Double?
+    let usedCredits: Double?
+    let currency: String?
+
+    enum CodingKeys: String, CodingKey {
+        case enabled = "is_enabled"
+        case monthlyLimit = "monthly_limit"
+        case usedCredits = "used_credits"
+        case currency
     }
 }
 

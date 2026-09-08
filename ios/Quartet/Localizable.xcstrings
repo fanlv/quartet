@@ -24,16 +24,6 @@
         }
       }
     },
-    "今日花费" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Today" }
-        },
-        "zh-Hans" : {
-          "stringUnit" : { "state" : "translated", "value" : "今日花费" }
-        }
-      }
-    },
     "到期：%@" : {
       "localizations" : {
         "en" : {
@@ -204,6 +194,26 @@
         }
       }
     },
+    "额外用量" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Extra usage" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "额外用量" }
+        }
+      }
+    },
+    "限额等级" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Rate limit tier" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "限额等级" }
+        }
+      }
+    },
     "额度已用尽" : {
       "localizations" : {
         "en" : {
@@ -211,16 +221,6 @@
         },
         "zh-Hans" : {
           "stringUnit" : { "state" : "translated", "value" : "额度已用尽" }
-        }
-      }
-    },
-    "累计花费" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Total" }
-        },
-        "zh-Hans" : {
-          "stringUnit" : { "state" : "translated", "value" : "累计花费" }
         }
       }
     },

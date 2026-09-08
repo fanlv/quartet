@@ -13,8 +13,7 @@ const maxUsageBody = 1 << 20 // 1 MiB
 
 // proxyTransport builds an http.Transport whose Proxy is taken from the given
 // ACP env map (https_proxy, falling back to http_proxy; both case variants).
-// The single Codex usage host is never in no_proxy, so the proxy always
-// applies when configured. Returns a proxy-less transport when no proxy is set.
+// Returns a proxy-less transport when no proxy is set.
 func proxyTransport(env map[string]string) *http.Transport {
 	tr := &http.Transport{}
 	proxyStr := firstNonEmpty(
