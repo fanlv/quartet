@@ -4,6 +4,246 @@
     "" : {
 
     },
+    "Agent 列表加载失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Failed to Load Agent List" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "Agent 列表加载失败" }
+        }
+      }
+    },
+    "Agent 版本与套餐" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Agent Versions & Plans" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "Agent 版本与套餐" }
+        }
+      }
+    },
+    "今日花费" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Today" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "今日花费" }
+        }
+      }
+    },
+    "到期：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Expires: %@" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "到期：%@" }
+        }
+      }
+    },
+    "剩余" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Remaining" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "剩余" }
+        }
+      }
+    },
+    "套餐" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Plan" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "套餐" }
+        }
+      }
+    },
+    "并发上限" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Concurrency limit" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "并发上限" }
+        }
+      }
+    },
+    "当前账号缺少 agent.read 权限。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "The current account does not have agent.read permission." }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "当前账号缺少 agent.read 权限。" }
+        }
+      }
+    },
+    "查看完整错误" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "View Full Error" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "查看完整错误" }
+        }
+      }
+    },
+    "此 Agent 仅提供版本信息。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Only version information is available for this Agent." }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "此 Agent 仅提供版本信息。" }
+        }
+      }
+    },
+    "未返回可用的套餐数据。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "No plan data was returned." }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "未返回可用的套餐数据。" }
+        }
+      }
+    },
+    "未检测到已安装的 Agent。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "No installed Agents were detected." }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "未检测到已安装的 Agent。" }
+        }
+      }
+    },
+    "未检测到版本或套餐信息。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "No version or plan information was detected." }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "未检测到版本或套餐信息。" }
+        }
+      }
+    },
+    "查看本机 Agent 的版本、套餐和当前额度。用量来自各服务商的实时数据。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "View local Agent versions, plans, and current quotas. Usage comes from live provider data." }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "查看本机 Agent 的版本、套餐和当前额度。用量来自各服务商的实时数据。" }
+        }
+      }
+    },
+    "正在读取 Agent 信息…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Loading Agent information…" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "正在读取 Agent 信息…" }
+        }
+      }
+    },
+    "版本" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Version" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "版本" }
+        }
+      }
+    },
+    "账号" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Account" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "账号" }
+        }
+      }
+    },
+    "重置于 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Resets at %@" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "重置于 %@" }
+        }
+      }
+    },
+    "重置额度" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Reset credits" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "重置额度" }
+        }
+      }
+    },
+    "额度" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Quota" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "额度" }
+        }
+      }
+    },
+    "额度已用尽" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Quota exhausted" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "额度已用尽" }
+        }
+      }
+    },
+    "累计花费" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Total" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "累计花费" }
+        }
+      }
+    },
+    "累计额度" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Total quota" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "累计额度" }
+        }
+      }
+    },
+    "刷新失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Refresh failed" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "刷新失败" }
+        }
+      }
+    },
     " " : {
 
     },

@@ -214,11 +214,11 @@ final class AgentUsageSummaryStore: ObservableObject {
 
     /// 弹窗打开时调用：先把本地缓存补进内存，再刷新过期的命令。
     /// 请求失败不占用节流窗口，所以“重试”就是再调一次本方法。
-    func load(agents: [AgentSummary], model: AppModel) async {
-        await load(targets: AgentUsageProbeTarget.targets(agents), model: model)
+    func load(agents: [AgentSummary], model: AppModel, force: Bool = false) async {
+        await load(targets: AgentUsageProbeTarget.targets(agents), model: model, force: force)
     }
 
-    func load(targets: [AgentUsageProbeTarget], model: AppModel) async {
+    func load(targets: [AgentUsageProbeTarget], model: AppModel, force: Bool = false) async {
         guard !targets.isEmpty else { return }
         if model.isRunningUITests {
             applyUITestStub(targets: targets)
@@ -232,10 +232,15 @@ final class AgentUsageSummaryStore: ObservableObject {
             recordFailure(targets: targets, error: error)
             return
         }
-        await refresh(targets: targets, namespace: model.serverAddress, client: client)
+        await refresh(targets: targets, namespace: model.serverAddress, client: client, force: force)
     }
 
-    private func refresh(targets: [AgentUsageProbeTarget], namespace: String, client: APIClient) async {
+    private func refresh(
+        targets: [AgentUsageProbeTarget],
+        namespace: String,
+        client: APIClient,
+        force: Bool
+    ) async {
         if namespace != self.namespace {
             self.namespace = namespace
             entries = [:]
@@ -244,7 +249,7 @@ final class AgentUsageSummaryStore: ObservableObject {
 
         restoreCache(targets)
 
-        let jobs = plannedJobs(targets)
+        let jobs = plannedJobs(targets, force: force)
         guard !jobs.isEmpty else { return }
         beginProbing(jobs)
         defer { endProbing(jobs) }
@@ -263,10 +268,92 @@ final class AgentUsageSummaryStore: ObservableObject {
         }
     }
 
-    /// UI 测试不打真实后端：给每个 Agent 塞一个占位版本号，让弹窗版式和线上一致。
+    /// UI 测试不打真实后端：为套餐型 Agent 塞入完整用量，其余 Agent 提供占位版本号。
     private func applyUITestStub(targets: [AgentUsageProbeTarget]) {
         for target in targets where entries[target.command] == nil {
-            entries[target.command] = Entry(version: "v1.0.0")
+            guard let provider = AgentUsageProvider.resolve(
+                command: target.command,
+                displayName: target.displayName
+            ) else {
+                entries[target.command] = Entry(version: "v1.0.0")
+                continue
+            }
+            let now = Int64(Date().timeIntervalSince1970)
+            let fiveHours = AgentUsageWindow(
+                usedPercent: 36, limitWindowSeconds: 18_000,
+                resetAfterSeconds: 5_400, resetAt: now + 5_400
+            )
+            let sevenDays = AgentUsageWindow(
+                usedPercent: 62, limitWindowSeconds: 604_800,
+                resetAfterSeconds: 172_800, resetAt: now + 172_800
+            )
+            let response = Self.uiTestUsage(
+                provider: provider,
+                now: now,
+                fiveHours: fiveHours,
+                sevenDays: sevenDays
+            )
+            entries[target.command] = Entry(usage: response)
+        }
+    }
+
+    private static func uiTestUsage(
+        provider: AgentUsageProvider,
+        now: Int64,
+        fiveHours: AgentUsageWindow,
+        sevenDays: AgentUsageWindow
+    ) -> AgentUsageResponse {
+        switch provider {
+        case .codex:
+            AgentUsageResponse(
+                code: 0, type: provider.rawValue,
+                codex: CodexAgentUsage(
+                    email: "developer@example.com", planType: "plus", version: "v0.144.0",
+                    primaryWindow: fiveHours, secondaryWindow: sevenDays, resetCredits: 2,
+                    resetCreditExpiries: [now + 259_200, now + 604_800]
+                ),
+                claude: nil, antigravity: nil, kimi: nil, qoder: nil
+            )
+        case .claude:
+            AgentUsageResponse(
+                code: 0, type: provider.rawValue, codex: nil,
+                claude: ClaudeAgentUsage(
+                    name: "Quartet", keySuffix: "8K2P", version: "v2.1.202",
+                    todayCost: 3.42, totalCost: 86.75
+                ),
+                antigravity: nil, kimi: nil, qoder: nil
+            )
+        case .antigravity:
+            AgentUsageResponse(
+                code: 0, type: provider.rawValue, codex: nil, claude: nil,
+                antigravity: AntigravityAgentUsage(
+                    version: "v1.1.1", claudeWeekly: sevenDays, claude5h: fiveHours,
+                    geminiWeekly: sevenDays, gemini5h: fiveHours
+                ),
+                kimi: nil, qoder: nil
+            )
+        case .kimi:
+            AgentUsageResponse(
+                code: 0, type: provider.rawValue, codex: nil, claude: nil, antigravity: nil,
+                kimi: KimiAgentUsage(
+                    version: "v0.1.0", parallelLimit: 4, weekly: sevenDays,
+                    fiveHour: fiveHours,
+                    total: AgentUsageWindow(
+                        usedPercent: 41, limitWindowSeconds: 0,
+                        resetAfterSeconds: 0, resetAt: 0
+                    )
+                ),
+                qoder: nil
+            )
+        case .qoder:
+            AgentUsageResponse(
+                code: 0, type: provider.rawValue, codex: nil, claude: nil, antigravity: nil, kimi: nil,
+                qoder: QoderAgentUsage(
+                    version: "v1.0.48", planType: "personal_professional_trial",
+                    unit: "credits", total: 1_000, used: 325, remaining: 675,
+                    usedPercent: 32.5, expiresAt: now + 1_209_600, quotaExceeded: false
+                )
+            )
         }
     }
 
@@ -331,7 +418,7 @@ final class AgentUsageSummaryStore: ObservableObject {
     }
 
     /// 按 provider（没有 provider 时按命令）分组，只保留还需要刷新的那几组。
-    private func plannedJobs(_ targets: [AgentUsageProbeTarget]) -> [ProbeJob] {
+    private func plannedJobs(_ targets: [AgentUsageProbeTarget], force: Bool) -> [ProbeJob] {
         var keys: [String] = []
         var providers: [String: AgentUsageProvider?] = [:]
         var commands: [String: [String]] = [:]
@@ -352,7 +439,7 @@ final class AgentUsageSummaryStore: ObservableObject {
         return keys.compactMap { key in
             guard let list = commands[key], !list.isEmpty else { return nil }
             guard !list.contains(where: inFlight.contains) else { return nil }
-            guard list.contains(where: isDue) else { return nil }
+            guard force || list.contains(where: isDue) else { return nil }
             return ProbeJob(provider: providers[key] ?? nil, commands: list)
         }
     }

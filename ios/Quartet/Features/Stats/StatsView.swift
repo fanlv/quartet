@@ -6,6 +6,7 @@ struct StatsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.locale) private var locale
     @Environment(\.mainTabBarInset) private var mainTabBarInset
+    @ObservedObject private var agentUsageStore = AgentUsageSummaryStore.shared
 
     @State private var preset: StatsRangePreset = .sevenDays
     @State private var customFrom = Calendar.current.date(byAdding: .day, value: -29, to: Date()) ?? Date()
@@ -16,6 +17,11 @@ struct StatsView: View {
     @State private var errorDetail: String?
     @State private var refreshRevision = 0
     @State private var requestSequence: UInt64 = 0
+    @State private var agents: [AgentSummary] = []
+    @State private var isLoadingAgentUsage = false
+    @State private var agentCatalogError: String?
+    @State private var agentRequestSequence: UInt64 = 0
+    @State private var agentNamespace = ""
 
     var body: some View {
         NavigationStack {
@@ -33,6 +39,18 @@ struct StatsView: View {
 
                     if let report, report.hasData {
                         StatsKPIGrid(report: report, periodDays: periodDays(in: report.range))
+                    }
+
+                    StatsAgentUsageCard(
+                        agents: agents,
+                        store: agentUsageStore,
+                        isLoadingCatalog: isLoadingAgentUsage,
+                        catalogError: agentCatalogError,
+                        canReadAgents: model.can("agent.read"),
+                        onRefresh: { Task { await loadAgentUsage(force: true) } }
+                    )
+
+                    if let report, report.hasData {
                         StatsTrendCard(report: report, metric: $metric)
                         StatsWorkspaceRankCard(rows: report.byWorkspace)
                         StatsModelRankCard(rows: report.byModel)
@@ -47,17 +65,23 @@ struct StatsView: View {
             .background(QuartetTheme.canvas)
             .mainTabBarBottomInset(mainTabBarInset)
             .quartetNavigationTitle("使用统计")
-            .refreshable { await loadStats() }
+            .refreshable {
+                await loadStats()
+                await loadAgentUsage(force: true)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { refreshRevision &+= 1 } label: {
-                        if isLoading {
+                    Button {
+                        refreshRevision &+= 1
+                        Task { await loadAgentUsage(force: true) }
+                    } label: {
+                        if isLoading || isLoadingAgentUsage {
                             ProgressView()
                         } else {
                             Image(systemName: "arrow.clockwise")
                         }
                     }
-                    .disabled(isLoading)
+                    .disabled(isLoading || isLoadingAgentUsage)
                     .accessibilityLabel("刷新使用统计")
                     .accessibilityIdentifier("stats-refresh")
                 }
@@ -68,6 +92,9 @@ struct StatsView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .task(id: loadKey) {
             await loadStats()
+        }
+        .task(id: model.connectionRevision) {
+            await loadAgentUsage(force: false)
         }
     }
 
@@ -214,6 +241,62 @@ struct StatsView: View {
         if sequence == requestSequence { isLoading = false }
     }
 
+    private func loadAgentUsage(force: Bool) async {
+        guard model.can("agent.read") else {
+            agents = []
+            agentCatalogError = nil
+            isLoadingAgentUsage = false
+            return
+        }
+
+        agentRequestSequence &+= 1
+        let sequence = agentRequestSequence
+        if agentNamespace != model.serverAddress {
+            agentNamespace = model.serverAddress
+            agents = []
+        }
+        if agents.isEmpty { agents = model.agentCatalogSnapshot }
+        isLoadingAgentUsage = true
+        agentCatalogError = nil
+        do {
+            let loadedAgents = try await model.agentCatalog()
+            guard !Task.isCancelled, sequence == agentRequestSequence else { return }
+            let displayAgents = usageAgents(from: loadedAgents)
+            agents = displayAgents
+            await agentUsageStore.load(agents: displayAgents, model: model, force: force)
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled, sequence == agentRequestSequence else { return }
+            agentCatalogError = agentSettingsErrorDetail(error)
+        }
+        if sequence == agentRequestSequence { isLoadingAgentUsage = false }
+    }
+
+    private func usageAgents(from loaded: [AgentSummary]) -> [AgentSummary] {
+#if DEBUG
+        guard model.isRunningUITests,
+              !loaded.contains(where: { AgentUsageProvider.resolve(command: $0.type, displayName: $0.displayName) != nil }) else {
+            return loaded
+        }
+        return loaded + [AgentSummary(
+            agentId: "codex",
+            type: "codex",
+            modelId: "gpt-5.4",
+            displayName: "Codex",
+            availability: "available",
+            available: true,
+            refreshing: false,
+            error: nil,
+            models: nil,
+            modes: nil,
+            thoughtLevels: nil
+        )]
+#else
+        return loaded
+#endif
+    }
+
     private var requestedBounds: (from: String?, to: String?) {
         if preset == .allTime { return (nil, nil) }
         if preset == .custom {
@@ -279,6 +362,572 @@ private enum StatsTrendMetric: String, CaseIterable, Identifiable {
         case .tokens: "Token"
         case .cache: "缓存"
         }
+    }
+}
+
+private struct StatsAgentUsageCard: View {
+    @Environment(\.locale) private var locale
+    @ObservedObject var store: AgentUsageSummaryStore
+
+    let agents: [AgentSummary]
+    let isLoadingCatalog: Bool
+    let catalogError: String?
+    let canReadAgents: Bool
+    let onRefresh: () -> Void
+
+    @State private var presentedError: PresentedError?
+
+    private var visibleAgents: [AgentSummary] {
+        var seen: Set<String> = []
+        return agents.filter { agent in
+            !agent.type.isEmpty && seen.insert(agent.agentId).inserted
+        }
+    }
+
+    private var isRefreshing: Bool {
+        isLoadingCatalog || visibleAgents.contains { store.entries[$0.type]?.loading == true }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Label("Agent 版本与套餐", systemImage: "gauge.with.dots.needle.33percent")
+                    .font(.quartet(.headline, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                Spacer(minLength: 8)
+                if isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(QuartetTheme.accent)
+                        .accessibilityLabel("正在获取 Agent 用量")
+                }
+                Button(action: onRefresh) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.accent)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isRefreshing || !canReadAgents)
+                .opacity(canReadAgents ? 1 : 0.45)
+                .accessibilityLabel("刷新 Agent 用量")
+                .accessibilityIdentifier("stats-agent-usage-refresh")
+            }
+            .padding(.leading, 16)
+            .padding(.trailing, 2)
+            .padding(.vertical, 6)
+
+            Text("查看本机 Agent 的版本、套餐和当前额度。用量来自各服务商的实时数据。")
+                .font(.quartet(.detail))
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 13)
+
+            Divider().overlay(QuartetTheme.divider)
+
+            if !canReadAgents {
+                statusRow(icon: "lock.fill", text: "当前账号缺少 agent.read 权限。")
+            } else if visibleAgents.isEmpty, isLoadingCatalog {
+                statusRow(icon: "arrow.triangle.2.circlepath", text: "正在读取 Agent 信息…")
+            } else if visibleAgents.isEmpty, let catalogError {
+                errorRow(detail: catalogError, title: "Agent 列表加载失败")
+            } else if visibleAgents.isEmpty {
+                statusRow(icon: "shippingbox", text: "未检测到已安装的 Agent。")
+            } else {
+                ForEach(Array(visibleAgents.enumerated()), id: \.element.agentId) { index, agent in
+                    if index > 0 {
+                        Divider()
+                            .overlay(QuartetTheme.divider)
+                            .padding(.leading, 58)
+                    }
+                    StatsAgentUsageRow(
+                        agent: agent,
+                        entry: store.entries[agent.type],
+                        locale: locale,
+                        onShowError: { presentedError = $0 }
+                    )
+                }
+
+                if let catalogError {
+                    Divider().overlay(QuartetTheme.divider)
+                    errorRow(detail: catalogError, title: "Agent 列表加载失败")
+                }
+            }
+        }
+        .statsCard(contentPadding: 0)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("stats-agent-usage")
+        .sheet(item: $presentedError) { error in
+            ErrorDetailView(error: error)
+        }
+    }
+
+    private func statusRow(icon: String, text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundStyle(QuartetTheme.secondaryText)
+            Text(text.localized(in: locale))
+                .font(.quartet(.control))
+                .foregroundStyle(QuartetTheme.secondaryText)
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+    }
+
+    private func errorRow(detail: String, title: String) -> some View {
+        Button {
+            presentedError = PresentedError(title: title, detail: detail)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(QuartetTheme.failed)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title.localized(in: locale))
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.failed)
+                    Text("查看完整错误".localized(in: locale))
+                        .font(.quartet(.detail))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.quartet(.compact, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct StatsAgentUsageRow: View {
+    let agent: AgentSummary
+    let entry: AgentUsageSummaryStore.Entry?
+    let locale: Locale
+    let onShowError: (PresentedError) -> Void
+
+    private var provider: AgentUsageProvider? {
+        AgentUsageProvider.resolve(command: agent.type, displayName: agent.displayName)
+    }
+
+    private var displayName: String {
+        agent.displayName.isEmpty ? agent.agentId : agent.displayName
+    }
+
+    private var version: String? {
+        let usageVersion: String?
+        if let provider, let usage = entry?.usage {
+            switch provider {
+            case .codex: usageVersion = AgentUsageFormat.trimmed(usage.codex?.version)
+            case .claude: usageVersion = AgentUsageFormat.trimmed(usage.claude?.version)
+            case .antigravity: usageVersion = AgentUsageFormat.trimmed(usage.antigravity?.version)
+            case .kimi: usageVersion = AgentUsageFormat.trimmed(usage.kimi?.version)
+            case .qoder: usageVersion = AgentUsageFormat.trimmed(usage.qoder?.version)
+            }
+        } else {
+            usageVersion = nil
+        }
+        if let usageVersion { return usageVersion }
+        return AgentUsageFormat.trimmed(entry?.version)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 11) {
+                Image(systemName: provider == nil ? "terminal" : "sparkles")
+                    .font(.quartet(.control, weight: .semibold))
+                    .foregroundStyle(provider == nil ? QuartetTheme.secondaryText : QuartetTheme.accent)
+                    .frame(width: 31, height: 31)
+                    .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(displayName)
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .lineLimit(1)
+                    if agent.type != displayName {
+                        Text(agent.type)
+                            .font(.quartet(.compact, design: .monospaced))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                if let version {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 4) {
+                            Text("版本".localized(in: locale))
+                            Text(version)
+                        }
+                        Text(version)
+                    }
+                    .font(.quartet(.compact, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .padding(.horizontal, 8)
+                    .frame(minHeight: 27)
+                    .background(QuartetTheme.elevated, in: Capsule())
+                    .accessibilityElement(children: .combine)
+                }
+            }
+
+            if !agent.available {
+                HStack(spacing: 7) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                    Text(agent.availabilityLabel)
+                }
+                .font(.quartet(.detail, weight: .medium))
+                .foregroundStyle(QuartetTheme.warning)
+
+                if let error = AgentUsageFormat.trimmed(agent.error) {
+                    Text(error)
+                        .font(.quartet(.detail, design: .monospaced))
+                        .foregroundStyle(QuartetTheme.primaryText)
+                        .textSelection(.enabled)
+                }
+            } else if entry?.loading == true, entry?.usage == nil, version == nil {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small).tint(QuartetTheme.accent)
+                    Text("正在获取 Agent 用量".localized(in: locale))
+                        .font(.quartet(.detail))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                }
+            } else {
+                usageContent
+            }
+
+            if let failure = entry?.failure {
+                Button {
+                    onShowError(PresentedError(
+                        title: failure.summary,
+                        detail: [agent.type, failure.detail].joined(separator: "\n\n")
+                    ))
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text((entry?.usage == nil && version == nil ? "Agent 用量加载失败" : "刷新失败").localized(in: locale))
+                        Spacer(minLength: 6)
+                        Text("查看完整错误".localized(in: locale))
+                        Image(systemName: "chevron.right")
+                    }
+                    .font(.quartet(.detail, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.failed)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(16)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("stats-agent-usage-\(agent.agentId)")
+    }
+
+    @ViewBuilder
+    private var usageContent: some View {
+        if let provider, let usage = entry?.usage {
+            switch provider {
+            case .codex:
+                if let value = usage.codex { codexUsage(value) } else { noUsageDetails }
+            case .claude:
+                if let value = usage.claude { claudeUsage(value) } else { noUsageDetails }
+            case .antigravity:
+                if let value = usage.antigravity { antigravityUsage(value) } else { noUsageDetails }
+            case .kimi:
+                if let value = usage.kimi { kimiUsage(value) } else { noUsageDetails }
+            case .qoder:
+                if let value = usage.qoder { qoderUsage(value) } else { noUsageDetails }
+            }
+        } else if provider == nil, version != nil {
+            Text("此 Agent 仅提供版本信息。".localized(in: locale))
+                .font(.quartet(.detail))
+                .foregroundStyle(QuartetTheme.secondaryText)
+        } else if entry?.failure == nil {
+            Text("未检测到版本或套餐信息。".localized(in: locale))
+                .font(.quartet(.detail))
+                .foregroundStyle(QuartetTheme.secondaryText)
+        }
+    }
+
+    @ViewBuilder
+    private func codexUsage(_ value: CodexAgentUsage) -> some View {
+        let plan = AgentUsageFormat.trimmed(value.planType).map { prettyPlan($0) }
+        let email = AgentUsageFormat.trimmed(value.email)
+        if plan != nil || email != nil {
+            StatsAgentMetadataRow(items: [
+                plan.map { ("套餐".localized(in: locale), $0) },
+                email.map { ("账号".localized(in: locale), $0) }
+            ].compactMap { $0 })
+        }
+        ForEach(Array([value.primaryWindow, value.secondaryWindow].compactMap { $0 }.enumerated()), id: \.offset) { _, window in
+            StatsAgentQuotaMeter(label: window.durationLabel, window: window, locale: locale)
+        }
+        HStack(spacing: 7) {
+            Image(systemName: "arrow.counterclockwise.circle")
+                .foregroundStyle(value.resetCredits > 0 ? QuartetTheme.accentDeep : QuartetTheme.secondaryText)
+            Text("重置额度".localized(in: locale))
+            Spacer(minLength: 8)
+            Text(String(value.resetCredits))
+                .fontWeight(.bold)
+                .monospacedDigit()
+        }
+        .font(.quartet(.detail))
+        .foregroundStyle(QuartetTheme.secondaryText)
+        if let expiries = value.resetCreditExpiries, !expiries.isEmpty {
+            Text(String(
+                format: "到期：%@".localized(in: locale),
+                locale: locale,
+                expiries.map { formattedDate($0, includesDate: true) }.joined(separator: " · ")
+            ))
+                .font(.quartet(.compact, design: .monospaced))
+                .foregroundStyle(QuartetTheme.secondaryText.opacity(0.82))
+        }
+    }
+
+    @ViewBuilder
+    private func claudeUsage(_ value: ClaudeAgentUsage) -> some View {
+        let name = AgentUsageFormat.trimmed(value.name)
+        let suffix = AgentUsageFormat.trimmed(value.keySuffix).map { "••••\($0)" }
+        if name != nil || suffix != nil {
+            StatsAgentMetadataRow(items: [
+                name.map { ("账号".localized(in: locale), $0) },
+                suffix.map { ("Key", $0) }
+            ].compactMap { $0 })
+        }
+        HStack(spacing: 10) {
+            StatsAgentMetric(title: "今日花费", value: AgentUsageFormat.money(value.todayCost), color: QuartetTheme.running)
+            StatsAgentMetric(title: "累计花费", value: AgentUsageFormat.money(value.totalCost), color: QuartetTheme.primaryText)
+        }
+    }
+
+    @ViewBuilder
+    private func antigravityUsage(_ value: AntigravityAgentUsage) -> some View {
+        if value.claude5h != nil || value.claudeWeekly != nil {
+            StatsAgentQuotaGroup(
+                title: "Claude / GPT",
+                windows: [("5h", value.claude5h), ("7d", value.claudeWeekly)],
+                locale: locale
+            )
+        }
+        if value.gemini5h != nil || value.geminiWeekly != nil {
+            StatsAgentQuotaGroup(
+                title: "Gemini",
+                windows: [("5h", value.gemini5h), ("7d", value.geminiWeekly)],
+                locale: locale
+            )
+        }
+        if value.claude5h == nil, value.claudeWeekly == nil, value.gemini5h == nil, value.geminiWeekly == nil {
+            noUsageDetails
+        }
+    }
+
+    @ViewBuilder
+    private func kimiUsage(_ value: KimiAgentUsage) -> some View {
+        if let parallel = value.parallelLimit, parallel > 0 {
+            StatsAgentMetadataRow(items: [("并发上限".localized(in: locale), String(parallel))])
+        }
+        if let window = value.fiveHour {
+            StatsAgentQuotaMeter(label: window.durationLabel, window: window, locale: locale)
+        }
+        if let window = value.weekly {
+            StatsAgentQuotaMeter(label: window.durationLabel, window: window, locale: locale)
+        }
+        if let window = value.total {
+            StatsAgentQuotaMeter(label: "累计额度".localized(in: locale), window: window, locale: locale, showsReset: false)
+        }
+        if value.fiveHour == nil, value.weekly == nil, value.total == nil { noUsageDetails }
+    }
+
+    @ViewBuilder
+    private func qoderUsage(_ value: QoderAgentUsage) -> some View {
+        if let plan = AgentUsageFormat.trimmed(value.planType) {
+            StatsAgentMetadataRow(items: [("套餐".localized(in: locale), prettyPlan(plan))])
+        }
+        StatsAgentQuotaMeter(
+            label: value.unit?.lowercased() == "credits" ? "Credits" : "额度".localized(in: locale),
+            usedPercent: value.usedPercent,
+            value: "\(AgentUsageFormat.credits(value.used)) / \(AgentUsageFormat.credits(value.total))",
+            detail: value.expiresAt.map {
+                String(
+                    format: "到期：%@".localized(in: locale),
+                    locale: locale,
+                    formattedDate($0, includesDate: true)
+                )
+            },
+            locale: locale
+        )
+        HStack {
+            Text("剩余".localized(in: locale))
+            Spacer(minLength: 8)
+            Text(AgentUsageFormat.credits(value.remaining))
+                .fontWeight(.semibold)
+                .monospacedDigit()
+        }
+        .font(.quartet(.detail))
+        .foregroundStyle(value.quotaExceeded ? QuartetTheme.failed : QuartetTheme.secondaryText)
+        if value.quotaExceeded {
+            Label("额度已用尽", systemImage: "exclamationmark.octagon.fill")
+                .font(.quartet(.detail, weight: .semibold))
+                .foregroundStyle(QuartetTheme.failed)
+        }
+    }
+
+    private var noUsageDetails: some View {
+        Text("未返回可用的套餐数据。".localized(in: locale))
+            .font(.quartet(.detail))
+            .foregroundStyle(QuartetTheme.secondaryText)
+    }
+
+    private func prettyPlan(_ value: String) -> String {
+        value.split(separator: "_").map { $0.capitalized }.joined(separator: " ")
+    }
+
+    private func formattedDate(_ unixSeconds: Int64, includesDate: Bool) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.setLocalizedDateFormatFromTemplate(includesDate ? "MMM d HH:mm" : "HH:mm")
+        return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(unixSeconds)))
+    }
+}
+
+private struct StatsAgentMetadataRow: View {
+    let items: [(String, String)]
+
+    var body: some View {
+        WrappingHStack(spacing: 7, rowAlignment: .center) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                HStack(spacing: 5) {
+                    Text(item.0)
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                    Text(item.1)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(QuartetTheme.primaryText)
+                }
+                .font(.quartet(.compact))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(QuartetTheme.elevated, in: Capsule())
+            }
+        }
+    }
+}
+
+private struct StatsAgentMetric: View {
+    @Environment(\.locale) private var locale
+    let title: String
+    let value: String
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.localized(in: locale))
+                .font(.quartet(.compact, weight: .medium))
+                .foregroundStyle(QuartetTheme.secondaryText)
+            Text(value)
+                .font(.quartet(.control, weight: .bold, design: .monospaced))
+                .foregroundStyle(color)
+                .monospacedDigit()
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+    }
+}
+
+private struct StatsAgentQuotaGroup: View {
+    let title: String
+    let windows: [(String, AgentUsageWindow?)]
+    let locale: Locale
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.quartet(.detail, weight: .semibold))
+                .foregroundStyle(QuartetTheme.primaryText)
+            ForEach(Array(windows.compactMap { label, window in window.map { (label, $0) } }.enumerated()), id: \.offset) { _, item in
+                StatsAgentQuotaMeter(label: item.0, window: item.1, locale: locale)
+            }
+        }
+        .padding(10)
+        .background(QuartetTheme.elevated.opacity(0.72), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private struct StatsAgentQuotaMeter: View {
+    let label: String
+    let usedPercent: Double
+    let value: String
+    let detail: String?
+    let locale: Locale
+
+    init(label: String, window: AgentUsageWindow, locale: Locale, showsReset: Bool = true) {
+        self.label = label.isEmpty ? "额度".localized(in: locale) : label
+        usedPercent = window.usedPercent
+        value = window.percentLabel
+        self.locale = locale
+        if showsReset, window.resetAt > 0 || window.resetAfterSeconds > 0 {
+            let seconds = window.resetAt > 0
+                ? window.resetAt
+                : Int64(Date().timeIntervalSince1970) + window.resetAfterSeconds
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.setLocalizedDateFormatFromTemplate(window.limitWindowSeconds >= 86_400 ? "MMM d HH:mm" : "HH:mm")
+            detail = String(
+                format: "重置于 %@".localized(in: locale),
+                locale: locale,
+                formatter.string(from: Date(timeIntervalSince1970: TimeInterval(seconds)))
+            )
+        } else {
+            detail = nil
+        }
+    }
+
+    init(label: String, usedPercent: Double, value: String, detail: String?, locale: Locale) {
+        self.label = label
+        self.usedPercent = usedPercent
+        self.value = value
+        self.detail = detail
+        self.locale = locale
+    }
+
+    private var color: Color {
+        if usedPercent >= 80 { return QuartetTheme.failed }
+        if usedPercent >= 50 { return QuartetTheme.warning }
+        return QuartetTheme.success
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(label)
+                    .font(.quartet(.detail, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                Spacer(minLength: 8)
+                Text(value)
+                    .font(.quartet(.detail, weight: .bold, design: .monospaced))
+                    .foregroundStyle(color)
+                    .monospacedDigit()
+            }
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(QuartetTheme.divider)
+                    Capsule()
+                        .fill(color)
+                        .frame(width: proxy.size.width * min(max(usedPercent, 0), 100) / 100)
+                }
+            }
+            .frame(height: 6)
+            .accessibilityHidden(true)
+            if let detail {
+                Text(detail)
+                    .font(.quartet(.compact, design: .monospaced))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label)，\("已用".localized(in: locale)) \(value)")
     }
 }
 

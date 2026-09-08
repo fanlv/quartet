@@ -435,7 +435,15 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Turn"].exists)
         XCTAssertTrue(app.staticTexts["缓存命中率"].exists)
         XCTAssertTrue(app.staticTexts["工作区"].exists)
-        XCTAssertTrue(app.otherElements["stats-trend"].exists)
+        let agentUsage = app.otherElements["stats-agent-usage"]
+        for _ in 0..<3 where !agentUsage.exists { app.swipeUp() }
+        XCTAssertTrue(agentUsage.waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["Agent 版本与套餐"].exists)
+        XCTAssertTrue(app.staticTexts["Codex"].exists)
+        XCTAssertTrue(app.staticTexts["Plus"].exists)
+        let trend = app.otherElements["stats-trend"]
+        for _ in 0..<3 where !trend.exists { app.swipeUp() }
+        XCTAssertTrue(trend.waitForExistence(timeout: 2))
         let workspaceSection = app.staticTexts["按工作区"]
         for _ in 0..<4 where !workspaceSection.exists { app.swipeUp() }
         XCTAssertTrue(workspaceSection.waitForExistence(timeout: 2))
@@ -453,7 +461,14 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Turn"].exists)
         XCTAssertTrue(app.staticTexts["Cache hit rate"].exists)
         XCTAssertTrue(app.staticTexts["Workspaces"].exists)
-        XCTAssertTrue(app.staticTexts["Daily tokens"].exists)
+        let agentUsage = app.otherElements["stats-agent-usage"]
+        for _ in 0..<3 where !agentUsage.exists { app.swipeUp() }
+        XCTAssertTrue(agentUsage.waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["Agent Versions & Plans"].exists)
+        XCTAssertTrue(app.staticTexts["Plan"].exists)
+        let dailyTokens = app.staticTexts["Daily tokens"]
+        for _ in 0..<3 where !dailyTokens.exists { app.swipeUp() }
+        XCTAssertTrue(dailyTokens.waitForExistence(timeout: 2))
         let workspaceSection = app.staticTexts["By Workspace"]
         for _ in 0..<4 where !workspaceSection.exists { app.swipeUp() }
         XCTAssertTrue(workspaceSection.waitForExistence(timeout: 2))
