@@ -33,6 +33,10 @@ type Service interface {
 	// QoderUsage returns the QoderCN credits quota + qoderclicn CLI version,
 	// read from the openapi quota endpoint with the local CLI's decrypted token.
 	QoderUsage(ctx context.Context) (*model.QoderUsage, error)
+	// CursorUsage returns the Cursor plan quota + cursor-agent CLI version,
+	// read from cursor.com's usage-summary endpoint and the Grok Bot usage RPC
+	// with the cursor-agent CLI's locally stored login token.
+	CursorUsage(ctx context.Context) (*model.CursorUsage, error)
 	// AgentVersion returns the installed CLI version of a known ACP agent,
 	// resolved from its serve command. Used by agents that have no quota view.
 	AgentVersion(ctx context.Context, command string) (string, error)

@@ -17,6 +17,7 @@ import {
   type AntigravityUsage,
   type KimiUsage,
   type QoderUsage,
+  type CursorUsage,
   type UsageWindow,
 } from '../utils/agentUsage';
 import './AgentUsageCard.css';
@@ -404,6 +405,9 @@ function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; c
   const [qoder, setQoder] = useState<QoderUsage | null>(
     () => (getCachedUsage('qoder') as QoderUsage | null) ?? null,
   );
+  const [cursor, setCursor] = useState<CursorUsage | null>(
+    () => (getCachedUsage('cursor') as CursorUsage | null) ?? null,
+  );
 
   const load = useCallback((p: AgentUsageProvider) => {
     const sequence = ++requestSequence.current;
@@ -418,6 +422,7 @@ function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; c
         else if (p === 'antigravity') setAntigravity(data.antigravity ?? null);
         else if (p === 'kimi') setKimi(data.kimi ?? null);
         else if (p === 'qoder') setQoder(data.qoder ?? null);
+        else if (p === 'cursor') setCursor(data.cursor ?? null);
       })
       .catch((reason: unknown) => {
         if (sequence !== requestSequence.current) return;
@@ -464,7 +469,9 @@ function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; c
           ? antigravity
           : provider === 'qoder'
             ? qoder
-            : kimi;
+            : provider === 'kimi'
+              ? kimi
+              : cursor;
   const currentVersion = current?.version;
 
   return (
@@ -658,6 +665,31 @@ function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; c
               }
             />
           )}
+        </>
+      ) : provider === 'cursor' && cursor ? (
+        <>
+          {cursor.version && <span className="usage-inline-ver">{cursor.version}</span>}
+          {prettifyPlan(cursor.membership_type) && (
+            <span className="usage-inline-ver">{prettifyPlan(cursor.membership_type)}</span>
+          )}
+          {[
+            { label: t('agentUsage.cursorTotal'), window: cursor.primary_window, withDate: true },
+            { label: 'Auto', window: cursor.secondary_window, withDate: true },
+            { label: 'API', window: cursor.tertiary_window, withDate: true },
+            // Grok Bot periods are not monthly; let the date prefix follow the
+            // window length like the other providers.
+            { label: 'Grok', window: cursor.grok_bot_window },
+          ].map(({ label, window, withDate }, index) => {
+            if (!window) return null;
+            return (
+              <UsageRing
+                key={`${label}-${index}`}
+                percent={window.used_percent}
+                label={label}
+                title={ringTitle(label, window, withDate)}
+              />
+            );
+          })}
         </>
       ) : null}
       {!currentVersion && fallbackVersion && <span className="usage-inline-ver">{fallbackVersion}</span>}

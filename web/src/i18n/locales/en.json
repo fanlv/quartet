@@ -100,6 +100,7 @@
     "qoderUsed": "{{used}} / {{total}} credits used",
     "qoderExpires": "expires {{time}}",
     "qoderExceeded": "Quota exceeded",
+    "cursorTotal": "All",
     "used": "Used",
     "loading": "Fetching usage…",
     "error": "View complete usage error",

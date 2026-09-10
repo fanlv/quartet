@@ -74,7 +74,22 @@ export interface QoderUsage {
   quota_exceeded: boolean;
 }
 
-export type AgentUsageProvider = 'codex' | 'claude' | 'antigravity' | 'kimi' | 'qoder';
+// Cursor plan snapshot from cursor.com's usage-summary endpoint plus the Grok
+// Bot usage RPC. The three plan windows share the monthly billing-cycle reset
+// (reset_at = billingCycleEnd, limit_window_seconds = cycle length):
+// primary_window is the plan total, secondary_window the Auto lane,
+// tertiary_window the API lane. grok_bot_window is absent when the account has
+// no Grok Bot access or the API reports no usable percent/reset for it.
+export interface CursorUsage {
+  version?: string; // e.g. "v2026.09.08"
+  membership_type?: string; // e.g. "pro" | "team" | "enterprise"
+  primary_window?: UsageWindow; // plan total usage (Auto + API lanes)
+  secondary_window?: UsageWindow; // Auto lane usage
+  tertiary_window?: UsageWindow; // API lane usage
+  grok_bot_window?: UsageWindow; // Grok Bot usage
+}
+
+export type AgentUsageProvider = 'codex' | 'claude' | 'antigravity' | 'kimi' | 'qoder' | 'cursor';
 
 // agentUsageProvider maps a selected built-in agent to a usage provider, or
 // null when the agent has no quota view. Match only stable built-in IDs and
@@ -90,6 +105,7 @@ export function agentUsageProvider(
   if (['claude', 'claude-agent-acp', 'npx @agentclientprotocol/claude-agent-acp'].includes(command)) return 'claude';
   if (['qoderclicn', 'qoderclicn --acp', 'qwen', 'qwen --acp'].includes(command)) return 'qoder';
   if (['kimi', 'kimi acp'].includes(command)) return 'kimi';
+  if (['cursor-agent', 'cursor-agent acp'].includes(command)) return 'cursor';
   return null;
 }
 
@@ -99,6 +115,7 @@ export interface AgentUsagePayload {
   antigravity?: AntigravityUsage;
   kimi?: KimiUsage;
   qoder?: QoderUsage;
+  cursor?: CursorUsage;
 }
 
 async function readJSONResponse(response: Response, operation: string): Promise<Record<string, unknown>> {
@@ -144,6 +161,7 @@ export async function fetchAgentUsage(provider: AgentUsageProvider): Promise<Age
     antigravity: data.antigravity as AntigravityUsage | undefined,
     kimi: data.kimi as KimiUsage | undefined,
     qoder: data.qoder as QoderUsage | undefined,
+    cursor: data.cursor as CursorUsage | undefined,
   };
 }
 
@@ -177,7 +195,7 @@ function cacheKey(provider: AgentUsageProvider): string {
 
 export function getCachedUsage(
   provider: AgentUsageProvider,
-): CodexUsage | ClaudeUsage | AntigravityUsage | KimiUsage | QoderUsage | null {
+): CodexUsage | ClaudeUsage | AntigravityUsage | KimiUsage | QoderUsage | CursorUsage | null {
   try {
     const raw = localStorage.getItem(cacheKey(provider));
     if (!raw) return null;

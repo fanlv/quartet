@@ -1,16 +1,17 @@
 package model
 
 // AgentUsageResponse is the envelope for GET /api/v1/agent/usage. Exactly one
-// of Codex / Claude / Antigravity / Kimi / Qoder is populated, matching the
-// requested Type.
+// of Codex / Claude / Antigravity / Kimi / Qoder / Cursor is populated, matching
+// the requested Type.
 type AgentUsageResponse struct {
 	Code        int               `json:"code"`
-	Type        string            `json:"type"` // "codex" | "claude" | "antigravity" | "kimi" | "qoder"
+	Type        string            `json:"type"` // "codex" | "claude" | "antigravity" | "kimi" | "qoder" | "cursor"
 	Codex       *CodexUsage       `json:"codex,omitempty"`
 	Claude      *ClaudeUsage      `json:"claude,omitempty"`
 	Antigravity *AntigravityUsage `json:"antigravity,omitempty"`
 	Kimi        *KimiUsage        `json:"kimi,omitempty"`
 	Qoder       *QoderUsage       `json:"qoder,omitempty"`
+	Cursor      *CursorUsage      `json:"cursor,omitempty"`
 }
 
 // UsageWindow is one rate-limit window. LimitWindowSeconds is the source of
@@ -113,4 +114,22 @@ type QoderUsage struct {
 	UsedPercent   float64 `json:"used_percent"`         // 0–100
 	ExpiresAt     int64   `json:"expires_at,omitempty"` // unix seconds when the plan/quota expires
 	QuotaExceeded bool    `json:"quota_exceeded"`       // true when the pool is exhausted
+}
+
+// CursorUsage is the Cursor plan snapshot from cursor.com's usage-summary
+// endpoint plus the Grok Bot (internal codename "Sand") usage RPC, using the
+// cursor-agent CLI's locally stored login token. The three plan windows share
+// the monthly billing cycle (reset at billingCycleEnd, LimitWindowSeconds =
+// cycle length): PrimaryWindow is the plan total, SecondaryWindow the Auto
+// lane, TertiaryWindow the API lane. GrokBotWindow is only reported when the
+// account has Grok Bot access and the RPC returns a usable percent and reset
+// time; otherwise it is nil. A window is nil when the API reports no usable
+// percent for it.
+type CursorUsage struct {
+	Version         string       `json:"version,omitempty"`          // cursor-agent CLI version, e.g. "v2026.09.08"
+	MembershipType  string       `json:"membership_type,omitempty"`  // e.g. "pro" | "team" | "enterprise"
+	PrimaryWindow   *UsageWindow `json:"primary_window,omitempty"`   // plan total usage (Auto + API lanes)
+	SecondaryWindow *UsageWindow `json:"secondary_window,omitempty"` // Auto lane usage
+	TertiaryWindow  *UsageWindow `json:"tertiary_window,omitempty"`  // API lane usage
+	GrokBotWindow   *UsageWindow `json:"grok_bot_window,omitempty"`  // Grok Bot usage, nil when unavailable
 }
