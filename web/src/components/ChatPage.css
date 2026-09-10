@@ -269,7 +269,7 @@
 .home-input-options {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 3px;
   position: relative;
 }
 
@@ -1772,7 +1772,7 @@
   }
 
   .home-input-options {
-    gap: 6px;
+    gap: 3px;
     flex: 1;
     min-width: 0;
     flex-wrap: wrap;

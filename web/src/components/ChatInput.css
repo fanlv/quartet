@@ -136,7 +136,7 @@
   display: flex;
   align-items: center;
   align-content: center;
-  gap: 12px;
+  gap: 3px;
   position: relative;
   flex: 1;
   min-width: 0;
@@ -787,7 +787,7 @@
   }
 
   .chat-input-options {
-    gap: 4px;
+    gap: 3px;
     flex-wrap: wrap;
   }
 
@@ -886,7 +886,7 @@
   }
 
   .chat-input-options {
-    gap: 6px;
+    gap: 3px;
     flex: 1;
     min-width: 0;
     flex-wrap: wrap;
