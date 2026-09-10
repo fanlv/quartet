@@ -183,6 +183,79 @@
 .agent-usage-inline .usage-window-fill.pct-mid { background: var(--warn); }
 .agent-usage-inline .usage-window-fill.pct-hi { background: var(--danger); }
 
+/* Cursor's word-labelled quota lanes (plan total / Auto / API / Grok Bot). Each
+ * lane is a pill instead of a ring: the label and percentage read without
+ * hovering, and the used share tints the pill from the left. */
+.agent-usage-inline .usage-lane-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.agent-usage-inline .usage-lane-group .usage-tip-anchor {
+  border-radius: 999px;
+}
+
+.agent-usage-inline .usage-lane {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--elevated) 55%, var(--surface));
+  white-space: nowrap;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  transition: border-color var(--motion-fast), background var(--motion-fast);
+}
+
+.agent-usage-inline .usage-tip-anchor:hover .usage-lane,
+.agent-usage-inline .usage-tip-anchor:focus-visible .usage-lane {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-strong));
+}
+
+/* Used share, drawn behind the label and percentage. */
+.agent-usage-inline .usage-lane-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 3px;
+  transition: width 0.35s ease;
+}
+
+.agent-usage-inline .usage-lane-fill.pct-lo { background: color-mix(in srgb, var(--success) 20%, transparent); }
+.agent-usage-inline .usage-lane-fill.pct-mid { background: color-mix(in srgb, var(--warn) 22%, transparent); }
+.agent-usage-inline .usage-lane-fill.pct-hi { background: color-mix(in srgb, var(--danger) 22%, transparent); }
+
+.agent-usage-inline .usage-lane-label {
+  position: relative;
+  color: var(--muted-2);
+  font-size: 10px;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+}
+
+.agent-usage-inline .usage-lane.is-total .usage-lane-label {
+  color: var(--fg);
+  font-weight: 650;
+}
+
+.agent-usage-inline .usage-lane-value {
+  position: relative;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.agent-usage-inline .usage-lane-value.pct-lo { color: var(--success); }
+.agent-usage-inline .usage-lane-value.pct-mid { color: var(--warn); }
+.agent-usage-inline .usage-lane-value.pct-hi { color: var(--danger); }
+
 /* Inline-flex wrapper that gives arbitrary content (e.g. the QoderCN credits
  * meter) the same hover/click tooltip behaviour the rings have. */
 .agent-usage-inline .usage-tip-anchor {
@@ -316,6 +389,23 @@
   color: var(--muted-2);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* Subscription plan label (Cursor membership, Claude plan). A tinted chip keeps
+ * the plan name from reading as part of the neighbouring version string. */
+.agent-usage-inline .usage-inline-plan {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
   flex-shrink: 0;
 }
 

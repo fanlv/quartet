@@ -89,7 +89,23 @@ export interface CursorUsage {
   grok_bot_window?: UsageWindow; // Grok Bot usage
 }
 
-export type AgentUsageProvider = 'codex' | 'claude' | 'antigravity' | 'kimi' | 'qoder' | 'cursor';
+// CodeBuddy quota snapshot from the company Token 看板 OpenAPI: monthly quota
+// and current calendar-month spend in CNY. quota_text / cost_text carry the
+// API's raw strings; quota is null when the API reports a non-numeric quota
+// ("-" — special states such as unlimited), in which case remaining and
+// used_percent are null too.
+export interface CodeBuddyUsage {
+  version?: string;
+  username?: string;
+  quota_text: string;
+  cost_text: string;
+  quota?: number | null;
+  cost?: number | null;
+  remaining?: number | null;
+  used_percent?: number | null; // 0–100
+}
+
+export type AgentUsageProvider = 'codex' | 'claude' | 'antigravity' | 'kimi' | 'qoder' | 'cursor' | 'codebuddy';
 
 // agentUsageProvider maps a selected built-in agent to a usage provider, or
 // null when the agent has no quota view. Match only stable built-in IDs and
@@ -106,6 +122,7 @@ export function agentUsageProvider(
   if (['qoderclicn', 'qoderclicn --acp', 'qwen', 'qwen --acp'].includes(command)) return 'qoder';
   if (['kimi', 'kimi acp'].includes(command)) return 'kimi';
   if (['cursor-agent', 'cursor-agent acp'].includes(command)) return 'cursor';
+  if (['codebuddy', 'codebuddy --acp'].includes(command)) return 'codebuddy';
   return null;
 }
 
@@ -116,6 +133,7 @@ export interface AgentUsagePayload {
   kimi?: KimiUsage;
   qoder?: QoderUsage;
   cursor?: CursorUsage;
+  codebuddy?: CodeBuddyUsage;
 }
 
 async function readJSONResponse(response: Response, operation: string): Promise<Record<string, unknown>> {
@@ -162,6 +180,7 @@ export async function fetchAgentUsage(provider: AgentUsageProvider): Promise<Age
     kimi: data.kimi as KimiUsage | undefined,
     qoder: data.qoder as QoderUsage | undefined,
     cursor: data.cursor as CursorUsage | undefined,
+    codebuddy: data.codebuddy as CodeBuddyUsage | undefined,
   };
 }
 
@@ -195,7 +214,7 @@ function cacheKey(provider: AgentUsageProvider): string {
 
 export function getCachedUsage(
   provider: AgentUsageProvider,
-): CodexUsage | ClaudeUsage | AntigravityUsage | KimiUsage | QoderUsage | CursorUsage | null {
+): CodexUsage | ClaudeUsage | AntigravityUsage | KimiUsage | QoderUsage | CursorUsage | CodeBuddyUsage | null {
   try {
     const raw = localStorage.getItem(cacheKey(provider));
     if (!raw) return null;

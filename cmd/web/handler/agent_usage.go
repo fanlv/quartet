@@ -62,8 +62,15 @@ func (h *Handler) AgentUsage(ctx context.Context, c *app.RequestContext) {
 			return
 		}
 		c.JSON(http.StatusOK, model.AgentUsageResponse{Code: 0, Type: typ, Cursor: u})
+	case "codebuddy":
+		u, err := h.usageService.CodeBuddyUsage(ctx)
+		if err != nil {
+			httputil.InternalErrorLog(ctx, c, "[agent.usage] codebuddy", err)
+			return
+		}
+		c.JSON(http.StatusOK, model.AgentUsageResponse{Code: 0, Type: typ, CodeBuddy: u})
 	default:
-		httputil.BadRequest(c, fmt.Sprintf("invalid type %q (want codex|claude|antigravity|kimi|qoder|cursor)", typ))
+		httputil.BadRequest(c, fmt.Sprintf("invalid type %q (want codex|claude|antigravity|kimi|qoder|cursor|codebuddy)", typ))
 	}
 }
 

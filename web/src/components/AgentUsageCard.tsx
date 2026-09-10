@@ -18,6 +18,7 @@ import {
   type KimiUsage,
   type QoderUsage,
   type CursorUsage,
+  type CodeBuddyUsage,
   type UsageWindow,
 } from '../utils/agentUsage';
 import './AgentUsageCard.css';
@@ -37,6 +38,14 @@ function pctClass(pct: number): string {
 // at most one decimal for fractional pools.
 function formatCredits(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toLocaleString(undefined, { maximumFractionDigits: 1 });
+}
+
+// CNY amounts from the Token 看板 API: whole amounts stay clean (¥1400),
+// fractional ones keep two decimals (625.7965 -> ¥625.80).
+function formatCNY(n: number): string {
+  return Number.isInteger(n)
+    ? n.toLocaleString()
+    : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // Turn a snake_case API plan id (e.g. "personal_professional_trial") into a
@@ -310,6 +319,41 @@ function AntigravityQuotaGroup({
   );
 }
 
+/** Horizontal percent pill for one named quota lane. Cursor labels its lanes
+ *  with words (plan total / Auto / API / Grok Bot) instead of the short window
+ *  durations the rings were built for, and a word does not fit inside a 20px
+ *  ring. The pill shows the lane name and its percentage directly — the used
+ *  share tints the pill from the left — so nothing needs hovering to be read;
+ *  the reset time still lives in the shared tooltip. */
+function UsageLanePill({
+  label,
+  value,
+  tip,
+  emphasis,
+}: {
+  label: string;
+  value: UsageWindow;
+  tip: ReactNode;
+  emphasis?: boolean;
+}) {
+  const { t } = useTranslation();
+  const percent = Math.max(0, Math.min(100, value.used_percent));
+  const tier = pctClass(percent);
+  const rounded = Math.round(percent);
+
+  return (
+    <HoverTip tip={tip} ariaLabel={`${label} ${t('agentUsage.used')} ${rounded}%`}>
+      <span className={`usage-lane ${tier}${emphasis ? ' is-total' : ''}`}>
+        {percent > 0 && (
+          <span className={`usage-lane-fill ${tier}`} style={{ width: `${percent}%` }} aria-hidden="true" />
+        )}
+        <span className="usage-lane-label">{label}</span>
+        <strong className={`usage-lane-value ${tier}`}>{rounded}%</strong>
+      </span>
+    </HoverTip>
+  );
+}
+
 /** Small refresh button shared by the quota card and the version chip. */
 function RefreshButton({ loading, onClick }: { loading: boolean; onClick: () => void }) {
   const { t } = useTranslation();
@@ -408,6 +452,9 @@ function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; c
   const [cursor, setCursor] = useState<CursorUsage | null>(
     () => (getCachedUsage('cursor') as CursorUsage | null) ?? null,
   );
+  const [codebuddy, setCodebuddy] = useState<CodeBuddyUsage | null>(
+    () => (getCachedUsage('codebuddy') as CodeBuddyUsage | null) ?? null,
+  );
 
   const load = useCallback((p: AgentUsageProvider) => {
     const sequence = ++requestSequence.current;
@@ -423,6 +470,22 @@ function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; c
         else if (p === 'kimi') setKimi(data.kimi ?? null);
         else if (p === 'qoder') setQoder(data.qoder ?? null);
         else if (p === 'cursor') setCursor(data.cursor ?? null);
+        else if (p === 'codebuddy') {
+          setCodebuddy(data.codebuddy ?? null);
+          // An unconfigured PAT yields a null payload — the quota view is
+          // opt-in, so fall back to the plain version chip exactly like
+          // agents without a quota view, with no error surfaced.
+          if (data.codebuddy == null) {
+            void fetchAgentVersion(command).then((version) => {
+              if (sequence !== requestSequence.current) return;
+              setCachedVersion(command, version);
+              setFallbackVersion(version);
+            }).catch(() => {
+              // No quota data and no version — the strip stays empty, which
+              // matches the pre-quota behavior for unknown versions.
+            });
+          }
+        }
       })
       .catch((reason: unknown) => {
         if (sequence !== requestSequence.current) return;
@@ -471,11 +534,20 @@ function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; c
             ? qoder
             : provider === 'kimi'
               ? kimi
-              : cursor;
-  const currentVersion = current?.version;
+              : provider === 'codebuddy'
+                ? codebuddy
+                : cursor;
+  // Version comes from the usage payload when the provider includes one; a
+  // payload without a version falls back to the probed `--version` chip that
+  // leads the strip below.
+  const currentVersion = current && 'version' in current ? current.version : undefined;
 
   return (
     <div className="agent-usage-inline" data-testid="agent-usage-card" data-provider={provider}>
+      {/* Display convention: the version always leads the strip, before any
+       *  plan / quota / spend info. Payloads without a version fall back to
+       *  the probed CLI version here. */}
+      {!currentVersion && fallbackVersion && <span className="usage-inline-ver">{fallbackVersion}</span>}
       {loading && !current ? (
         <span className="usage-spin" aria-label={t('agentUsage.loading')} />
       ) : provider === 'codex' && codex ? (
@@ -514,7 +586,7 @@ function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; c
       ) : provider === 'claude' && claude ? (
         <>
           {claude.version && <span className="usage-inline-ver">{claude.version}</span>}
-          {claude.plan_type && <span className="usage-inline-ver">{prettifyPlan(claude.plan_type)}</span>}
+          {claude.plan_type && <span className="usage-inline-plan">{prettifyPlan(claude.plan_type)}</span>}
           {[
             { label: '5h', window: claude.five_hour },
             { label: '7d', window: claude.seven_day },
@@ -632,6 +704,40 @@ function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; c
             </span>
           </HoverTip>
         </>
+      ) : provider === 'codebuddy' && codebuddy ? (
+        <>
+          {codebuddy.version && <span className="usage-inline-ver">{codebuddy.version}</span>}
+          <HoverTip
+            tip={
+              <>
+                <span className="usage-tip-line usage-tip-head">
+                  {t('agentUsage.codebuddyUsed', {
+                    used: codebuddy.cost != null ? `¥${formatCNY(codebuddy.cost)}` : codebuddy.cost_text,
+                    total: codebuddy.quota != null ? `¥${formatCNY(codebuddy.quota)}` : codebuddy.quota_text,
+                  })}
+                </span>
+                {codebuddy.remaining != null && (
+                  <span className="usage-tip-line">
+                    {t('agentUsage.codebuddyRemaining', { remaining: `¥${formatCNY(codebuddy.remaining)}` })}
+                  </span>
+                )}
+                {codebuddy.quota == null && (
+                  <span className="usage-tip-line">{t('agentUsage.codebuddyQuotaUnavailable')}</span>
+                )}
+                {codebuddy.username && <span className="usage-tip-line">{codebuddy.username}</span>}
+              </>
+            }
+          >
+            <span className="usage-inline-metric usage-codebuddy" data-testid="codebuddy-usage">
+              <b className={codebuddy.used_percent != null ? pctClass(codebuddy.used_percent) : ''}>
+                {codebuddy.cost != null ? `¥${formatCNY(codebuddy.cost)}` : codebuddy.cost_text}
+              </b>
+              <span className="usage-qoder-total">
+                / {codebuddy.quota != null ? `¥${formatCNY(codebuddy.quota)}` : codebuddy.quota_text}
+              </span>
+            </span>
+          </HoverTip>
+        </>
       ) : provider === 'kimi' && kimi ? (
         <>
           {kimi.version && <span className="usage-inline-ver">{kimi.version}</span>}
@@ -670,29 +776,33 @@ function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; c
         <>
           {cursor.version && <span className="usage-inline-ver">{cursor.version}</span>}
           {prettifyPlan(cursor.membership_type) && (
-            <span className="usage-inline-ver">{prettifyPlan(cursor.membership_type)}</span>
+            <span className="usage-inline-plan">{prettifyPlan(cursor.membership_type)}</span>
           )}
-          {[
-            { label: t('agentUsage.cursorTotal'), window: cursor.primary_window, withDate: true },
-            { label: 'Auto', window: cursor.secondary_window, withDate: true },
-            { label: 'API', window: cursor.tertiary_window, withDate: true },
-            // Grok Bot periods are not monthly; let the date prefix follow the
-            // window length like the other providers.
-            { label: 'Grok', window: cursor.grok_bot_window },
-          ].map(({ label, window, withDate }, index) => {
-            if (!window) return null;
-            return (
-              <UsageRing
-                key={`${label}-${index}`}
-                percent={window.used_percent}
-                label={label}
-                title={ringTitle(label, window, withDate)}
-              />
-            );
-          })}
+          <span className="usage-lane-group">
+            {[
+              // The plan total leads the row and carries the emphasis; Auto and
+              // API are the lanes that add up to it.
+              { label: t('agentUsage.cursorTotal'), value: cursor.primary_window, withDate: true, emphasis: true },
+              { label: 'Auto', value: cursor.secondary_window, withDate: true },
+              { label: 'API', value: cursor.tertiary_window, withDate: true },
+              // Grok Bot periods are not monthly; let the date prefix follow the
+              // window length like the other providers.
+              { label: 'Grok', value: cursor.grok_bot_window },
+            ].map(({ label, value, withDate, emphasis }) => {
+              if (!value) return null;
+              return (
+                <UsageLanePill
+                  key={label}
+                  label={label}
+                  value={value}
+                  emphasis={emphasis}
+                  tip={ringTitle(label, value, withDate)}
+                />
+              );
+            })}
+          </span>
         </>
       ) : null}
-      {!currentVersion && fallbackVersion && <span className="usage-inline-ver">{fallbackVersion}</span>}
 
       <RefreshButton loading={loading} onClick={() => load(provider)} />
       {error && <UsageErrorIndicator message={error} />}

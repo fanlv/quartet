@@ -37,6 +37,13 @@ type Service interface {
 	// read from cursor.com's usage-summary endpoint and the Grok Bot usage RPC
 	// with the cursor-agent CLI's locally stored login token.
 	CursorUsage(ctx context.Context) (*model.CursorUsage, error)
+	// CodeBuddyUsage returns the CodeBuddy CLI version plus the monthly quota
+	// and current-month spend from the company Token 看板 OpenAPI,
+	// authenticated with the TAI personal access token the user configured in
+	// the CodeBuddy agent's ACP env vars (CODEBUDDY_TOKEN_DASHBOARD_PAT).
+	// Returns a nil snapshot (no error) when the PAT is not configured: the
+	// quota view is opt-in, so an unconfigured agent simply has no quota view.
+	CodeBuddyUsage(ctx context.Context) (*model.CodeBuddyUsage, error)
 	// AgentVersion returns the installed CLI version of a known ACP agent,
 	// resolved from its serve command. Used by agents that have no quota view.
 	AgentVersion(ctx context.Context, command string) (string, error)
@@ -52,6 +59,16 @@ type serviceImpl struct {
 	agyMu       sync.Mutex
 	agyCache    *model.AntigravityUsage
 	agyCachedAt time.Time
+
+	// CodeBuddy quota changes slowly (a monthly cumulative spend), so
+	// CodeBuddyUsage caches the last successful snapshot for a short TTL
+	// instead of hitting the Token 看板 OpenAPI on every agent switch. The
+	// cache records the PAT it was fetched with, so rotating the token
+	// invalidates it immediately. See codebuddy.go.
+	codebuddyMu       sync.Mutex
+	codebuddyCache    *model.CodeBuddyUsage
+	codebuddyToken    string
+	codebuddyCachedAt time.Time
 }
 
 // NewService builds the usage service. It depends on settings for effective ACP

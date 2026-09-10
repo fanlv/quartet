@@ -1,17 +1,18 @@
 package model
 
 // AgentUsageResponse is the envelope for GET /api/v1/agent/usage. Exactly one
-// of Codex / Claude / Antigravity / Kimi / Qoder / Cursor is populated, matching
-// the requested Type.
+// of Codex / Claude / Antigravity / Kimi / Qoder / Cursor / CodeBuddy is
+// populated, matching the requested Type.
 type AgentUsageResponse struct {
 	Code        int               `json:"code"`
-	Type        string            `json:"type"` // "codex" | "claude" | "antigravity" | "kimi" | "qoder" | "cursor"
+	Type        string            `json:"type"` // "codex" | "claude" | "antigravity" | "kimi" | "qoder" | "cursor" | "codebuddy"
 	Codex       *CodexUsage       `json:"codex,omitempty"`
 	Claude      *ClaudeUsage      `json:"claude,omitempty"`
 	Antigravity *AntigravityUsage `json:"antigravity,omitempty"`
 	Kimi        *KimiUsage        `json:"kimi,omitempty"`
 	Qoder       *QoderUsage       `json:"qoder,omitempty"`
 	Cursor      *CursorUsage      `json:"cursor,omitempty"`
+	CodeBuddy   *CodeBuddyUsage   `json:"codebuddy,omitempty"`
 }
 
 // UsageWindow is one rate-limit window. LimitWindowSeconds is the source of
@@ -117,7 +118,7 @@ type QoderUsage struct {
 }
 
 // CursorUsage is the Cursor plan snapshot from cursor.com's usage-summary
-// endpoint plus the Grok Bot (internal codename "Sand") usage RPC, using the
+// endpoint plus the Cursor Bot (internal codename "Sand") usage RPC, using the
 // cursor-agent CLI's locally stored login token. The three plan windows share
 // the monthly billing cycle (reset at billingCycleEnd, LimitWindowSeconds =
 // cycle length): PrimaryWindow is the plan total, SecondaryWindow the Auto
@@ -132,4 +133,21 @@ type CursorUsage struct {
 	SecondaryWindow *UsageWindow `json:"secondary_window,omitempty"` // Auto lane usage
 	TertiaryWindow  *UsageWindow `json:"tertiary_window,omitempty"`  // API lane usage
 	GrokBotWindow   *UsageWindow `json:"grok_bot_window,omitempty"`  // Grok Bot usage, nil when unavailable
+}
+
+// CodeBuddyUsage is the CodeBuddy quota snapshot: the CodeBuddy CLI version,
+// plus the monthly quota and the current calendar-month spend in CNY from the
+// company Token 看板 OpenAPI (openapi.token.woa.com). QuotaText/CostText keep
+// the API's raw string values; Quota is nil when the API reports a non-numeric
+// quota ("-" — special states such as unlimited), in which case Remaining and
+// UsedPercent are nil too and must not be derived numerically.
+type CodeBuddyUsage struct {
+	Version     string   `json:"version,omitempty"` // CodeBuddy CLI version, e.g. "v2.6.0"
+	Username    string   `json:"username,omitempty"`
+	QuotaText   string   `json:"quota_text"`
+	CostText    string   `json:"cost_text"`
+	Quota       *float64 `json:"quota,omitempty"`
+	Cost        *float64 `json:"cost,omitempty"`
+	Remaining   *float64 `json:"remaining,omitempty"`
+	UsedPercent *float64 `json:"used_percent,omitempty"` // 0–100
 }

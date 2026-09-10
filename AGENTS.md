@@ -219,6 +219,7 @@ Go tests: `go test ./...`
 - `src/i18n/` — 文案集中在 `locales/zh.json` 与 `locales/en.json`，界面文本一律走 i18n，不在组件里写死中英文。
 - `src/types/` — 与后端 `types/model` 对应的协议、消息与 graph 类型。
 - `e2e/` — Playwright 用例与 fixtures。
+- Agent 用量条（`AgentUsageCard`，输入框底部）展示顺序规范：所有 provider 一律**先显示 CLI 版本号，再显示套餐 / 额度 / 金额信息**；用量 payload 应携带版本号（后端并行探测 `<bin> --version`），payload 缺版本时用探测结果兜底，但顺序不变。
 
 ### 其他
 
