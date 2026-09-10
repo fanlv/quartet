@@ -1089,6 +1089,12 @@
   word-break: break-all;
 }
 
+.user-bubble .inline-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .inline-link:hover {
   text-decoration: underline;
 }
