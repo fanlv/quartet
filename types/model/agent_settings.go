@@ -3,8 +3,8 @@ package model
 // AgentRoleConfig identifies an Agent used by a one-shot role. The runtime
 // definition is resolved from the Agent catalog when the role is executed.
 // ModelID/ACPThoughtLevel are honored by headless agents that accept them
-// (currently eino-cli's `-p --model/--thought`); empty values fall back to the
-// agent's own defaults.
+// (eino-cli: `-p --model/--thought`; CodeBuddy/Claude: `--model/--effort`;
+// cursor-agent: `--model`). Empty values fall back to the agent's own defaults.
 type AgentRoleConfig struct {
 	AgentID         string `json:"agent_id"`
 	ModelID         string `json:"model_id,omitempty"`

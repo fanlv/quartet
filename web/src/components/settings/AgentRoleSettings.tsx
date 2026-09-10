@@ -7,8 +7,8 @@ import { isImageUrl, resolveIconSrc } from '../../utils/url';
 
 // RoleConfig is the shared shape for all three agent roles. Title / group-reply
 // run through the headless `bin -p` path, which honors model_id and
-// acp_thought_level (eino-cli's --model/--thought) but has no session mode;
-// only the IM session agent uses acp_mode.
+// acp_thought_level when the CLI accepts them (--model plus --thought/--effort)
+// but has no session mode; only the IM session agent uses acp_mode.
 interface RoleConfig {
   agent_id: string;
   model_id: string;

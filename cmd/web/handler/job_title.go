@@ -251,7 +251,8 @@ func (h *Handler) doUpdateJobTitle(ctx context.Context, jobID string, userMessag
 	ctx, cancel := context.WithTimeout(ctx, titleGenerationTimeout)
 	defer cancel()
 
-	logger.Debugf(ctx, "[title] calling generateText: jobId=%s agentId=%s", jobID, titleAgent.AgentID)
+	logger.Debugf(ctx, "[title] calling generateText: jobId=%s agentId=%s modelId=%s thought=%s",
+		jobID, titleAgent.AgentID, titleAgent.ModelID, titleAgent.ACPThoughtLevel)
 	start := time.Now()
 	title, err := h.generateText(ctx, titleAgent.AgentID, titleAgent.ModelID, titleAgent.ACPThoughtLevel, []*schema.Message{
 		schema.SystemMessage(systemPrompt),

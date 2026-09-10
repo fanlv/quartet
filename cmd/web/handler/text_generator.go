@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -20,10 +21,10 @@ import (
 // like job-title summarisation and IM auto-replies, where the caller wants a
 // single string back rather than a streaming session.
 //
-// modelID/thoughtLevel are eino-cli specific overrides plumbed from the role
-// config: they are forwarded as `--model`/`--thought` only when the resolved
-// binary is eino-cli, so other headless CLIs (which don't accept those flags)
-// keep their existing invocation.
+// modelID/thoughtLevel come from the role config. They are forwarded only when
+// the resolved CLI accepts matching flags (see headlessPrintFlagsFor); unknown
+// CLIs keep the plain `bin -p prompt` form so an unrecognized flag cannot
+// abort the one-shot run.
 func (h *Handler) generateText(ctx context.Context, agentID, modelID, thoughtLevel string, messages []*schema.Message) (string, error) {
 	logger.Debugf(ctx, "[generateText] enter: agentId=%s msgCount=%d", agentID, len(messages))
 
@@ -57,18 +58,50 @@ func (h *Handler) generateText(ctx context.Context, agentID, modelID, thoughtLev
 	if err := h.ensureBindingAvailable(ctx, binding); err != nil {
 		return "", err
 	}
-	// --model/--thought are eino-cli's headless flags; only forward them when the
-	// resolved binary is eino-cli. Other CLIs get the plain `bin -p prompt` form.
-	if resolved.Bin != einoHeadlessBin {
-		modelID, thoughtLevel = "", ""
-	}
-	logger.Debugf(ctx, "[generateText] routing to headless CLI: agentId=%q bin=%s modelId=%q thought=%q", resolved.AgentID, resolved.Bin, modelID, thoughtLevel)
-	return generateTextWithCLI(ctx, messages, resolved.Bin, modelID, thoughtLevel, h.settingsService.GetACPEnvVars(resolved.AgentID))
+	flags := headlessPrintFlagsFor(resolved.AgentID, resolved.Bin)
+	logger.Debugf(ctx, "[generateText] routing to headless CLI: agentId=%q bin=%s modelId=%q thought=%q modelFlag=%q thoughtFlag=%q",
+		resolved.AgentID, resolved.Bin, modelID, thoughtLevel, flags.modelFlag, flags.thoughtFlag)
+	return generateTextWithCLI(ctx, messages, resolved.Bin, modelID, thoughtLevel, flags, h.settingsService.GetACPEnvVars(resolved.AgentID))
 }
 
-// einoHeadlessBin is the binary name whose `-p` headless mode accepts the
-// --model/--thought flags (see cmd/eino-cli/main.go runPrint).
-const einoHeadlessBin = "eino-cli"
+// headlessPrintFlags is the subset of `bin -p` overrides a CLI actually accepts.
+// Empty flag names mean "do not forward": unknown CLIs must stay on the plain
+// `bin -p prompt` form.
+type headlessPrintFlags struct {
+	modelFlag   string
+	thoughtFlag string
+}
+
+// headlessPrintFlagsFor maps a one-shot agent to the model/thought flags its
+// plain CLI accepts. AgentID covers built-in catalog entries; the binary
+// basename covers custom agents that wrap the same CLI.
+func headlessPrintFlagsFor(agentID, bin string) headlessPrintFlags {
+	id := strings.ToLower(strings.TrimSpace(agentID))
+	name := strings.ToLower(filepath.Base(strings.TrimSpace(bin)))
+	switch {
+	case id == "eino-cli" || name == "eino-cli":
+		return headlessPrintFlags{modelFlag: "--model", thoughtFlag: "--thought"}
+	case id == "codebuddy" || name == "codebuddy" || name == "cbc":
+		return headlessPrintFlags{modelFlag: "--model", thoughtFlag: "--effort"}
+	case id == "claude" || name == "claude":
+		return headlessPrintFlags{modelFlag: "--model", thoughtFlag: "--effort"}
+	case id == "cursor-agent" || name == "cursor-agent":
+		return headlessPrintFlags{modelFlag: "--model"}
+	default:
+		return headlessPrintFlags{}
+	}
+}
+
+func headlessPrintArgs(prompt, modelID, thoughtLevel string, flags headlessPrintFlags) []string {
+	args := []string{"-p"}
+	if modelID != "" && flags.modelFlag != "" {
+		args = append(args, flags.modelFlag, modelID)
+	}
+	if thoughtLevel != "" && flags.thoughtFlag != "" {
+		args = append(args, flags.thoughtFlag, thoughtLevel)
+	}
+	return append(args, prompt)
+}
 
 // generateTextWithCLI executes an external CLI agent in headless print mode
 // to generate text. bin is the agent's plain CLI binary (e.g. "grok",
@@ -76,19 +109,11 @@ const einoHeadlessBin = "eino-cli"
 // agent's ACP serve command, which speaks JSON-RPC over stdio and would
 // exit non-zero if invoked this way.
 //
-// modelID/thoughtLevel, when non-empty, are appended as --model/--thought
-// BEFORE the positional prompt (Go's flag parser stops at the first
-// positional). Callers must only pass them for binaries that accept them.
-func generateTextWithCLI(ctx context.Context, messages []*schema.Message, bin, modelID, thoughtLevel string, configuredEnv map[string]string) (string, error) {
+// modelID/thoughtLevel, when the CLI accepts them, are appended BEFORE the
+// positional prompt (Go's flag parser stops at the first positional).
+func generateTextWithCLI(ctx context.Context, messages []*schema.Message, bin, modelID, thoughtLevel string, flags headlessPrintFlags, configuredEnv map[string]string) (string, error) {
 	prompt := messagesToPrompt(messages)
-	args := []string{"-p"}
-	if modelID != "" {
-		args = append(args, "--model", modelID)
-	}
-	if thoughtLevel != "" {
-		args = append(args, "--thought", thoughtLevel)
-	}
-	args = append(args, prompt)
+	args := headlessPrintArgs(prompt, modelID, thoughtLevel, flags)
 	cmd := executil.CommandContext(ctx, bin, args...)
 	cmd.Env = os.Environ()
 	for key, value := range configuredEnv {
@@ -103,7 +128,7 @@ func generateTextWithCLI(ctx context.Context, messages []*schema.Message, bin, m
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
 
-	logger.Infof(ctx, "[cliGenerate] generating: bin=%s promptLen=%d", bin, len(prompt))
+	logger.Infof(ctx, "[cliGenerate] generating: bin=%s modelId=%q thought=%q promptLen=%d", bin, modelID, thoughtLevel, len(prompt))
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -115,7 +140,7 @@ func generateTextWithCLI(ctx context.Context, messages []*schema.Message, bin, m
 		return "", fmt.Errorf("cli %q not found in PATH: %w (hint: install it or switch the agent to an LLM model)", bin, lookErr)
 	}
 
-	logger.Infof(ctx, "[cliGenerate] starting: bin=%s promptLen=%d", bin, len(prompt))
+	logger.Infof(ctx, "[cliGenerate] starting: bin=%s modelId=%q thought=%q promptLen=%d", bin, modelID, thoughtLevel, len(prompt))
 	start := time.Now()
 	if err := cmd.Run(); err != nil {
 		elapsed := time.Since(start).Round(time.Millisecond)
