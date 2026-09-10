@@ -142,6 +142,10 @@
     "switchWorkspace": "Switch workspace",
     "thinking": "AI is thinking...",
     "loadingEarlierMessages": "Loading earlier messages…",
+    "timeline": {
+      "backToBottom": "Back to bottom",
+      "newMessages": "New messages"
+    },
     "deepThinking": "Deep thinking",
     "imageViewer": {
       "dialogLabel": "Image viewer",

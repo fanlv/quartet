@@ -142,6 +142,10 @@
     "switchWorkspace": "切换工作空间",
     "thinking": "AI 正在思考...",
     "loadingEarlierMessages": "正在加载更早消息…",
+    "timeline": {
+      "backToBottom": "回到底部",
+      "newMessages": "有新消息"
+    },
     "deepThinking": "深度思考",
     "imageViewer": {
       "dialogLabel": "图片查看器",

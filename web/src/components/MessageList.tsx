@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useCallback, useState, type UIEvent } from 'react';
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useCallback, useState, type UIEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Message } from '../types';
+import { Message, MessageRoleEnum } from '../types';
 import { MessageItem } from './MessageItem';
 import { WelcomeHero } from './WelcomeHero';
 import './MessageList.css';
@@ -21,6 +21,28 @@ interface MessageListProps {
   scrollContextKey?: string;
   hasMoreEarlier?: boolean;
   onNeedEarlier?: () => Promise<number>;
+  controlsRef?: React.RefObject<MessageListHandle | null>;
+}
+
+/**
+ * Synchronous handle exposed to the parent (JobChat) so it can read the
+ * timeline mode and command a bottom-scroll in the same event handler —
+ * without waiting for a state round-trip through props. Mirrors the iOS
+ * timelineMode / resumeTimelineFollow split: browsing (= free reading,
+ * auto-scroll off) vs following (= pinned to the latest message).
+ */
+export interface MessageListHandle {
+  /** Leave browsing mode; scrolls to the bottom only if already near it. */
+  resumeFollowing: () => void;
+  /**
+   * Leave browsing mode AND scroll to the bottom unconditionally — the
+   * explicit "take me to the newest content" gesture (send, floating button).
+   */
+  forceFollowAndScrollToBottom: () => void;
+  /** True while the user has scrolled away from the bottom (browsing mode). */
+  isBrowsing: () => boolean;
+  /** True when new messages arrived (or stream progress continued) while browsing. */
+  hasPendingNewMessages: () => boolean;
 }
 
 const INITIAL_MESSAGE_COUNT = 80;
@@ -65,10 +87,12 @@ export function MessageList({
   scrollContextKey,
   hasMoreEarlier = false,
   onNeedEarlier,
+  controlsRef,
 }: MessageListProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const prevIsLoadingRef = useRef(isLoading);
+  const prevFollowBottomRef = useRef(followBottom);
   const prevScrollContextKeyRef = useRef<string | undefined>(undefined);
   // Track whether the user has intentionally scrolled away from the bottom.
   // When true, we stop auto-scrolling so the user can read history in peace.
@@ -76,6 +100,13 @@ export function MessageList({
   const browsingMessageCountRef = useRef<number | null>(null);
   const pendingPrependAnchorRef = useRef<PrependAnchor | null>(null);
   const scrollToBottomAfterWindowChangeRef = useRef(false);
+  // Latest-bubble fingerprint taken the moment browsing started; any drift
+  // means new content arrived while the user was reading history.
+  const browsingFingerprintRef = useRef<string | null>(null);
+  const hasPendingNewMessagesRef = useRef(false);
+  // Re-render trigger for the floating-button state; the scroll positions
+  // themselves live in refs so scrolling never re-renders the timeline.
+  const [, setScrollUiVersion] = useState(0);
   const [timelineWindow, setTimelineWindow] = useState<TimelineWindowState>({
     contextKey: scrollContextKey,
     messageCount: INITIAL_MESSAGE_COUNT,
@@ -112,9 +143,27 @@ export function MessageList({
     }
   }, []);
 
+  /**
+   * Fingerprint of the latest visible round: which message is last plus how
+   * far along it is. New appends change the id; streaming into the same
+   * bubble changes the length. Compared against the snapshot taken when the
+   * user started browsing to decide between "回到底部" and "有新消息".
+   */
+  const latestFingerprint = useCallback(() => {
+    const last = messages[messages.length - 1];
+    if (!last) return '';
+    const progress = last.content.length
+      + (last.role === MessageRoleEnum.TOOL ? last.toolCallArgs.length : 0)
+      + (last.role === MessageRoleEnum.ASSISTANT ? (last.thinkingContent?.length ?? 0) : 0);
+    return `${last.id}:${progress}`;
+  }, [messages]);
+
   const markFollowing = useCallback(() => {
     userScrolledUpRef.current = false;
     browsingMessageCountRef.current = null;
+    browsingFingerprintRef.current = null;
+    hasPendingNewMessagesRef.current = false;
+    setScrollUiVersion((v) => v + 1);
   }, []);
 
   const resumeFollowing = useCallback(() => {
@@ -132,6 +181,35 @@ export function MessageList({
       messageCount: INITIAL_MESSAGE_COUNT,
     });
   }, [markFollowing, scrollContextKey, scrollToBottom, visibleMessageCount]);
+
+  const forceFollowAndScrollToBottom = useCallback(() => {
+    resumeFollowing();
+    scrollToBottom();
+  }, [resumeFollowing, scrollToBottom]);
+
+  // Synchronous read API for the floating button: refs are updated during
+  // render (see below), so by the time any parent event handler runs these
+  // already describe the current paint. Report the frozen timeline as
+  // browsing so the parent can offer an explicit "snap to latest" affordance.
+  useImperativeHandle(controlsRef, () => ({
+    resumeFollowing,
+    forceFollowAndScrollToBottom,
+    isBrowsing: () => !followBottom || userScrolledUpRef.current,
+    hasPendingNewMessages: () => hasPendingNewMessagesRef.current,
+  }), [controlsRef, resumeFollowing, forceFollowAndScrollToBottom, followBottom]);
+
+  // Render-time pending-flag maintenance: while browsing, drift between the
+  // latest-bubble fingerprint and the browsing snapshot means new content
+  // arrived (or kept streaming) below the fold; toggle the flag and request a
+  // render so the parent's floating button can swap labels. Runs only when
+  // the inputs can actually change: browsing active, fingerprint taken.
+  if (userScrolledUpRef.current && browsingFingerprintRef.current != null) {
+    const pending = latestFingerprint() !== browsingFingerprintRef.current;
+    if (pending !== hasPendingNewMessagesRef.current) {
+      hasPendingNewMessagesRef.current = pending;
+      setScrollUiVersion((v) => v + 1);
+    }
+  }
 
   // Every prepend must widen the render window by what it added, otherwise the
   // new page lands in the hidden region — which sits at the TOP of the list, so
@@ -255,14 +333,23 @@ export function MessageList({
       return;
     }
 
-    if (!userScrolledUpRef.current) {
+    // followBottom=false (Graph viewing a pre-latest session) freezes the
+    // timeline: it is already effectively "browsing" via the license being
+    // revoked. Latching our own flag here as well would produce a redundant
+    // state that no effect ever resets when followBottom is granted back.
+    if (!userScrolledUpRef.current && followBottom) {
       userScrolledUpRef.current = true;
       browsingMessageCountRef.current = messages.length;
+      browsingFingerprintRef.current = latestFingerprint();
+      hasPendingNewMessagesRef.current = false;
+      // The floating "回到底部 / 有新消息" button lives in the parent and
+      // reads these refs synchronously; this re-render is what makes it show.
+      setScrollUiVersion((v) => v + 1);
     }
     if ((nearTop || hasScrolledIntoTopLoadedPage(el)) && (hiddenMessageCount > 0 || hasMoreEarlier)) {
       loadEarlierMessages();
     }
-  }, [hasMoreEarlier, hasScrolledIntoTopLoadedPage, hiddenMessageCount, loadEarlierMessages, markFollowing, messages.length]);
+  }, [followBottom, hasMoreEarlier, hasScrolledIntoTopLoadedPage, hiddenMessageCount, latestFingerprint, loadEarlierMessages, markFollowing, messages.length]);
 
   // Prime the conversation to two pages. The first paint deliberately renders
   // one page only, but a single page leaves nothing above the viewport to
@@ -284,6 +371,8 @@ export function MessageList({
     prevScrollContextKeyRef.current = scrollContextKey;
     userScrolledUpRef.current = false;
     browsingMessageCountRef.current = null;
+    browsingFingerprintRef.current = null;
+    hasPendingNewMessagesRef.current = false;
     pendingPrependAnchorRef.current = null;
     scrollToBottomAfterWindowChangeRef.current = false;
     setTimelineWindow({
@@ -309,6 +398,19 @@ export function MessageList({
       scrollToBottom();
     }
   }, [followBottom, messages, scrollToBottom]);
+
+  // `followBottom=false` (Graph viewing a pre-latest session) freezes the
+  // timeline without entering browsing: JobChat has its own overlay logic for
+  // that case and the auto-scroll effect above already skips scrolling. What's
+  // left here is the grant-back transition: the list must return to follow so
+  // the latest session's stream can take the scroll position over again.
+  useEffect(() => {
+    if (!scrollContextKey) return;
+    if (followBottom && userScrolledUpRef.current && prevFollowBottomRef.current === false) {
+      resumeFollowing();
+    }
+    prevFollowBottomRef.current = followBottom;
+  }, [followBottom, resumeFollowing, scrollContextKey]);
 
   return (
     <div
