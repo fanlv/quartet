@@ -708,7 +708,8 @@
       "formDefaultAgentOption": "— Use system default —",
       "formDefaultAgentHint": "Saved with the workspace and shared by Web and iOS.",
       "formDefaultModel": "Default Model (optional)",
-      "formDefaultModelOption": "— Use Agent default —"
+      "formDefaultModelOption": "— Use Agent default —",
+      "discardConfirm": "You have unsaved changes. Close anyway? Your input will be lost."
     },
     "logs": {
       "level": "Level",

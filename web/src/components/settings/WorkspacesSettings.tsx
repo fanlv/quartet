@@ -284,6 +284,7 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
   const [title, setTitle] = useState(initial?.title || '');
   const [description, setDescription] = useState(initial?.description || '');
   const [workdir, setWorkdir] = useState(initial?.workdir || '');
+  const [baselineWorkdir, setBaselineWorkdir] = useState(initial?.workdir || '');
   const [showDirPicker, setShowDirPicker] = useState(false);
   const [prefs, setPrefs] = useState<WorkspacePrefs>(() => (initial ? loadWorkspacePrefs(initial.id) : {}));
   const [saving, setSaving] = useState(false);
@@ -301,6 +302,7 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
       .then((data) => {
         if (cancelled || !data || typeof data.workdir !== 'string') return;
         setWorkdir((current) => (current ? current : data.workdir));
+        setBaselineWorkdir((current) => (current ? current : data.workdir));
       })
       .catch(() => {
         // Non-fatal: fall back to an empty input, which the user can fill manually.
@@ -309,6 +311,30 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
       cancelled = true;
     };
   }, [mode]);
+
+  const initialPrefs = initial ? loadWorkspacePrefs(initial.id) : {};
+  const isDirty =
+    title !== (initial?.title || '') ||
+    description !== (initial?.description || '') ||
+    workdir !== baselineWorkdir ||
+    (prefs.defaultAgent || '') !== (initialPrefs.defaultAgent || '') ||
+    (prefs.defaultModel || '') !== (initialPrefs.defaultModel || '');
+
+  const requestClose = useCallback(() => {
+    if (isDirty && !window.confirm(t('settings.workspace.discardConfirm'))) return;
+    onClose();
+  }, [isDirty, onClose, t]);
+
+  useEffect(() => {
+    if (showDirPicker) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      requestClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [showDirPicker, requestClose]);
 
   const isDefault = initial ? isDefaultWorkspace(initial.id) : false;
 
@@ -378,8 +404,8 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
 
   return (
     <>
-      <div className="ws-settings-modal-overlay" onClick={onClose}>
-        <div className="ws-settings-modal ws-form-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="ws-settings-modal-overlay">
+        <div className="ws-settings-modal ws-form-modal">
           <h3>{mode === 'edit' ? t('settings.workspace.formEdit') : t('settings.workspace.formCreate')}</h3>
           {isDefault && <p className="ws-form-hint">{t('settings.workspace.formDefaultHint', { id: DEFAULT_WORKSPACE_ID })}</p>}
           <div className="ws-form-field">
@@ -426,7 +452,7 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
           )}
           {error && <div className="ws-form-error">{error}</div>}
           <div className="ws-settings-modal-actions">
-            <button onClick={onClose}>{t('common.cancel')}</button>
+            <button type="button" onClick={requestClose}>{t('common.cancel')}</button>
             <button className="primary" onClick={handleSave} disabled={!canSave}>
               {saving ? t('common.saving') : (mode === 'edit' ? t('common.save') : t('common.create'))}
             </button>

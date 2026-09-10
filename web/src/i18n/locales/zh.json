@@ -706,7 +706,8 @@
       "formDefaultAgentOption": "— 使用系统默认 —",
       "formDefaultAgentHint": "保存在工作空间中，Web 与 iOS 共用此偏好。",
       "formDefaultModel": "默认模型（可选）",
-      "formDefaultModelOption": "— 使用 Agent 默认 —"
+      "formDefaultModelOption": "— 使用 Agent 默认 —",
+      "discardConfirm": "当前有未保存的内容，确定关闭吗？已输入的内容将丢失。"
     },
     "logs": {
       "level": "级别",
