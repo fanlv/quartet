@@ -738,6 +738,19 @@
 }
 
 /*
+ * Timeline viewport: the message list plus its floating overlay. It owns the
+ * positioning context so the overlay tracks the list's bottom edge instead of
+ * a fixed offset that a taller composer would swallow.
+ */
+.timeline-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/*
  * Floating "回到底部 / 有新消息" button, mirroring the iOS timeline overlay.
  * Rendered only while the user is in free-browse mode, so this is also the
  * visual marker distinguishing browse from follow-bottom.
@@ -745,7 +758,7 @@
 .timeline-back-to-bottom {
   position: absolute;
   left: 50%;
-  bottom: 108px;
+  bottom: 12px;
   transform: translateX(-50%);
   display: inline-flex;
   align-items: center;

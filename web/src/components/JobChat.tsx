@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useJobChat } from '../hooks/useJobChat';
 import { useJobList, type JobSummary } from '../hooks/useJobList';
-import { MessageList, type MessageListHandle } from './MessageList';
+import { MessageList, type MessageListHandle, type TimelineViewState } from './MessageList';
 import { phaseLabel } from '../utils/chatPhase';
 import { ChatInput } from './ChatInput';
 import { GraphSessionSidebar } from './GraphSessionSidebar';
@@ -897,44 +897,29 @@ export function JobChat(props: JobChatProps) {
     ? agentEffectiveModelId
     : sessionModelId ?? agentEffectiveModelId;
 
-  // Free-browse vs follow-bottom lives inside MessageList's refs (no state
-  // round-trip): read them here synchronously so the floating button and the
-  // send gesture both act on the current paint.
+  // Commands for the timeline (snap to bottom, leave browsing); the mode
+  // itself is not read through this ref. Scrolling only re-renders
+  // MessageList, so a ref read during JobChat's render would keep showing
+  // whatever was true the last time JobChat happened to re-render — which on
+  // an idle conversation is never.
   const messageListControlsRef = useRef<MessageListHandle | null>(null);
-  // Bumped by events (send, floating-button click) that flip the timeline
-  // mode without otherwise re-rendering JobChat. The value itself is unused;
-  // the ref-reads on the next line are the real derivation.
-  const [, setTimelineUiVersion] = useState(0);
-  const timelineBrowsing = messageListControlsRef.current?.isBrowsing() ?? false;
-  const timelineHasPending =
-    timelineBrowsing && (messageListControlsRef.current?.hasPendingNewMessages() ?? false);
-
-  // MessageList effects that flip the mode (stream-start resume, followBottom
-  // revocation) run AFTER this render, so for one frame the button would show
-  // a stale state. Anticipate both transitions here:
-  //   - a starting stream with scroll permission snaps back to follow (only
-  //     the rising edge — a stream already in flight must not hide the button
-  //     from a user who chose to browse mid-stream);
-  //   - losing scroll permission drops us into browsing.
-  const prevIsLoadingForButtonRef = useRef(isLoading);
-  useEffect(() => {
-    prevIsLoadingForButtonRef.current = isLoading;
-  }, [isLoading]);
-  const streamStartingFollow = shouldFollowMessageListBottom
-    && isLoading
-    && !prevIsLoadingForButtonRef.current;
-  const browsingAfterEffects = timelineBrowsing && !streamStartingFollow;
-  const pendingAfterEffects = browsingAfterEffects && timelineHasPending;
+  // Pushed up from MessageList whenever the mode changes, so the floating
+  // button is driven by real state on both edges: appearing when the user
+  // scrolls away from the bottom, disappearing when the list returns to it.
+  const [timelineView, setTimelineView] = useState<TimelineViewState>({ browsing: false, hasPending: false });
+  const handleTimelineViewChange = useCallback((next: TimelineViewState) => {
+    setTimelineView((prev) => (
+      prev.browsing === next.browsing && prev.hasPending === next.hasPending ? prev : next
+    ));
+  }, []);
 
   const handleSendMessage = useCallback(
     (content: string, imageUrls?: string[], fileAttachments?: FileAttachment[]) => {
       const targetSessionId = isGraph ? activeSessionId : null;
       // Sending is an explicit "take me to the newest content" gesture: even
       // mid-stream queueing must snap the timeline back to the bottom and
-      // leave browsing mode before the optimistic message lands. The local
-      // re-render below is what hides the floating button with this paint.
+      // leave browsing mode before the optimistic message lands.
       messageListControlsRef.current?.forceFollowAndScrollToBottom();
-      setTimelineUiVersion((v) => v + 1);
       // Only interactive mode queues. Graph discussion sends must keep their
       // explicit node sessionId, which the generic queue does not retain.
       if (!isGraph && isLoading) {
@@ -1821,6 +1806,12 @@ export function JobChat(props: JobChatProps) {
           </>
         )}
         <div className="chatbot-main">
+          {/*
+            The timeline viewport is the button's positioning context: anchored
+            to the message list itself, the floating button always sits right
+            above the composer, whatever height the composer currently has.
+          */}
+          <div className="timeline-viewport">
           {isGraph && activeSessionId && !loadedSessionIds.has(activeSessionId) ? (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#888' }}>
               Loading session messages...
@@ -1842,25 +1833,26 @@ export function JobChat(props: JobChatProps) {
             hasMoreEarlier={hasMoreEarlierMessages}
             onNeedEarlier={loadEarlierMessages}
             controlsRef={messageListControlsRef}
+            onTimelineViewChange={handleTimelineViewChange}
           />
           )}
-          {browsingAfterEffects && (
+          {timelineView.browsing && (
             <button
               type="button"
               className="timeline-back-to-bottom"
               data-testid="timeline-back-to-bottom"
-              aria-label={pendingAfterEffects ? t('chat.timeline.newMessages') : t('chat.timeline.backToBottom')}
+              aria-label={timelineView.hasPending ? t('chat.timeline.newMessages') : t('chat.timeline.backToBottom')}
               onClick={() => {
                 messageListControlsRef.current?.forceFollowAndScrollToBottom();
-                setTimelineUiVersion((v) => v + 1);
               }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <path d="M12 5v14M5 12l7 7 7-7" />
               </svg>
-              <span>{pendingAfterEffects ? t('chat.timeline.newMessages') : t('chat.timeline.backToBottom')}</span>
+              <span>{timelineView.hasPending ? t('chat.timeline.newMessages') : t('chat.timeline.backToBottom')}</span>
             </button>
           )}
+          </div>
           {acpConfigError && (
             <div className="acp-config-error" data-testid="acp-config-error" role="alert">
               <span>{acpConfigError}</span>
