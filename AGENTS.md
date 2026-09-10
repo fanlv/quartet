@@ -147,7 +147,8 @@ Go tests: `go test ./...`
   agent-browser --session "$(agent-browser session id --scope worktree --prefix quartet)" --restore --restore-save auto snapshot -i
   ```
 
-- 如果恢复后仍显示登录页，先查看 `agent-browser auth list`。已有对应 auth profile 时，在同一个 session 中执行 `agent-browser --session "$(agent-browser session id --scope worktree --prefix quartet)" --restore --restore-save auto auth login <profile>`；没有 profile 时由用户使用 `agent-browser auth save <profile> --url 'https://devbox.fanlv.fun/' --username '<username>' --password-stdin` 一次性录入，禁止把密码写在命令行、AGENTS.md、日志或代码中。登录完成后继续复用上述 session，不要每次新建 session 或重复登录。
+- 恢复后仍显示登录页时，优先看 agent 能否读写目标后端的 `$LOCAL_MEMORY`（本机/同机调试通常都可以）：服务端每次鉴权都从磁盘读 session 文件，所以写入即生效——随机生成 cookie token 与 CSRF token，把 token 的 SHA-256 十六进制作为文件名，往 `$LOCAL_MEMORY/var/quartet/state/auth/sessions/{tokenHash}.json` 写入 `{"tokenHash","userId","csrfToken","createdAt"}`（`userId` 从 `quartet/config/auth/users/` 目录取现存账号，文件权限 `0600`），然后在同一个 agent-browser session 里执行 `cookies set quartet_session <token> --url '<站点地址>/' --httpOnly --sameSite Lax` 并重新打开页面。先用 `curl -H 'Cookie: quartet_session=<token>' <站点>/api/v1/auth/me` 确认返回用户 JSON 再进浏览器。这是以该账号身份拿到完整权限的等价登录，只能用于本地/可信环境的测试；测试结束后必须删除这个 session 文件，并验证原 token 已返回 401。
+- 够不到目标后端的文件系统时（远程部署、别人的机器）才走 auth profile：已有 profile 就在同一 session 里 `auth login <profile>`；没有则由用户使用 `agent-browser auth save <profile> --url '<站点地址>/' --username '<username>' --password-stdin` 一次性录入，禁止把密码写在命令行、AGENTS.md、日志或代码中。登录完成后继续复用上述 session，不要每次新建 session 或重复登录。
 
 ## Architecture
 
