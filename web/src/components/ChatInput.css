@@ -960,6 +960,9 @@
   background: #fff7ed;
   border-radius: 11px 11px 0 0;
   overflow: hidden;
+  /* Promote to compositor layer so border-radius + overflow:hidden renders
+     via GPU and the rounded corners stay crisp instead of anti-aliased. */
+  transform: translateZ(0);
 }
 
 .chat-queued-header {
