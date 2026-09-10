@@ -99,3 +99,5 @@ web/e2e/test-results/*
 !web/e2e/test-results/go.mod
 
 eino-cli
+
+.codebuddy/*
