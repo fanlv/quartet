@@ -296,11 +296,18 @@
   max-width: 76%;
 }
 
+/* Padding stays in the variables the base sheet declares so the left gutter
+   keeps lining up with the bubble's last text line. */
+#root .user-bubble-row {
+  --user-bubble-pad-y: 9px;
+  --user-bubble-pad-x: 13px;
+}
+
 #root .user-bubble {
   color: var(--accent-fg);
   background: var(--accent);
   border-radius: 17px 17px 5px 17px;
-  padding: 9px 13px;
+  padding: var(--user-bubble-pad-y) var(--user-bubble-pad-x);
   box-shadow: 0 5px 15px color-mix(in srgb, var(--accent) 13%, transparent);
 }
 
@@ -329,6 +336,14 @@
 
 #root .markdown-content p {
   margin-bottom: 8px;
+}
+
+/* The base sheet drops the trailing block's bottom margin, but every rule in
+   this file outranks it by an ID. Re-assert the reset here, otherwise each
+   bubble ends with a dangling margin below its last line — most visible on a
+   single-line bubble, where the text stops looking vertically centered. */
+#root .markdown-content > *:last-child {
+  margin-bottom: 0;
 }
 
 #root :is(.markdown-content ul, .markdown-content ol) {

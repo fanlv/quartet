@@ -228,7 +228,7 @@ function UserMessageContent({ message }: { message: UserMessage }) {
     <div className="message-item user-message" data-testid="message-item" data-message-id={message.id} data-message-role="user" data-session-id={message.sessionId || ''} data-round-head-pinned={message.roundHeadPinned ? 'true' : undefined}>
       <div className="message-content">
         <div className="user-bubble-row">
-          <div className="user-meta-col">
+          <div className="user-meta-row">
             <CopyMessageButton content={content} />
             {timeStr && <div className="message-timestamp user-timestamp">{timeStr}</div>}
           </div>

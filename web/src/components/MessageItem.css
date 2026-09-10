@@ -48,6 +48,7 @@
   background: #142019;
   color: #fff;
   border-radius: 16px 16px 4px 16px;
+  padding: var(--user-bubble-pad-y) var(--user-bubble-pad-x);
   min-width: 0;
   width: fit-content;
   max-width: 100%;
@@ -61,7 +62,12 @@
   background: #bbf7d0;
 }
 
+/* The bubble padding lives here as variables because the left gutter reuses the
+   vertical value to line itself up with the bubble's last text line. Override
+   both together, never the bubble padding alone. */
 .user-bubble-row {
+  --user-bubble-pad-y: 12px;
+  --user-bubble-pad-x: 16px;
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
@@ -143,24 +149,26 @@
   white-space: nowrap;
 }
 
-/* Left gutter of a user message: copy button stacked above the timestamp,
-   both bottom-aligned to sit next to the bubble's lower edge. */
-.user-meta-col {
+/* Left gutter of a user message: copy button and timestamp on one row. The
+   bottom padding mirrors the bubble's, so the row reads as a continuation of
+   the bubble's last text line instead of hanging off its padding box — which is
+   what made single-line bubbles look lopsided when the gutter was a stack. */
+.user-meta-row {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
+  align-items: center;
+  gap: 2px;
+  padding-bottom: var(--user-bubble-pad-y);
   flex-shrink: 0;
 }
 
 /* Keep the gutter clean; reveal the copy button on message hover. */
-.user-meta-col .assistant-copy-btn {
+.user-meta-row .assistant-copy-btn {
   opacity: 0;
   transition: opacity 0.2s, color 0.2s, background 0.2s, border-color 0.2s;
 }
 
-.user-message:hover .user-meta-col .assistant-copy-btn,
-.user-meta-col .assistant-copy-btn:focus-visible {
+.user-message:hover .user-meta-row .assistant-copy-btn,
+.user-meta-row .assistant-copy-btn:focus-visible {
   opacity: 1;
 }
 
@@ -189,6 +197,17 @@
   flex-direction: column;
   gap: 7px;
   margin-bottom: 8px;
+}
+
+/* An attachment-only message still renders an empty markdown block, so the
+   attachment's bottom margin would turn into dead space at the foot of the
+   bubble. Collapse the block and drop the margin. */
+.user-bubble .markdown-content:empty {
+  display: none;
+}
+
+.user-bubble:has(> .markdown-content:empty) :is(.user-message-images, .user-message-files) {
+  margin-bottom: 0;
 }
 
 .user-message-file {
@@ -1150,6 +1169,11 @@
 
   .message-bubble {
     padding: 10px 14px;
+  }
+
+  .user-bubble-row {
+    --user-bubble-pad-y: 10px;
+    --user-bubble-pad-x: 14px;
   }
 
   .assistant-bubble {
