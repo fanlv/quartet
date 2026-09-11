@@ -120,6 +120,36 @@ export function MessageList({
     messageCount: INITIAL_MESSAGE_COUNT,
   });
 
+  // The message list owns the vertical scrollbar while the composer is its
+  // sibling. Measure the reserved gutter so both can share the same content
+  // edge even when `scrollbar-width: thin` maps to different pixels by browser
+  // or platform.
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    const layout = el?.closest<HTMLElement>('.chatbot-main');
+    if (!el || !layout) return;
+
+    const syncScrollbarGutter = () => {
+      const value = `${el.offsetWidth - el.clientWidth}px`;
+      if (layout.style.getPropertyValue('--message-list-scrollbar-gutter') !== value) {
+        layout.style.setProperty('--message-list-scrollbar-gutter', value);
+      }
+    };
+    syncScrollbarGutter();
+
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(syncScrollbarGutter);
+    observer?.observe(el);
+    window.addEventListener('resize', syncScrollbarGutter);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', syncScrollbarGutter);
+      layout.style.removeProperty('--message-list-scrollbar-gutter');
+    };
+  }, []);
+
   // A context switch always renders the bounded initial window immediately,
   // even before the layout effect below synchronizes the state object.
   const visibleMessageCount = timelineWindow.contextKey === scrollContextKey

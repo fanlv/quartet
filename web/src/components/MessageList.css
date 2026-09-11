@@ -1,6 +1,6 @@
 /*
  * NOTE: .message-list 的左右 padding 必须与 ChatInput 的对应断点成套匹配，公式：
- *   message-list 右 padding = chat-input-container 右 padding − 6px (滚动条槽位宽度)
+ *   message-list 右 padding = chat-input-container 右 padding − 实测滚动条槽位宽度
  * 修改时请同步检查 ChatInput.css 中 .chat-input-container 的各断点 padding。
  */
 .message-list {

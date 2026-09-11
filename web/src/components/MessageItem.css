@@ -216,23 +216,46 @@
   gap: 10px;
   min-width: 220px;
   max-width: 420px;
-  padding: 9px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: 10px;
-  color: inherit;
+  padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, var(--surface) 74%, transparent);
+  border-radius: 11px;
+  color: var(--fg);
   text-decoration: none;
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent-deep) 13%, transparent);
+  transition: background var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
 }
 
-.user-message-file:hover { background: rgba(255, 255, 255, 0.18); }
+.user-message-file:hover {
+  border-color: var(--surface);
+  background: var(--surface);
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--accent-deep) 18%, transparent);
+  transform: translateY(-1px);
+}
+
+.user-message-file:active {
+  transform: translateY(0) scale(0.99);
+}
+
 .user-message-file-icon {
-  display: grid; place-items: center; width: 38px; height: 42px; flex: 0 0 38px;
-  border-radius: 7px; background: rgba(255, 255, 255, 0.16); font-size: 9px; font-weight: 800;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 44px;
+  flex: 0 0 40px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-radius: 8px;
+  color: var(--accent-deep);
+  background: var(--accent-soft-surface);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
 }
 .user-message-file-copy { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 2px; }
-.user-message-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.user-message-file-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; opacity: 0.72; }
-.user-message-file-download { font-size: 18px; opacity: 0.72; }
+.user-message-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-weight: 600; }
+.user-message-file-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.user-message-file-download { color: var(--muted); font-size: 18px; opacity: 0.8; transition: color var(--motion-fast), transform var(--motion-fast); }
+.user-message-file:hover .user-message-file-download { color: var(--accent-deep); transform: translateY(2px); }
 
 .user-message-image {
   --message-image-max-width: 480px;

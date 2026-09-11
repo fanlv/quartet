@@ -192,8 +192,8 @@
   font-size: 9.5px;
 }
 
-/* Keep the home composer on the same measure as the home lists and the chat
-   composer. */
+/* Keep the home composer on the same measure as the home lists. The chat
+   composer's horizontal gutters stay paired with MessageList.css. */
 #root .home-input-container {
   max-width: 1220px;
   padding: 0 22px 24px 28px;
@@ -203,7 +203,6 @@
   max-width: 1220px;
   width: 100%;
   margin: 0 auto;
-  padding: 8px 22px 24px 28px;
 }
 
 #root :is(.home-input-wrapper, .chat-input-wrapper) {
@@ -701,7 +700,7 @@
   }
 
   #root .chat-input-container {
-    padding: 8px 6px calc(12px + env(safe-area-inset-bottom)) 12px;
+    padding: 8px calc(6px + var(--message-list-scrollbar-gutter, 6px)) calc(12px + env(safe-area-inset-bottom)) 12px;
   }
 
   #root .user-message .message-content {

@@ -1,9 +1,10 @@
 /*
- * NOTE: .chat-input-container 的 padding（左右、底部）必须与 HomePage 的 .home-content padding 保持一致，
- * 确保两个页面的输入框位置和间距视觉上一致。修改时请同步检查 HomePage.css 中 .home-content 的 padding。
+ * NOTE: .chat-input-container 的左右 padding 必须与 MessageList 的对应断点成套匹配，
+ * 右侧还要叠加 MessageList 实测的滚动条槽位，让输入框外沿与消息内容外沿对齐。
+ * 修改时请同步检查 MessageList.css。
  */
 .chat-input-container {
-  padding: 8px 6px 24px 24px; /* right 6px = message-list scrollbar width, so wrapper's right edge meets the scrollbar's left edge */
+  padding: 8px var(--message-list-scrollbar-gutter, 6px) 24px 24px;
   background: transparent;
   flex-shrink: 0;
   min-width: 0;
@@ -650,19 +651,41 @@
 }
 
 .chat-attachment-preview-item {
-  position: relative; display: flex; align-items: center; flex-shrink: 0;
-  border: 1px solid #cdd9d0; border-radius: 8px; overflow: hidden; background: var(--surface);
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--fg);
+  border: 1px solid color-mix(in srgb, var(--border-strong) 78%, transparent);
+  border-radius: 11px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--elevated) 58%, var(--surface));
+  transition: background var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast);
 }
 .chat-attachment-preview-item.image { width: 64px; height: 64px; }
-.chat-attachment-preview-item.file { width: 230px; min-height: 64px; padding: 8px 34px 8px 9px; gap: 9px; }
-.chat-attachment-preview-item.error { border-color: #ef4444; }
+.chat-attachment-preview-item.file { width: 246px; min-height: 64px; padding: 8px 38px 8px 9px; gap: 10px; }
+.chat-attachment-preview-item.file:hover {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent-soft-surface) 52%, var(--surface));
+}
+.chat-attachment-preview-item.error { border-color: var(--danger); }
 .chat-file-preview-icon {
-  display: grid; place-items: center; width: 38px; height: 42px; flex: 0 0 38px;
-  border-radius: 7px; background: #edf9f0; color: var(--accent-hover); font-size: 9px; font-weight: 800;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 44px;
+  flex: 0 0 40px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 8px;
+  color: var(--accent-deep);
+  background: var(--accent-soft-surface);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
 }
 .chat-file-preview-info { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.chat-file-preview-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
-.chat-file-preview-size { color: #738077; font-size: 11px; }
+.chat-file-preview-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-size: 12px; font-weight: 600; }
+.chat-file-preview-size { color: var(--muted-2); font-size: 11px; font-variant-numeric: tabular-nums; }
 .chat-attachment-preview-item:hover .chat-image-preview-remove { opacity: 1; }
 
 .chat-image-preview-item {
@@ -688,7 +711,7 @@
 .chat-image-preview-loading {
   position: absolute;
   inset: 0;
-  background: rgba(255, 255, 255, 0.6);
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -698,8 +721,8 @@
   content: '';
   width: 20px;
   height: 20px;
-  border: 2px solid #c1cdc4;
-  border-top-color: #29362d;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }
@@ -714,8 +737,8 @@
   left: 2px;
   width: 18px;
   height: 18px;
-  background: #ef4444;
-  color: #fff;
+  background: var(--danger);
+  color: var(--on-danger);
   border-radius: 50%;
   font-size: 12px;
   font-weight: 700;
@@ -726,13 +749,13 @@
 
 .chat-image-preview-remove {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 18px;
-  height: 18px;
-  background: rgba(0, 0, 0, 0.5);
-  color: #fff;
-  border: none;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--border);
   border-radius: 50%;
   font-size: 14px;
   line-height: 1;
@@ -741,7 +764,13 @@
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 0.15s;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--fg) 10%, transparent);
+  transition: opacity var(--motion-fast), color var(--motion-fast), background var(--motion-fast);
+}
+
+.chat-image-preview-remove:hover {
+  color: var(--fg);
+  background: var(--surface);
 }
 
 .chat-image-preview-item:hover .chat-image-preview-remove {
@@ -778,7 +807,7 @@
 
 @media (max-width: 1180px) {
   .chat-input-container {
-    padding: 4px 24px 12px;
+    padding: 4px calc(18px + var(--message-list-scrollbar-gutter, 6px)) 12px 24px;
   }
 
   .chat-input-footer {
@@ -836,7 +865,7 @@
 
 @media (max-width: 1024px) {
   .chat-input-container {
-    padding: 4px 16px calc(var(--tablet-bottom-gap, 0px) + max(env(safe-area-inset-bottom, 0px), 6px));
+    padding: 4px calc(10px + var(--message-list-scrollbar-gutter, 6px)) calc(var(--tablet-bottom-gap, 0px) + max(env(safe-area-inset-bottom, 0px), 6px)) 16px;
     background: transparent;
   }
 
@@ -862,7 +891,7 @@
 
 @media (max-width: 768px) {
   .chat-input-container {
-    padding: 4px 12px max(env(safe-area-inset-bottom, 0px), 6px);
+    padding: 4px calc(6px + var(--message-list-scrollbar-gutter, 6px)) max(env(safe-area-inset-bottom, 0px), 6px) 12px;
   }
 
   .chat-input {
@@ -1067,15 +1096,6 @@
 .chat-queued-cancel:hover {
   background: rgba(34, 197, 94, 0.18);
   opacity: 1;
-}
-
-@media (prefers-color-scheme: dark) {
-  .chat-queued-cancel:hover {
-    background: rgba(74, 222, 128, 0.28);
-  }
-  .chat-attachment-preview-item { background: #1f1f1f; border-color: #3b3b3b; }
-  .chat-file-preview-icon { background: #18221b; color: #86efac; }
-  .chat-file-preview-size { color: #9ca99f; }
 }
 
 @media (max-width: 1024px) {
