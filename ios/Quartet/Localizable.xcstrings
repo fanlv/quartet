@@ -44,6 +44,86 @@
         }
       }
     },
+    "正在读取版本与用量…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Loading version & usage…" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "正在读取版本与用量…" }
+        }
+      }
+    },
+    "版本与用量读取失败：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Version & usage failed: %@" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "版本与用量读取失败：%@" }
+        }
+      }
+    },
+    "总量" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Total" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "总量" }
+        }
+      }
+    },
+    "本月" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "This month" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "本月" }
+        }
+      }
+    },
+    "本月已用" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Used this month" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "本月已用" }
+        }
+      }
+    },
+    "剩余 %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "%@ remaining" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "剩余 %@" }
+        }
+      }
+    },
+    "额度处于特殊状态，仅显示已用金额" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Quota is in a special state; showing spend only" }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "额度处于特殊状态，仅显示已用金额" }
+        }
+      }
+    },
+    "未配置额度看板凭据，仅显示版本信息。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "No quota dashboard credential configured; showing version only." }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "未配置额度看板凭据，仅显示版本信息。" }
+        }
+      }
+    },
     "套餐" : {
       "localizations" : {
         "en" : {

@@ -600,6 +600,31 @@ struct AgentUsageResponse: Codable, Hashable, Sendable {
     let antigravity: AntigravityAgentUsage?
     let kimi: KimiAgentUsage?
     let qoder: QoderAgentUsage?
+    let cursor: CursorAgentUsage?
+    let codebuddy: CodeBuddyAgentUsage?
+
+    /// 只有被请求的那个 provider 会有值，所以构造时只写关心的那一个。
+    init(
+        code: Int,
+        type: String,
+        codex: CodexAgentUsage? = nil,
+        claude: ClaudeAgentUsage? = nil,
+        antigravity: AntigravityAgentUsage? = nil,
+        kimi: KimiAgentUsage? = nil,
+        qoder: QoderAgentUsage? = nil,
+        cursor: CursorAgentUsage? = nil,
+        codebuddy: CodeBuddyAgentUsage? = nil
+    ) {
+        self.code = code
+        self.type = type
+        self.codex = codex
+        self.claude = claude
+        self.antigravity = antigravity
+        self.kimi = kimi
+        self.qoder = qoder
+        self.cursor = cursor
+        self.codebuddy = codebuddy
+    }
 }
 
 struct AgentUsageWindow: Codable, Hashable, Sendable {
@@ -764,6 +789,50 @@ struct QoderAgentUsage: Codable, Hashable, Sendable {
         case usedPercent = "used_percent"
         case expiresAt = "expires_at"
         case quotaExceeded = "quota_exceeded"
+    }
+}
+
+/// Cursor 的三个套餐窗口共用月度账单周期：primary 是套餐总量，secondary 是 Auto 通道，
+/// tertiary 是 API 通道；grokBotWindow 在账号没有 Grok Bot 权限时为空。
+struct CursorAgentUsage: Codable, Hashable, Sendable {
+    let version: String?
+    let membershipType: String?
+    let primaryWindow: AgentUsageWindow?
+    let secondaryWindow: AgentUsageWindow?
+    let tertiaryWindow: AgentUsageWindow?
+    let grokBotWindow: AgentUsageWindow?
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case membershipType = "membership_type"
+        case primaryWindow = "primary_window"
+        case secondaryWindow = "secondary_window"
+        case tertiaryWindow = "tertiary_window"
+        case grokBotWindow = "grok_bot_window"
+    }
+}
+
+/// CodeBuddy 的月度额度与当月已用金额（人民币）。额度为“-”这类特殊状态时 `quota` 为空，
+/// 此时 `remaining` / `usedPercent` 也一并为空，只能展示原始文本。
+struct CodeBuddyAgentUsage: Codable, Hashable, Sendable {
+    let version: String?
+    let username: String?
+    let quotaText: String?
+    let costText: String?
+    let quota: Double?
+    let cost: Double?
+    let remaining: Double?
+    let usedPercent: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case username
+        case quotaText = "quota_text"
+        case costText = "cost_text"
+        case quota
+        case cost
+        case remaining
+        case usedPercent = "used_percent"
     }
 }
 

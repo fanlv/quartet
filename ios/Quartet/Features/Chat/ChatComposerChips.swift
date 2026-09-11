@@ -54,6 +54,8 @@ enum AgentUsageProvider: String {
     case antigravity
     case kimi
     case qoder
+    case cursor
+    case codebuddy
 
     /// Only stable built-in IDs and declared historical commands participate.
     /// A custom display name such as "Claude Reviewer" must not expose the
@@ -72,8 +74,41 @@ enum AgentUsageProvider: String {
              "npx @agentclientprotocol/claude-agent-acp": return .claude
         case "qoderclicn", "qoderclicn --acp", "qwen", "qwen --acp": return .qoder
         case "kimi", "kimi acp": return .kimi
+        case "cursor-agent", "cursor-agent acp": return .cursor
+        case "codebuddy", "codebuddy --acp": return .codebuddy
         default: return nil
         }
+    }
+}
+
+extension AgentUsageResponse {
+    /// 请求成功但没带上快照：provider 侧属于“未开启”的正常状态（例如 CodeBuddy 的额度看板
+    /// 需要用户自己配 PAT），不是错误，调用方应退回版本探测。
+    func hasPayload(for provider: AgentUsageProvider) -> Bool {
+        switch provider {
+        case .codex: codex != nil
+        case .claude: claude != nil
+        case .antigravity: antigravity != nil
+        case .kimi: kimi != nil
+        case .qoder: qoder != nil
+        case .cursor: cursor != nil
+        case .codebuddy: codebuddy != nil
+        }
+    }
+
+    /// 快照里自带的 CLI 版本号。
+    func version(for provider: AgentUsageProvider) -> String? {
+        let raw: String?
+        switch provider {
+        case .codex: raw = codex?.version
+        case .claude: raw = claude?.version
+        case .antigravity: raw = antigravity?.version
+        case .kimi: raw = kimi?.version
+        case .qoder: raw = qoder?.version
+        case .cursor: raw = cursor?.version
+        case .codebuddy: raw = codebuddy?.version
+        }
+        return AgentUsageFormat.trimmed(raw)
     }
 }
 
@@ -106,7 +141,7 @@ enum AgentUsageCache {
     }
 }
 
-/// 用量窗口的短标签：聊天页用量条和“选择 Agent”弹窗副标题共用同一套推导规则。
+/// 用量窗口的短标签：聊天页用量条、“选择 Agent”弹窗和统计页共用同一套推导规则。
 extension AgentUsageWindow {
     /// 窗口长度（5h / 7d）。上游没给窗口长度（如 Kimi 的累计额度池）时返回空串，
     /// 由调用方决定怎么退化。
@@ -119,12 +154,6 @@ extension AgentUsageWindow {
     }
 
     var percentLabel: String { "\(Int(usedPercent.rounded()))%" }
-
-    /// “窗口长度 + 已用百分比”，窗口长度未知时只留百分比。
-    var usageLabel: String {
-        let duration = durationLabel
-        return duration.isEmpty ? percentLabel : "\(duration) \(percentLabel)"
-    }
 }
 
 /// 用量数字的统一格式化入口。
@@ -133,22 +162,37 @@ enum AgentUsageFormat {
         value.rounded() == value ? String(Int64(value)) : String(format: "%.1f", value)
     }
 
+    /// 人民币金额：整数保持干净（¥1400），小数保留两位（¥625.80）。
+    static func cny(_ value: Double) -> String {
+        value.rounded() == value ? "¥\(Int64(value))" : String(format: "¥%.2f", value)
+    }
+
     /// 去掉首尾空白，空串按“没有值”处理。
     static func trimmed(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
         return value
     }
+
+    /// 接口给的套餐 ID（`personal_professional_trial`）转成可读标签（`Personal Professional Trial`）。
+    static func plan(_ value: String?) -> String? {
+        guard let value = trimmed(value) else { return nil }
+        return value.split(separator: "_").map { $0.capitalized }.joined(separator: " ")
+    }
 }
 
-/// “选择 Agent”弹窗里一行的版本 + 用量副标题。`isFailure` 时整行按警示色渲染。
+/// “选择 Agent”弹窗里一行的用量摘要：`text` 是单行文本（有数据时是版本号，
+/// 没有数据时是“正在读取 / 读取失败”），`badges` 是额度类信息，单独占一行并自动折行。
+/// `isFailure` 时 `text` 按警示色渲染。
 struct AgentUsageSummaryLine: Equatable, Sendable {
-    let text: String
+    let text: String?
+    let badges: [QuartetUsageBadge]
     let isFailure: Bool
     /// 失败时的完整错误原文（请求方法、URL、状态码、响应正文），供行内错误入口原样展示并复制。
     let detail: String?
 
-    init(text: String, isFailure: Bool, detail: String? = nil) {
+    init(text: String?, badges: [QuartetUsageBadge] = [], isFailure: Bool = false, detail: String? = nil) {
         self.text = text
+        self.badges = badges
         self.isFailure = isFailure
         self.detail = detail
     }
@@ -333,31 +377,28 @@ final class AgentUsageSummaryStore: ObservableObject {
                     email: "developer@example.com", planType: "plus", version: "v0.144.0",
                     primaryWindow: fiveHours, secondaryWindow: sevenDays, resetCredits: 2,
                     resetCreditExpiries: [now + 259_200, now + 604_800]
-                ),
-                claude: nil, antigravity: nil, kimi: nil, qoder: nil
+                )
             )
         case .claude:
             AgentUsageResponse(
-                code: 0, type: provider.rawValue, codex: nil,
+                code: 0, type: provider.rawValue,
                 claude: ClaudeAgentUsage(
                     planType: "max", rateLimitTier: "tier-1", version: "v2.1.202",
                     fiveHour: fiveHours, sevenDay: sevenDays, sevenDayOpus: nil,
                     weeklyScoped: nil, extraUsage: nil
-                ),
-                antigravity: nil, kimi: nil, qoder: nil
+                )
             )
         case .antigravity:
             AgentUsageResponse(
-                code: 0, type: provider.rawValue, codex: nil, claude: nil,
+                code: 0, type: provider.rawValue,
                 antigravity: AntigravityAgentUsage(
                     version: "v1.1.1", claudeWeekly: sevenDays, claude5h: fiveHours,
                     geminiWeekly: sevenDays, gemini5h: fiveHours
-                ),
-                kimi: nil, qoder: nil
+                )
             )
         case .kimi:
             AgentUsageResponse(
-                code: 0, type: provider.rawValue, codex: nil, claude: nil, antigravity: nil,
+                code: 0, type: provider.rawValue,
                 kimi: KimiAgentUsage(
                     version: "v0.1.0", parallelLimit: 4, weekly: sevenDays,
                     fiveHour: fiveHours,
@@ -365,16 +406,33 @@ final class AgentUsageSummaryStore: ObservableObject {
                         usedPercent: 41, limitWindowSeconds: 0,
                         resetAfterSeconds: 0, resetAt: 0
                     )
-                ),
-                qoder: nil
+                )
             )
         case .qoder:
             AgentUsageResponse(
-                code: 0, type: provider.rawValue, codex: nil, claude: nil, antigravity: nil, kimi: nil,
+                code: 0, type: provider.rawValue,
                 qoder: QoderAgentUsage(
                     version: "v1.0.48", planType: "personal_professional_trial",
                     unit: "credits", total: 1_000, used: 325, remaining: 675,
                     usedPercent: 32.5, expiresAt: now + 1_209_600, quotaExceeded: false
+                )
+            )
+        case .cursor:
+            AgentUsageResponse(
+                code: 0, type: provider.rawValue,
+                cursor: CursorAgentUsage(
+                    version: "v2026.09.08", membershipType: "pro",
+                    primaryWindow: sevenDays, secondaryWindow: fiveHours,
+                    tertiaryWindow: nil, grokBotWindow: nil
+                )
+            )
+        case .codebuddy:
+            AgentUsageResponse(
+                code: 0, type: provider.rawValue,
+                codebuddy: CodeBuddyAgentUsage(
+                    version: "v2.6.0", username: "developer", quotaText: "1400",
+                    costText: "625.7965", quota: 1_400, cost: 625.7965,
+                    remaining: 774.2035, usedPercent: 44.7
                 )
             )
         }
@@ -385,25 +443,30 @@ final class AgentUsageSummaryStore: ObservableObject {
         summary(command: agent.type, displayName: agent.displayName.isEmpty ? agent.type : agent.displayName)
     }
 
-    /// 副标题文本。没有任何可显示内容（既没缓存也没在读）时返回 nil，行内不占位。
+    /// 副标题内容。没有任何可显示内容（既没缓存也没在读）时返回 nil，行内不占位。
     func summary(command: String, displayName: String) -> AgentUsageSummaryLine? {
         guard let entry = entries[command] else { return nil }
 
-        var parts: [String] = []
+        var version: String?
+        var badges: [QuartetUsageBadge] = []
         if let provider = AgentUsageProvider.resolve(command: command, displayName: displayName),
            let usage = entry.usage {
-            parts = Self.usageParts(provider: provider, usage: usage)
-        } else if let version = AgentUsageFormat.trimmed(entry.version) {
-            parts = [version]
+            version = usage.version(for: provider)
+            badges = Self.usageBadges(provider: provider, usage: usage)
         }
+        // provider 没给版本号（未开启额度看板、或本身不带版本）时退回版本探测的结果。
+        if version == nil { version = AgentUsageFormat.trimmed(entry.version) }
 
-        if parts.isEmpty {
+        if version == nil, badges.isEmpty {
             if entry.loading {
-                return AgentUsageSummaryLine(text: "Loading version & usage…", isFailure: false)
+                return AgentUsageSummaryLine(text: "正在读取版本与用量…".localizedForApp)
             }
             if let failure = entry.failure {
                 return AgentUsageSummaryLine(
-                    text: "Version & usage failed: \(failure.summary)",
+                    text: String(
+                        format: "版本与用量读取失败：%@".localizedForApp,
+                        failure.summary
+                    ),
                     isFailure: true,
                     detail: Self.failureDetail(command: command, failure: failure)
                 )
@@ -411,16 +474,12 @@ final class AgentUsageSummaryStore: ObservableObject {
             return nil
         }
 
-        // 有旧数据时刷新失败不清空，改成在行尾标一下，避免把已经读到的信息又抹掉。
-        if let failure = entry.failure {
-            parts.append("⚠︎ Refresh failed")
-            return AgentUsageSummaryLine(
-                text: parts.joined(separator: " · "),
-                isFailure: false,
-                detail: Self.failureDetail(command: command, failure: failure)
-            )
-        }
-        return AgentUsageSummaryLine(text: parts.joined(separator: " · "), isFailure: false)
+        // 有旧数据时刷新失败不清空：行尾已经有警示按钮和重试按钮，这里照常显示读到过的内容。
+        return AgentUsageSummaryLine(
+            text: version,
+            badges: badges,
+            detail: entry.failure.map { Self.failureDetail(command: command, failure: $0) }
+        )
     }
 
     /// 行内只放一句摘要，完整错误原文交给错误详情弹窗，一个字都不裁。
@@ -525,6 +584,16 @@ final class AgentUsageSummaryStore: ObservableObject {
             if let provider = job.provider {
                 do {
                     let response = try await client.agentUsage(provider: provider.rawValue)
+                    guard response.hasPayload(for: provider) else {
+                        // 额度看板未开启（如 CodeBuddy 没配 PAT）：不是错误，但行里得留下本机 CLI 版本。
+                        let version = try? await client.agentVersion(command: job.versionCommand).version
+                        return ProbeResult(
+                            job: job,
+                            usage: response,
+                            version: version?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+                            failure: nil
+                        )
+                    }
                     return ProbeResult(job: job, usage: response, version: nil, failure: nil)
                 } catch {
                     // Quota access can fail independently (expired OAuth, provider
@@ -576,71 +645,132 @@ final class AgentUsageSummaryStore: ObservableObject {
         }
     }
 
-    /// 每个 provider 的摘要片段：版本号在前，后面按“压力最直观”的顺序排用量。
-    /// 这一行是给选择器用的紧凑信息，标签统一用英文短词，不随 App 语言变。
-    private static func usageParts(provider: AgentUsageProvider, usage: AgentUsageResponse) -> [String] {
+    /// 每个 provider 的额度角标：先套餐、后额度，顺序与聊天页用量条、统计页一致。
+    /// 版本号不在这里 —— 它跟着命令走在副标题那一行（“先版本号、再套餐 / 额度”的展示约定）。
+    private static func usageBadges(provider: AgentUsageProvider, usage: AgentUsageResponse) -> [QuartetUsageBadge] {
         switch provider {
         case .codex:
             guard let value = usage.codex else { return [] }
-            var parts = [AgentUsageFormat.trimmed(value.version)].compactMap { $0 }
-            if let window = value.primaryWindow { parts.append(window.usageLabel) }
-            if let window = value.secondaryWindow { parts.append(window.usageLabel) }
+            var badges: [QuartetUsageBadge] = []
+            if let window = value.primaryWindow { badges.append(windowBadge(id: "codex.primary", window: window)) }
+            if let window = value.secondaryWindow { badges.append(windowBadge(id: "codex.secondary", window: window)) }
             if value.resetCredits > 0 {
-                parts.append("Reset \(value.resetCredits)")
+                badges.append(QuartetUsageBadge(
+                    id: "codex.reset",
+                    label: "重置".localizedForApp,
+                    text: String(value.resetCredits)
+                ))
             }
-            return parts
+            return badges
         case .claude:
             guard let value = usage.claude else { return [] }
-            var parts = [AgentUsageFormat.trimmed(value.version)].compactMap { $0 }
-            if let window = value.fiveHour { parts.append(window.usageLabel) }
-            if let window = value.sevenDay { parts.append(window.usageLabel) }
-            if let window = value.sevenDayOpus { parts.append("Opus \(window.percentLabel)") }
-            for window in value.weeklyScoped ?? [] {
-                parts.append("\(window.label) \(window.percentLabel)")
+            var badges: [QuartetUsageBadge] = []
+            if let plan = AgentUsageFormat.plan(value.planType) {
+                badges.append(QuartetUsageBadge(id: "claude.plan", text: plan))
             }
-            return parts
+            if let window = value.fiveHour { badges.append(windowBadge(id: "claude.5h", label: "5h", window: window)) }
+            if let window = value.sevenDay { badges.append(windowBadge(id: "claude.7d", label: "7d", window: window)) }
+            if let window = value.sevenDayOpus {
+                badges.append(windowBadge(id: "claude.opus", label: "Opus", window: window))
+            }
+            for (index, window) in (value.weeklyScoped ?? []).enumerated() {
+                badges.append(windowBadge(id: "claude.scoped.\(index)", label: window.label, window: window.window))
+            }
+            if let extra = value.extraUsage, extra.enabled {
+                let currency = AgentUsageFormat.trimmed(extra.currency) ?? "USD"
+                let used = extra.usedCredits.map(AgentUsageFormat.credits) ?? "—"
+                let text = extra.monthlyLimit
+                    .map { "\(used) / \(AgentUsageFormat.credits($0)) \(currency)" }
+                    ?? "\(used) \(currency)"
+                badges.append(QuartetUsageBadge(
+                    id: "claude.extra",
+                    label: "额外用量".localizedForApp,
+                    text: text
+                ))
+            }
+            return badges
         case .antigravity:
             guard let value = usage.antigravity else { return [] }
-            var parts = [AgentUsageFormat.trimmed(value.version)].compactMap { $0 }
             // agy 的窗口不带 limit_window_seconds，5h / 7d 由 bucket 本身的语义写死。
-            let claude = [("5h", value.claude5h), ("7d", value.claudeWeekly)]
-            let gemini = [("5h", value.gemini5h), ("7d", value.geminiWeekly)]
-            if let group = Self.windowGroup("Claude", claude) { parts.append(group) }
-            if let group = Self.windowGroup("Gemini", gemini) { parts.append(group) }
-            return parts
+            return [
+                groupBadge(id: "agy.claude", name: "Claude", windows: [("5h", value.claude5h), ("7d", value.claudeWeekly)]),
+                groupBadge(id: "agy.gemini", name: "Gemini", windows: [("5h", value.gemini5h), ("7d", value.geminiWeekly)])
+            ].compactMap { $0 }
         case .kimi:
             guard let value = usage.kimi else { return [] }
-            var parts = [AgentUsageFormat.trimmed(value.version)].compactMap { $0 }
-            if let window = value.fiveHour { parts.append(window.usageLabel) }
-            if let window = value.weekly { parts.append(window.usageLabel) }
+            var badges: [QuartetUsageBadge] = []
+            if let window = value.fiveHour { badges.append(windowBadge(id: "kimi.5h", window: window)) }
+            if let window = value.weekly { badges.append(windowBadge(id: "kimi.weekly", window: window)) }
             if let window = value.total {
-                parts.append("Sum \(window.percentLabel)")
+                badges.append(windowBadge(id: "kimi.total", label: "Σ", window: window))
             }
-            return parts
+            return badges
         case .qoder:
             guard let value = usage.qoder else { return [] }
-            var parts = [AgentUsageFormat.trimmed(value.version)].compactMap { $0 }
-            parts.append(
-                "Used \(AgentUsageFormat.credits(value.used))"
-                    + "/\(AgentUsageFormat.credits(value.total))"
-            )
-            if value.quotaExceeded { parts.append("Quota exhausted") }
-            return parts
+            var badges = [QuartetUsageBadge(
+                id: "qoder.credits",
+                label: value.unit?.lowercased() == "credits" ? "Credits" : "额度".localizedForApp,
+                text: "\(AgentUsageFormat.credits(value.used)) / \(AgentUsageFormat.credits(value.total))",
+                percent: value.usedPercent
+            )]
+            if value.quotaExceeded {
+                badges.append(QuartetUsageBadge(id: "qoder.exceeded", text: "额度已用尽".localizedForApp, percent: 100))
+            }
+            return badges
+        case .cursor:
+            guard let value = usage.cursor else { return [] }
+            var badges: [QuartetUsageBadge] = []
+            if let plan = AgentUsageFormat.plan(value.membershipType) {
+                badges.append(QuartetUsageBadge(id: "cursor.plan", text: plan))
+            }
+            let lanes: [(String, String, AgentUsageWindow?)] = [
+                ("cursor.total", "总量".localizedForApp, value.primaryWindow),
+                ("cursor.auto", "Auto", value.secondaryWindow),
+                ("cursor.api", "API", value.tertiaryWindow),
+                ("cursor.grok", "Grok", value.grokBotWindow)
+            ]
+            for (id, label, window) in lanes {
+                guard let window else { continue }
+                badges.append(windowBadge(id: id, label: label, window: window))
+            }
+            return badges
+        case .codebuddy:
+            guard let value = usage.codebuddy else { return [] }
+            let cost = value.cost.map(AgentUsageFormat.cny) ?? AgentUsageFormat.trimmed(value.costText)
+            let quota = value.quota.map(AgentUsageFormat.cny) ?? AgentUsageFormat.trimmed(value.quotaText)
+            guard let cost else { return [] }
+            // 额度是 “-” 这类特殊状态时只报已用金额，不拿它做百分比。
+            return [QuartetUsageBadge(
+                id: "codebuddy.month",
+                label: "本月".localizedForApp,
+                text: quota.map { "\(cost) / \($0)" } ?? cost,
+                percent: value.usedPercent
+            )]
         }
     }
 
-    private static func windowGroup(_ mark: String, _ windows: [(String, AgentUsageWindow?)]) -> String? {
-        let labels = windows.compactMap { item -> String? in
-            guard let window = item.1 else { return nil }
-            return "\(item.0) \(window.percentLabel)"
+    private static func windowBadge(id: String, label: String? = nil, window: AgentUsageWindow) -> QuartetUsageBadge {
+        let resolved = label ?? (window.durationLabel.isEmpty ? "额度".localizedForApp : window.durationLabel)
+        return QuartetUsageBadge(id: id, label: resolved, text: window.percentLabel, percent: window.usedPercent)
+    }
+
+    /// 同一个模型组的多个窗口合成一枚角标：组名只写一次，每个百分比各自着色。
+    private static func groupBadge(
+        id: String,
+        name: String,
+        windows: [(String, AgentUsageWindow?)]
+    ) -> QuartetUsageBadge? {
+        let items = windows.compactMap { label, window -> QuartetUsageBadge.Item? in
+            guard let window else { return nil }
+            return QuartetUsageBadge.Item("\(label) \(window.percentLabel)", percent: window.usedPercent)
         }
-        return labels.isEmpty ? nil : "\(mark) \(labels.joined(separator: " / "))"
+        return items.isEmpty ? nil : QuartetUsageBadge(id: id, label: name, items: items)
     }
 }
 
 extension QuartetChoice {
     /// 所有 Agent 选择器共用的一行：
-    /// 副标题只补充标题里没有的信息（命令、不可用原因），footnote 挂版本号与用量，
+    /// 副标题只补充标题里没有的信息（命令、不可用原因）加上 CLI 版本号，额度类信息另起一行，
     /// 读取失败时行尾出现错误详情和重试入口。
     static func agent(
         id: String,
@@ -661,6 +791,7 @@ extension QuartetChoice {
             detail: details.isEmpty ? nil : details.joined(separator: " · "),
             footnote: usage?.text,
             footnoteIsFailure: usage?.isFailure ?? false,
+            badges: usage?.badges ?? [],
             footnoteDetail: usage?.detail,
             // 只有读失败的行才需要重试，正常行不摆多余按钮。
             footnoteRetry: usage?.detail == nil ? nil : retry,
@@ -776,22 +907,16 @@ struct AgentUsageStrip: View {
                 if let value = usage.kimi { kimiContent(value) }
             case .qoder:
                 if let value = usage.qoder { qoderContent(value) }
+            case .cursor:
+                if let value = usage.cursor { cursorContent(value) }
+            case .codebuddy:
+                if let value = usage.codebuddy { codebuddyContent(value) }
             }
-            if usageVersion(provider: provider, usage: usage) == nil, !version.isEmpty {
+            if usage.version(for: provider) == nil, !version.isEmpty {
                 versionLabel(version)
             }
         } else if !version.isEmpty {
             versionLabel(version)
-        }
-    }
-
-    private func usageVersion(provider: AgentUsageProvider, usage: AgentUsageResponse) -> String? {
-        switch provider {
-        case .codex: return displayValue(usage.codex?.version)
-        case .claude: return displayValue(usage.claude?.version)
-        case .antigravity: return displayValue(usage.antigravity?.version)
-        case .kimi: return displayValue(usage.kimi?.version)
-        case .qoder: return displayValue(usage.qoder?.version)
         }
     }
 
@@ -907,6 +1032,128 @@ struct AgentUsageStrip: View {
         }
     }
 
+    /// Cursor 的一条通道。窗口为空（账号没有该通道）时整条不出现。
+    private struct UsageLane: Identifiable {
+        let id: String
+        let label: String
+        let window: AgentUsageWindow
+
+        init?(id: String, label: String, window: AgentUsageWindow?) {
+            guard let window else { return nil }
+            self.id = id
+            self.label = label
+            self.window = window
+        }
+    }
+
+    /// Cursor 的通道用词（总量 / Auto / API / Grok）塞不进 22pt 的圆环，改成横向胶囊：
+    /// 名字和百分比都直接读得到，重置时间仍在点开的浮层里。
+    private func cursorContent(_ value: CursorAgentUsage) -> some View {
+        let lanes = [
+            UsageLane(id: "total", label: "总量".localizedForApp, window: value.primaryWindow),
+            UsageLane(id: "auto", label: "Auto", window: value.secondaryWindow),
+            UsageLane(id: "api", label: "API", window: value.tertiaryWindow),
+            UsageLane(id: "grok", label: "Grok", window: value.grokBotWindow)
+        ].compactMap { $0 }
+        return WrappingHStack(spacing: 4, rowAlignment: .center) {
+            if let version = displayValue(value.version) { versionLabel(version) }
+            if let plan = AgentUsageFormat.plan(value.membershipType) { planLabel(plan) }
+            ForEach(lanes) { lane in
+                lanePill(label: lane.label, window: lane.window)
+            }
+        }
+    }
+
+    private func codebuddyContent(_ value: CodeBuddyAgentUsage) -> some View {
+        let cost = value.cost.map(AgentUsageFormat.cny) ?? displayValue(value.costText)
+        let quota = value.quota.map(AgentUsageFormat.cny) ?? displayValue(value.quotaText)
+        let color = value.usedPercent.map { usageColor($0) } ?? QuartetTheme.primaryText
+        return Group {
+            if let version = displayValue(value.version) { versionLabel(version) }
+            if let cost {
+                Button {
+                    var lines: [String] = []
+                    if let quota {
+                        lines.append("\("本月已用".localizedForApp) \(cost) / \(quota)")
+                    }
+                    if let remaining = value.remaining {
+                        lines.append("\("剩余".localizedForApp) \(AgentUsageFormat.cny(remaining))")
+                    }
+                    // 额度为 “-” 之类的特殊状态：说明清楚为什么只有已用金额、没有百分比。
+                    if value.quota == nil {
+                        lines.append("额度处于特殊状态，仅显示已用金额".localizedForApp)
+                    }
+                    if let username = displayValue(value.username) { lines.append(username) }
+                    detail = AgentUsageDetail(title: "CodeBuddy · \("本月".localizedForApp)", lines: lines)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "creditcard")
+                            .font(.chat(.detail, weight: .medium))
+                        Text(cost)
+                            .font(.chat(.detail, weight: .bold))
+                            .monospacedDigit()
+                            .foregroundStyle(color)
+                        if let quota {
+                            Text("/ \(quota)")
+                                .monospacedDigit()
+                                .foregroundStyle(QuartetTheme.secondaryText.opacity(0.75))
+                        }
+                        if let percent = value.usedPercent {
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(QuartetTheme.divider)
+                                Capsule()
+                                    .fill(color)
+                                    .frame(width: max(2, 38 * min(max(percent, 0), 100) / 100))
+                            }
+                            .frame(width: 38, height: 4)
+                        }
+                    }
+                    .font(.chat(.detail))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    "CodeBuddy \("本月已用".localizedForApp) \(cost)" + (quota.map { " / \($0)" } ?? "")
+                )
+            }
+        }
+    }
+
+    private func planLabel(_ value: String) -> some View {
+        Text(value)
+            .font(.chat(.compact, weight: .semibold))
+            .foregroundStyle(QuartetTheme.secondaryText)
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(QuartetTheme.elevated, in: Capsule())
+            .accessibilityLabel("\("套餐".localizedForApp) \(value)")
+    }
+
+    private func lanePill(label: String, window: AgentUsageWindow) -> some View {
+        let color = usageColor(window.usedPercent)
+        return Button {
+            detail = AgentUsageDetail(title: "\(label) \(window.percentLabel)", lines: resetLines(window))
+        } label: {
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(.chat(.compact, weight: .medium))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                Text(window.percentLabel)
+                    .font(.chat(.compact, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(color)
+            }
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(QuartetTheme.elevated, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(label)，\("已用".localizedForApp) \(window.percentLabel)")
+    }
+
     private func versionLabel(_ value: String) -> some View {
         Text(value)
             .font(.chat(.detail, weight: .medium, design: .monospaced))
@@ -993,16 +1240,13 @@ struct AgentUsageStrip: View {
     }
 
     private func usageRing(label: String, window: AgentUsageWindow) -> some View {
-        let resetLines = window.resetAt > 0 || window.resetAfterSeconds > 0
-            ? ["\(formatReset(window)) \("重置".localizedForApp)"]
-            : []
-        return usageRing(
+        usageRing(
             label: label,
             percent: window.usedPercent,
             color: usageColor(window.usedPercent),
             detail: AgentUsageDetail(
                 title: "\(label) \(window.percentLabel)",
-                lines: resetLines
+                lines: resetLines(window)
             )
         )
     }
@@ -1046,6 +1290,11 @@ struct AgentUsageStrip: View {
                 try Task.checkCancellation()
                 usage = response
                 AgentUsageCache.setUsage(response, provider: provider, namespace: appModel.serverAddress)
+                // 额度看板未开启（如 CodeBuddy 没配 PAT）：接口正常但没有快照，退回版本探测。
+                // 版本探测本身是补充信息，失败不该把这次成功的用量请求报成错误。
+                if !response.hasPayload(for: provider) {
+                    try? await refreshVersionOnly()
+                }
             } else {
                 let response = try await appModel.apiClient().agentVersion(command: command)
                 try Task.checkCancellation()
@@ -1105,6 +1354,12 @@ struct AgentUsageStrip: View {
         return formatDate(Int64(seconds), includesDate: window.limitWindowSeconds >= 86_400)
     }
 
+    /// 浮层里的重置时间。窗口本身没有重置语义（累计额度池）时没有这一行。
+    private func resetLines(_ window: AgentUsageWindow) -> [String] {
+        guard window.resetAt > 0 || window.resetAfterSeconds > 0 else { return [] }
+        return ["\(formatReset(window)) \("重置".localizedForApp)"]
+    }
+
     /// 两个 formatter 复用，不再每次调用新建 —— 用量胶囊会随 composer 一起频繁重排。
     @MainActor
     private static let dateTimeFormatter: DateFormatter = {
@@ -1130,80 +1385,4 @@ struct AgentUsageStrip: View {
     private func credits(_ value: Double) -> String { AgentUsageFormat.credits(value) }
 
     private func displayValue(_ value: String?) -> String? { AgentUsageFormat.trimmed(value) }
-}
-
-struct WrappingHStack: Layout {
-    enum RowAlignment: Equatable {
-        case top
-        case center
-    }
-
-    let spacing: CGFloat
-    var rowAlignment: RowAlignment = .top
-
-    func sizeThatFits(
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) -> CGSize {
-        let maxWidth = proposal.width ?? .greatestFiniteMagnitude
-        let result = layout(subviews: subviews, maxWidth: maxWidth)
-        return CGSize(width: result.width, height: result.height)
-    }
-
-    func placeSubviews(
-        in bounds: CGRect,
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) {
-        let result = layout(subviews: subviews, maxWidth: bounds.width)
-        for item in result.items {
-            subviews[item.index].place(
-                at: CGPoint(x: bounds.minX + item.origin.x, y: bounds.minY + item.origin.y),
-                anchor: .topLeading,
-                proposal: ProposedViewSize(item.size)
-            )
-        }
-    }
-
-    private func layout(subviews: Subviews, maxWidth: CGFloat) -> (items: [Item], width: CGFloat, height: CGFloat) {
-        var items: [Item] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        var rowStartIndex = 0
-        var usedWidth: CGFloat = 0
-
-        for index in subviews.indices {
-            var size = subviews[index].sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
-            size.width = min(size.width, maxWidth)
-            if x > 0, x + size.width > maxWidth {
-                alignRowItems(&items, from: rowStartIndex, rowHeight: rowHeight)
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-                rowStartIndex = items.count
-            }
-            items.append(Item(index: index, origin: CGPoint(x: x, y: y), size: size))
-            usedWidth = max(usedWidth, x + size.width)
-            rowHeight = max(rowHeight, size.height)
-            x += size.width + spacing
-        }
-        alignRowItems(&items, from: rowStartIndex, rowHeight: rowHeight)
-        return (items, usedWidth, items.isEmpty ? 0 : y + rowHeight)
-    }
-
-    private func alignRowItems(_ items: inout [Item], from startIndex: Int, rowHeight: CGFloat) {
-        guard rowAlignment == .center else { return }
-        for index in startIndex..<items.count {
-            items[index].origin.y += (rowHeight - items[index].size.height) / 2
-        }
-    }
-
-    private struct Item {
-        let index: Int
-        var origin: CGPoint
-        let size: CGSize
-    }
 }

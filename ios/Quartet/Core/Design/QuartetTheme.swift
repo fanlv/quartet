@@ -857,16 +857,181 @@ func quartetDismissKeyboard() {
     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 }
 
+/// 宽度不够就折行的横向排布。聊天页输入框页脚、统计页元信息和选择弹窗的用量角标共用它。
+struct WrappingHStack: Layout {
+    enum RowAlignment: Equatable {
+        case top
+        case center
+    }
+
+    let spacing: CGFloat
+    var rowAlignment: RowAlignment = .top
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let maxWidth = proposal.width ?? .greatestFiniteMagnitude
+        let result = layout(subviews: subviews, maxWidth: maxWidth)
+        return CGSize(width: result.width, height: result.height)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let result = layout(subviews: subviews, maxWidth: bounds.width)
+        for item in result.items {
+            subviews[item.index].place(
+                at: CGPoint(x: bounds.minX + item.origin.x, y: bounds.minY + item.origin.y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(item.size)
+            )
+        }
+    }
+
+    private func layout(subviews: Subviews, maxWidth: CGFloat) -> (items: [Item], width: CGFloat, height: CGFloat) {
+        var items: [Item] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var rowStartIndex = 0
+        var usedWidth: CGFloat = 0
+
+        for index in subviews.indices {
+            var size = subviews[index].sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
+            size.width = min(size.width, maxWidth)
+            if x > 0, x + size.width > maxWidth {
+                alignRowItems(&items, from: rowStartIndex, rowHeight: rowHeight)
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+                rowStartIndex = items.count
+            }
+            items.append(Item(index: index, origin: CGPoint(x: x, y: y), size: size))
+            usedWidth = max(usedWidth, x + size.width)
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + spacing
+        }
+        alignRowItems(&items, from: rowStartIndex, rowHeight: rowHeight)
+        return (items, usedWidth, items.isEmpty ? 0 : y + rowHeight)
+    }
+
+    private func alignRowItems(_ items: inout [Item], from startIndex: Int, rowHeight: CGFloat) {
+        guard rowAlignment == .center else { return }
+        for index in startIndex..<items.count {
+            items[index].origin.y += (rowHeight - items[index].size.height) / 2
+        }
+    }
+
+    private struct Item {
+        let index: Int
+        var origin: CGPoint
+        let size: CGSize
+    }
+}
+
+/// 一枚用量角标：`label` 是短前缀（窗口长度、通道名、套餐名），`items` 是一个或多个数值。
+/// 带 `percent` 的数值按用量压力着色，不带的（版本、套餐、计数）保持中性色。
+///
+/// 角标之所以不再拼成一条长文本：Agent 行的可用宽度只够十来个字，命令和版本号先占满之后，
+/// 最该被看到的百分比反而被裁掉。拆成若干枚定宽很小的角标后可以自动折行，一个数字都不丢。
+struct QuartetUsageBadge: Identifiable, Equatable, Sendable {
+    struct Item: Equatable, Sendable {
+        let text: String
+        /// 0–100 的已用占比。为空表示这个数值没有“压力”语义。
+        let percent: Double?
+
+        init(_ text: String, percent: Double? = nil) {
+            self.text = text
+            self.percent = percent
+        }
+    }
+
+    let id: String
+    let label: String?
+    let items: [Item]
+
+    init(id: String, label: String? = nil, items: [Item]) {
+        self.id = id
+        self.label = label
+        self.items = items
+    }
+
+    init(id: String, label: String? = nil, text: String, percent: Double? = nil) {
+        self.init(id: id, label: label, items: [Item(text, percent: percent)])
+    }
+
+    /// 无障碍朗读用的纯文本。
+    var accessibilityText: String {
+        ([label] + items.map(\.text)).compactMap { $0 }.joined(separator: " ")
+    }
+}
+
+/// 用量角标行：宽度不够时自动折行，永远不裁剪内容。
+struct QuartetUsageBadgeRow: View {
+    let badges: [QuartetUsageBadge]
+    /// 聊天页整体小一号，其余页面用全局梯。
+    var scale: QuartetTypeScale = .app
+    var spacing: CGFloat = 5
+
+    var body: some View {
+        WrappingHStack(spacing: spacing, rowAlignment: .center) {
+            ForEach(badges) { badge in
+                HStack(spacing: 4) {
+                    if let label = badge.label, !label.isEmpty {
+                        Text(label)
+                            .font(font(weight: .medium))
+                            .foregroundStyle(QuartetTheme.secondaryText)
+                    }
+                    ForEach(Array(badge.items.enumerated()), id: \.offset) { _, item in
+                        Text(item.text)
+                            .font(font(weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(color(item.percent))
+                    }
+                }
+                .lineLimit(1)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(QuartetTheme.elevated, in: Capsule())
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(badge.accessibilityText)
+            }
+        }
+    }
+
+    private func font(weight: UIFont.Weight) -> Font {
+        switch scale {
+        case .app: .quartet(.compact, weight: weight)
+        case .chat: .chat(.compact, weight: weight)
+        }
+    }
+
+    /// 用量配色与聊天页用量条、统计页额度条保持同一套阈值。
+    private func color(_ percent: Double?) -> Color {
+        guard let percent else { return QuartetTheme.primaryText }
+        if percent >= 80 { return QuartetTheme.failed }
+        if percent >= 50 { return QuartetTheme.warning }
+        return QuartetTheme.success
+    }
+}
+
 /// 标准“选一个”弹窗里的一行。`disabled` 用于当前不可选、但仍需要让用户看到的选项。
 struct QuartetChoice: Identifiable {
     let id: String
     let title: String
     let detail: String?
-    /// 补充信息（如 Agent 的版本号与用量摘要），与 `detail` 在同一条副标题中显示。
+    /// 补充信息（如 Agent 的版本号），与 `detail` 在同一条副标题中显示。
     /// 内容由调用方拼好并本地化，弹窗不再二次查表。
     let footnote: String?
     /// `footnote` 承载的是失败原因，按警示色渲染。
     let footnoteIsFailure: Bool
+    /// 额度类信息（百分比、金额、计数）。单独占一行并自动折行，不和副标题抢那一行的宽度。
+    let badges: [QuartetUsageBadge]
     /// `footnote` 背后的完整错误原文。非空时行尾出现警示按钮，点开原样展示、可复制。
     let footnoteDetail: String?
     /// 重新读取 `footnote` 的动作。非空时行尾出现刷新按钮，供读取失败后重试。
@@ -879,6 +1044,7 @@ struct QuartetChoice: Identifiable {
         detail: String? = nil,
         footnote: String? = nil,
         footnoteIsFailure: Bool = false,
+        badges: [QuartetUsageBadge] = [],
         footnoteDetail: String? = nil,
         footnoteRetry: (() -> Void)? = nil,
         disabled: Bool = false
@@ -888,6 +1054,7 @@ struct QuartetChoice: Identifiable {
         self.detail = detail
         self.footnote = footnote
         self.footnoteIsFailure = footnoteIsFailure
+        self.badges = badges
         self.footnoteDetail = footnoteDetail
         self.footnoteRetry = footnoteRetry
         self.disabled = disabled
@@ -1043,6 +1210,11 @@ struct QuartetChoiceSheet: View {
                             .truncationMode(.tail)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        if !choice.badges.isEmpty {
+                            QuartetUsageBadgeRow(badges: choice.badges)
+                                .padding(.top, 2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
 
                     Spacer(minLength: 8)
@@ -1115,7 +1287,8 @@ struct QuartetChoiceSheet: View {
     }
 
     private func choiceLabel(_ choice: QuartetChoice) -> String {
-        [choice.title.localizedForApp, resolvedDetail(choice), choice.footnote]
+        let badges = choice.badges.map(\.accessibilityText).joined(separator: ", ")
+        return [choice.title.localizedForApp, resolvedDetail(choice), choice.footnote, badges]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: ", ")

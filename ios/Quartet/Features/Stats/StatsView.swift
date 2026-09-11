@@ -522,19 +522,9 @@ private struct StatsAgentUsageRow: View {
     }
 
     private var version: String? {
-        let usageVersion: String?
-        if let provider, let usage = entry?.usage {
-            switch provider {
-            case .codex: usageVersion = AgentUsageFormat.trimmed(usage.codex?.version)
-            case .claude: usageVersion = AgentUsageFormat.trimmed(usage.claude?.version)
-            case .antigravity: usageVersion = AgentUsageFormat.trimmed(usage.antigravity?.version)
-            case .kimi: usageVersion = AgentUsageFormat.trimmed(usage.kimi?.version)
-            case .qoder: usageVersion = AgentUsageFormat.trimmed(usage.qoder?.version)
-            }
-        } else {
-            usageVersion = nil
+        if let provider, let usage = entry?.usage, let version = usage.version(for: provider) {
+            return version
         }
-        if let usageVersion { return usageVersion }
         return AgentUsageFormat.trimmed(entry?.version)
     }
 
@@ -646,6 +636,11 @@ private struct StatsAgentUsageRow: View {
                 if let value = usage.kimi { kimiUsage(value) } else { noUsageDetails }
             case .qoder:
                 if let value = usage.qoder { qoderUsage(value) } else { noUsageDetails }
+            case .cursor:
+                if let value = usage.cursor { cursorUsage(value) } else { noUsageDetails }
+            case .codebuddy:
+                // CodeBuddy 的额度看板要用户自己配 PAT，没配时后端返回空快照，不是错误。
+                if let value = usage.codebuddy { codebuddyUsage(value) } else { quotaNotConfigured }
             }
         } else if provider == nil, version != nil {
             Text("此 Agent 仅提供版本信息。".localized(in: locale))
@@ -797,14 +792,75 @@ private struct StatsAgentUsageRow: View {
         }
     }
 
+    @ViewBuilder
+    private func cursorUsage(_ value: CursorAgentUsage) -> some View {
+        if let plan = AgentUsageFormat.plan(value.membershipType) {
+            StatsAgentMetadataRow(items: [("套餐".localized(in: locale), plan)])
+        }
+        if let window = value.primaryWindow {
+            StatsAgentQuotaMeter(label: "总量".localized(in: locale), window: window, locale: locale)
+        }
+        if let window = value.secondaryWindow {
+            StatsAgentQuotaMeter(label: "Auto", window: window, locale: locale)
+        }
+        if let window = value.tertiaryWindow {
+            StatsAgentQuotaMeter(label: "API", window: window, locale: locale)
+        }
+        if let window = value.grokBotWindow {
+            StatsAgentQuotaMeter(label: "Grok", window: window, locale: locale)
+        }
+        if value.primaryWindow == nil, value.secondaryWindow == nil,
+           value.tertiaryWindow == nil, value.grokBotWindow == nil {
+            noUsageDetails
+        }
+    }
+
+    @ViewBuilder
+    private func codebuddyUsage(_ value: CodeBuddyAgentUsage) -> some View {
+        let cost = value.cost.map(AgentUsageFormat.cny) ?? AgentUsageFormat.trimmed(value.costText)
+        let quota = value.quota.map(AgentUsageFormat.cny) ?? AgentUsageFormat.trimmed(value.quotaText)
+        if let username = AgentUsageFormat.trimmed(value.username) {
+            StatsAgentMetadataRow(items: [("账号".localized(in: locale), username)])
+        }
+        if let cost {
+            StatsAgentQuotaMeter(
+                label: "本月已用".localized(in: locale),
+                // 额度是 “-” 这类特殊状态时没有百分比，进度条按 0 画，只把金额说清楚。
+                usedPercent: value.usedPercent ?? 0,
+                value: quota.map { "\(cost) / \($0)" } ?? cost,
+                detail: value.remaining.map {
+                    String(
+                        format: "剩余 %@".localized(in: locale),
+                        locale: locale,
+                        AgentUsageFormat.cny($0)
+                    )
+                },
+                locale: locale
+            )
+        }
+        if value.quota == nil {
+            Text("额度处于特殊状态，仅显示已用金额".localized(in: locale))
+                .font(.quartet(.detail))
+                .foregroundStyle(QuartetTheme.secondaryText)
+        }
+        if cost == nil, quota == nil { noUsageDetails }
+    }
+
     private var noUsageDetails: some View {
         Text("未返回可用的套餐数据。".localized(in: locale))
             .font(.quartet(.detail))
             .foregroundStyle(QuartetTheme.secondaryText)
     }
 
+    /// 额度看板需要用户自己配置，没配置时和“读取失败”是两回事，说明白省得用户去查错误。
+    private var quotaNotConfigured: some View {
+        Text("未配置额度看板凭据，仅显示版本信息。".localized(in: locale))
+            .font(.quartet(.detail))
+            .foregroundStyle(QuartetTheme.secondaryText)
+    }
+
     private func prettyPlan(_ value: String) -> String {
-        value.split(separator: "_").map { $0.capitalized }.joined(separator: " ")
+        AgentUsageFormat.plan(value) ?? value
     }
 
     private func formattedDate(_ unixSeconds: Int64, includesDate: Bool) -> String {
