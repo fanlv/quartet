@@ -13,6 +13,7 @@ import { DurationBadge } from './DurationBadge';
 import { FileViewer } from './FileViewer/FileViewer';
 import { ImageViewer } from './ImageViewer';
 import { AgentIdentityIcon } from './AgentIdentityIcon';
+import { MermaidDiagram } from './MermaidDiagram';
 import './MessageItem.css';
 
 type OpenFileViewerFn = (filePath: string, line?: number, endLine?: number) => void;
@@ -1266,7 +1267,15 @@ const MD_COMPONENTS: Components = {
     if (isBlock) return <code className={className}>{children}</code>;
     return <code className="inline-code">{children}</code>;
   },
-  pre: ({ children }) => <pre className="markdown-code-block">{children}</pre>,
+  pre: ({ children }) => {
+    const child = React.Children.toArray(children)[0];
+    if (React.isValidElement<{ className?: string; children?: React.ReactNode }>(child)
+      && /\blanguage-mermaid\b/i.test(child.props.className || '')) {
+      const source = React.Children.toArray(child.props.children).join('').replace(/\n$/, '');
+      return <MermaidDiagram source={source} />;
+    }
+    return <pre className="markdown-code-block">{children}</pre>;
+  },
   h1: ({ children }) => <h1 className="markdown-heading markdown-h1">{processTextChildren(children, 'h1')}</h1>,
   h2: ({ children }) => <h2 className="markdown-heading markdown-h2">{processTextChildren(children, 'h2')}</h2>,
   h3: ({ children }) => <h3 className="markdown-heading markdown-h3">{processTextChildren(children, 'h3')}</h3>,

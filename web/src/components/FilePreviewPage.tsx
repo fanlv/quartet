@@ -1,4 +1,4 @@
-import { Children, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Children, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { copyToClipboard } from '../utils/clipboard';
 import { detectLanguage, getLanguageLabel, tokenizeLine } from '../utils/syntaxHighlight';
 import { useAuthPrincipal } from '../auth';
+import { MermaidDiagram } from './MermaidDiagram';
 import './FilePreviewPage.css';
 
 interface FilePreviewData {
@@ -24,8 +25,6 @@ interface MarkdownOutlineItem {
   depth: number;
 }
 
-type MermaidAPI = typeof import('mermaid')['default'];
-
 const markdownExtensions = new Set(['.md', '.markdown', '.mdown', '.mkd', '.mkdn', '.mdx']);
 const htmlExtensions = new Set(['.html', '.htm']);
 const externalUrlPattern = /^(?:https?:|mailto:|tel:|data:)/i;
@@ -37,55 +36,6 @@ const markdownSanitizeSchema = {
     p: [...(defaultSchema.attributes?.p || []), ['align', 'center', 'left', 'right']],
   },
 };
-let mermaidPromise: Promise<MermaidAPI> | null = null;
-const mermaidMinZoom = 0.25;
-const mermaidMaxZoom = 2;
-const mermaidZoomStep = 0.25;
-
-function loadMermaid(): Promise<MermaidAPI> {
-  if (!mermaidPromise) {
-    mermaidPromise = import('mermaid').then(({ default: mermaid }) => {
-      mermaid.initialize({
-        startOnLoad: false,
-        securityLevel: 'strict',
-        suppressErrorRendering: true,
-        theme: 'base',
-        look: 'classic',
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif",
-        themeVariables: {
-          background: '#ffffff',
-          primaryColor: '#edf9f0',
-          primaryTextColor: '#142019',
-          primaryBorderColor: '#72bd87',
-          secondaryColor: '#f3f7f4',
-          secondaryTextColor: '#29362d',
-          secondaryBorderColor: '#a8b6ac',
-          tertiaryColor: '#f8fbf8',
-          tertiaryTextColor: '#29362d',
-          tertiaryBorderColor: '#cdd9d0',
-          lineColor: '#5d6c62',
-          edgeLabelBackground: '#ffffff',
-          clusterBkg: '#f8fbf8',
-          clusterBorder: '#cdd9d0',
-          noteBkgColor: '#fff7e7',
-          noteBorderColor: '#e5bd73',
-          noteTextColor: '#4a3a1f',
-        },
-        flowchart: {
-          curve: 'basis',
-          htmlLabels: false,
-          useMaxWidth: false,
-        },
-      });
-      return mermaid;
-    }).catch((error) => {
-      mermaidPromise = null;
-      throw error;
-    });
-  }
-  return mermaidPromise;
-}
-
 function fileNameFromPath(path: string): string {
   return path.split('/').filter(Boolean).pop() || path || '未命名文件';
 }
@@ -287,147 +237,6 @@ function assignMarkdownHeadingIds(article: HTMLElement): MarkdownOutlineItem[] {
       depth: Math.min(4, Math.max(0, level - minimumLevel)),
     };
   });
-}
-
-function fullErrorDetail(error: unknown): string {
-  if (error instanceof Error) return error.stack || `${error.name}: ${error.message}`;
-  return String(error);
-}
-
-function MermaidDiagram({ source }: { source: string }) {
-  const reactId = useId();
-  const renderId = useMemo(() => `file-preview-mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`, [reactId]);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [error, setError] = useState('');
-  const [naturalWidth, setNaturalWidth] = useState(0);
-  const [zoom, setZoom] = useState(1);
-
-  useEffect(() => {
-    let cancelled = false;
-    const container = containerRef.current;
-    setStatus('loading');
-    setError('');
-    setNaturalWidth(0);
-    setZoom(1);
-    if (container) container.replaceChildren();
-
-    void loadMermaid()
-      .then((mermaid) => mermaid.render(renderId, source))
-      .then(({ svg, bindFunctions }) => {
-        if (cancelled || !container) return;
-        container.innerHTML = svg;
-        const svgElement = container.querySelector('svg');
-        const naturalWidth = svgElement?.viewBox.baseVal.width;
-        if (svgElement && naturalWidth && Number.isFinite(naturalWidth)) {
-          svgElement.style.width = `${Math.ceil(naturalWidth)}px`;
-          svgElement.style.maxWidth = 'none';
-          svgElement.style.height = 'auto';
-          setNaturalWidth(Math.ceil(naturalWidth));
-        }
-        bindFunctions?.(container);
-        setStatus('ready');
-      })
-      .catch((reason: unknown) => {
-        if (cancelled) return;
-        const detail = fullErrorDetail(reason);
-        console.error('[FilePreview] Mermaid render failed', reason);
-        setError(detail);
-        setStatus('error');
-      });
-
-    return () => {
-      cancelled = true;
-      container?.replaceChildren();
-    };
-  }, [renderId, source]);
-
-  useEffect(() => {
-    const svgElement = containerRef.current?.querySelector('svg');
-    if (!svgElement || !naturalWidth) return;
-    svgElement.style.width = `${Math.round(naturalWidth * zoom)}px`;
-  }, [naturalWidth, zoom]);
-
-  const updateZoom = useCallback((nextZoom: number) => {
-    setZoom(Math.min(mermaidMaxZoom, Math.max(mermaidMinZoom, nextZoom)));
-  }, []);
-
-  const fitToWidth = useCallback(() => {
-    const container = containerRef.current;
-    if (!container || !naturalWidth) return;
-    const style = window.getComputedStyle(container);
-    const horizontalPadding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
-    const availableWidth = Math.max(1, container.clientWidth - horizontalPadding);
-    updateZoom(Math.min(1, availableWidth / naturalWidth));
-    container.scrollLeft = 0;
-  }, [naturalWidth, updateZoom]);
-
-  if (status === 'error') {
-    return (
-      <div className="file-preview-mermaid-error" role="alert">
-        <strong>Mermaid 图表渲染失败</strong>
-        <pre>{error}</pre>
-        <details>
-          <summary>查看 Mermaid 源文</summary>
-          <pre>{source}</pre>
-        </details>
-      </div>
-    );
-  }
-
-  return (
-    <figure className={`file-preview-mermaid ${status === 'loading' ? 'is-loading' : ''}`}>
-      {status === 'loading' && (
-        <div className="file-preview-mermaid-loading" role="status">
-          <span className="file-preview-spinner" />
-          <span>正在渲染图表…</span>
-        </div>
-      )}
-      {status === 'ready' && (
-        <figcaption className="file-preview-mermaid-toolbar">
-          <span>Mermaid</span>
-          <div className="file-preview-mermaid-zoom" role="group" aria-label="图表缩放">
-            <button
-              type="button"
-              title="缩小"
-              aria-label="缩小图表"
-              disabled={zoom <= mermaidMinZoom}
-              onClick={() => updateZoom(zoom - mermaidZoomStep)}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
-            </button>
-            <button
-              type="button"
-              className="file-preview-mermaid-percent"
-              title="重置为 100%"
-              aria-label={`当前缩放 ${Math.round(zoom * 100)}%，点击重置为 100%`}
-              onClick={() => updateZoom(1)}
-            >
-              {Math.round(zoom * 100)}%
-            </button>
-            <button
-              type="button"
-              title="放大"
-              aria-label="放大图表"
-              disabled={zoom >= mermaidMaxZoom}
-              onClick={() => updateZoom(zoom + mermaidZoomStep)}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-            </button>
-            <button type="button" title="适应宽度" aria-label="图表适应宽度" onClick={fitToWidth}>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 3-5 5 5 5M3 8h7M16 3l5 5-5 5M21 8h-7M8 21l-5-5 5-5M3 16h7M16 21l5-5-5-5M21 16h-7" /></svg>
-            </button>
-          </div>
-        </figcaption>
-      )}
-      <div
-        ref={containerRef}
-        className="file-preview-mermaid-canvas"
-        role="img"
-        aria-label="Mermaid 图表"
-      />
-    </figure>
-  );
 }
 
 function HtmlPreviewDocument({ content, title }: { content: string; title: string }) {
