@@ -1212,14 +1212,17 @@ struct QuartetChoiceSheet: View {
                         }
                         if !choice.badges.isEmpty {
                             QuartetUsageBadgeRow(badges: choice.badges)
-                                .padding(.top, 2)
+                                .padding(.top, 5)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
+                    // 额度角标可能折成多行，始终按内容的完整高度撑开选项行。
+                    .fixedSize(horizontal: false, vertical: true)
 
                     Spacer(minLength: 8)
                 }
                 .padding(.horizontal, 14)
+                .padding(.vertical, 10)
                 .frame(minHeight: 60)
                 .contentShape(Rectangle())
             }
