@@ -42,8 +42,8 @@ struct StatsView: View {
                     }
 
                     StatsAgentUsageCard(
-                        agents: agents,
                         store: agentUsageStore,
+                        agents: agents,
                         isLoadingCatalog: isLoadingAgentUsage,
                         catalogError: agentCatalogError,
                         canReadAgents: model.can("agent.read"),
