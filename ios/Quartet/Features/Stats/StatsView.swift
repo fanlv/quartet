@@ -531,7 +531,7 @@ private struct StatsAgentUsageRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 11) {
+            HStack(alignment: .center, spacing: 11) {
                 Image(systemName: provider == nil ? "terminal" : "sparkles")
                     .font(.quartet(.control, weight: .semibold))
                     .foregroundStyle(provider == nil ? QuartetTheme.secondaryText : QuartetTheme.accent)
@@ -553,22 +553,6 @@ private struct StatsAgentUsageRow: View {
 
                 Spacer(minLength: 8)
 
-                if let version {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 4) {
-                            Text("版本".localized(in: locale))
-                            Text(version)
-                        }
-                        Text(version)
-                    }
-                    .font(.quartet(.compact, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .padding(.horizontal, 8)
-                    .frame(minHeight: 27)
-                    .background(QuartetTheme.elevated, in: Capsule())
-                    .accessibilityElement(children: .combine)
-                }
-
                 if let presentedFailure {
                     Button {
                         onShowError(presentedFailure)
@@ -582,6 +566,22 @@ private struct StatsAgentUsageRow: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("查看错误详情".localized(in: locale))
                     .accessibilityIdentifier("stats-agent-usage-error-\(agent.agentId)")
+                }
+
+                if let version {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 4) {
+                            Text("版本".localized(in: locale))
+                            Text(version)
+                        }
+                        Text(version)
+                    }
+                    .font(.quartet(.compact, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .padding(.horizontal, 8)
+                    .frame(minHeight: 27, alignment: .center)
+                    .background(QuartetTheme.elevated, in: Capsule())
+                    .accessibilityElement(children: .combine)
                 }
             }
 
