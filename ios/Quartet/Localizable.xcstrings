@@ -204,6 +204,16 @@
         }
       }
     },
+    "本机 Agent 的版本、套餐和实时额度。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Local Agent versions, plans, and live quotas." }
+        },
+        "zh-Hans" : {
+          "stringUnit" : { "state" : "translated", "value" : "本机 Agent 的版本、套餐和实时额度。" }
+        }
+      }
+    },
     "查看本机 Agent 的版本、套餐和当前额度。用量来自各服务商的实时数据。" : {
       "localizations" : {
         "en" : {

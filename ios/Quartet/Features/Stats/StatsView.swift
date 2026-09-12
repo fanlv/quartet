@@ -406,6 +406,20 @@ private struct StatsAgentUsageCard: View {
                         .tint(QuartetTheme.accent)
                         .accessibilityLabel("正在获取 Agent 用量")
                 }
+                if let catalogError {
+                    Button {
+                        presentedError = PresentedError(title: "Agent 列表加载失败", detail: catalogError)
+                    } label: {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.failed)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("查看错误详情".localized(in: locale))
+                    .accessibilityIdentifier("stats-agent-catalog-error")
+                }
                 Button(action: onRefresh) {
                     Image(systemName: "arrow.clockwise")
                         .font(.quartet(.control, weight: .semibold))
@@ -423,7 +437,7 @@ private struct StatsAgentUsageCard: View {
             .padding(.trailing, 2)
             .padding(.vertical, 6)
 
-            Text("查看本机 Agent 的版本、套餐和当前额度。用量来自各服务商的实时数据。")
+            Text("本机 Agent 的版本、套餐和实时额度。")
                 .font(.quartet(.detail))
                 .foregroundStyle(QuartetTheme.secondaryText)
                 .padding(.horizontal, 16)
@@ -435,8 +449,8 @@ private struct StatsAgentUsageCard: View {
                 statusRow(icon: "lock.fill", text: "当前账号缺少 agent.read 权限。")
             } else if visibleAgents.isEmpty, isLoadingCatalog {
                 statusRow(icon: "arrow.triangle.2.circlepath", text: "正在读取 Agent 信息…")
-            } else if visibleAgents.isEmpty, let catalogError {
-                errorRow(detail: catalogError, title: "Agent 列表加载失败")
+            } else if visibleAgents.isEmpty, catalogError != nil {
+                EmptyView()
             } else if visibleAgents.isEmpty {
                 statusRow(icon: "shippingbox", text: "未检测到已安装的 Agent。")
             } else {
@@ -452,11 +466,6 @@ private struct StatsAgentUsageCard: View {
                         locale: locale,
                         onShowError: { presentedError = $0 }
                     )
-                }
-
-                if let catalogError {
-                    Divider().overlay(QuartetTheme.divider)
-                    errorRow(detail: catalogError, title: "Agent 列表加载失败")
                 }
             }
         }
@@ -479,32 +488,6 @@ private struct StatsAgentUsageCard: View {
         }
         .padding(16)
     }
-
-    private func errorRow(detail: String, title: String) -> some View {
-        Button {
-            presentedError = PresentedError(title: title, detail: detail)
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(QuartetTheme.failed)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title.localized(in: locale))
-                        .font(.quartet(.control, weight: .semibold))
-                        .foregroundStyle(QuartetTheme.failed)
-                    Text("查看完整错误".localized(in: locale))
-                        .font(.quartet(.detail))
-                        .foregroundStyle(QuartetTheme.secondaryText)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .font(.quartet(.compact, weight: .semibold))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-            }
-            .padding(16)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 private struct StatsAgentUsageRow: View {
@@ -526,6 +509,24 @@ private struct StatsAgentUsageRow: View {
             return version
         }
         return AgentUsageFormat.trimmed(entry?.version)
+    }
+
+    private var presentedFailure: PresentedError? {
+        let availabilityError = AgentUsageFormat.trimmed(agent.error)
+        let usageFailure = entry?.failure
+        guard availabilityError != nil || usageFailure != nil else { return nil }
+
+        var details = [agent.type]
+        if let availabilityError {
+            details.append(availabilityError)
+        }
+        if let usageFailure {
+            details.append([usageFailure.summary, usageFailure.detail].joined(separator: "\n"))
+        }
+        return PresentedError(
+            title: usageFailure?.summary ?? agent.availabilityLabel,
+            detail: details.joined(separator: "\n\n")
+        )
     }
 
     var body: some View {
@@ -567,6 +568,21 @@ private struct StatsAgentUsageRow: View {
                     .background(QuartetTheme.elevated, in: Capsule())
                     .accessibilityElement(children: .combine)
                 }
+
+                if let presentedFailure {
+                    Button {
+                        onShowError(presentedFailure)
+                    } label: {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.failed)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("查看错误详情".localized(in: locale))
+                    .accessibilityIdentifier("stats-agent-usage-error-\(agent.agentId)")
+                }
             }
 
             if !agent.available {
@@ -576,13 +592,6 @@ private struct StatsAgentUsageRow: View {
                 }
                 .font(.quartet(.detail, weight: .medium))
                 .foregroundStyle(QuartetTheme.warning)
-
-                if let error = AgentUsageFormat.trimmed(agent.error) {
-                    Text(error)
-                        .font(.quartet(.detail, design: .monospaced))
-                        .foregroundStyle(QuartetTheme.primaryText)
-                        .textSelection(.enabled)
-                }
             }
 
             if entry?.loading == true, entry?.usage == nil, version == nil {
@@ -595,29 +604,9 @@ private struct StatsAgentUsageRow: View {
             } else if agent.available || entry?.usage != nil || version != nil {
                 usageContent
             }
-
-            if let failure = entry?.failure {
-                Button {
-                    onShowError(PresentedError(
-                        title: failure.summary,
-                        detail: [agent.type, failure.detail].joined(separator: "\n\n")
-                    ))
-                } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                        Text((entry?.usage == nil && version == nil ? "Agent 用量加载失败" : "刷新失败").localized(in: locale))
-                        Spacer(minLength: 6)
-                        Text("查看完整错误".localized(in: locale))
-                        Image(systemName: "chevron.right")
-                    }
-                    .font(.quartet(.detail, weight: .semibold))
-                    .foregroundStyle(QuartetTheme.failed)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
         }
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("stats-agent-usage-\(agent.agentId)")
     }
@@ -643,9 +632,7 @@ private struct StatsAgentUsageRow: View {
                 if let value = usage.codebuddy { codebuddyUsage(value) } else { quotaNotConfigured }
             }
         } else if provider == nil, version != nil {
-            Text("此 Agent 仅提供版本信息。".localized(in: locale))
-                .font(.quartet(.detail))
-                .foregroundStyle(QuartetTheme.secondaryText)
+            EmptyView()
         } else if entry?.failure == nil {
             Text("未检测到版本或套餐信息。".localized(in: locale))
                 .font(.quartet(.detail))
@@ -846,10 +833,13 @@ private struct StatsAgentUsageRow: View {
         if cost == nil, quota == nil { noUsageDetails }
     }
 
+    @ViewBuilder
     private var noUsageDetails: some View {
-        Text("未返回可用的套餐数据。".localized(in: locale))
-            .font(.quartet(.detail))
-            .foregroundStyle(QuartetTheme.secondaryText)
+        if entry?.failure == nil {
+            Text("未返回可用的套餐数据。".localized(in: locale))
+                .font(.quartet(.detail))
+                .foregroundStyle(QuartetTheme.secondaryText)
+        }
     }
 
     /// 额度看板需要用户自己配置，没配置时和“读取失败”是两回事，说明白省得用户去查错误。
@@ -899,16 +889,20 @@ private struct StatsAgentQuotaGroup: View {
     let locale: Locale
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(title)
-                .font(.quartet(.detail, weight: .semibold))
-                .foregroundStyle(QuartetTheme.primaryText)
+                .font(.quartet(.compact, weight: .semibold))
+                .foregroundStyle(QuartetTheme.secondaryText)
             ForEach(Array(windows.compactMap { label, window in window.map { (label, $0) } }.enumerated()), id: \.offset) { _, item in
                 StatsAgentQuotaMeter(label: item.0, window: item.1, locale: locale)
             }
         }
-        .padding(10)
-        .background(QuartetTheme.elevated.opacity(0.72), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.leading, 9)
+        .overlay(alignment: .leading) {
+            Capsule()
+                .fill(QuartetTheme.divider)
+                .frame(width: 2)
+        }
     }
 }
 
@@ -987,35 +981,53 @@ private struct StatsAgentQuotaMeter: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(label)
-                    .font(.quartet(.detail, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(QuartetTheme.primaryText)
+                labelText
+                if let detail {
+                    detailText(detail)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
                 Spacer(minLength: 8)
-                Text(value)
-                    .font(.quartet(.detail, weight: .bold, design: .monospaced))
-                    .foregroundStyle(color)
-                    .monospacedDigit()
+                valueText
             }
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(QuartetTheme.divider)
-                    Capsule()
-                        .fill(color)
-                        .frame(width: proxy.size.width * min(max(usedPercent, 0), 100) / 100)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    labelText
+                    Spacer(minLength: 8)
+                    valueText
+                }
+                if let detail {
+                    detailText(detail)
                 }
             }
-            .frame(height: 6)
-            .accessibilityHidden(true)
-            if let detail {
-                Text(detail)
-                    .font(.quartet(.compact, design: .monospaced))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-            }
         }
+        .frame(minHeight: 24)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label)，\("已用".localized(in: locale)) \(value)")
+    }
+
+    private var labelText: some View {
+        Text(label)
+            .font(.quartet(.detail, weight: .semibold, design: .monospaced))
+            .foregroundStyle(QuartetTheme.primaryText)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var valueText: some View {
+        Text(value)
+            .font(.quartet(.detail, weight: .bold, design: .monospaced))
+            .foregroundStyle(color)
+            .monospacedDigit()
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func detailText(_ detail: String) -> some View {
+        Text(detail)
+            .font(.quartet(.compact, design: .monospaced))
+            .foregroundStyle(QuartetTheme.secondaryText.opacity(0.82))
+            .lineLimit(1)
     }
 }
 
