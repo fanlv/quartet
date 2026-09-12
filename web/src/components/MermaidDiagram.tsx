@@ -57,6 +57,15 @@ function fullErrorDetail(error: unknown): string {
   return String(error);
 }
 
+function computeFitZoom(container: HTMLDivElement, naturalWidth: number): number {
+  if (naturalWidth <= 0) return 1;
+  const style = window.getComputedStyle(container);
+  const horizontalPadding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+  const available = container.clientWidth - horizontalPadding;
+  if (!Number.isFinite(available) || available <= 0) return 1;
+  return Math.min(1, available / naturalWidth);
+}
+
 export function MermaidDiagram({ source }: { source: string }) {
   const reactId = useId();
   const renderId = useMemo(() => `mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`, [reactId]);
@@ -86,7 +95,9 @@ export function MermaidDiagram({ source }: { source: string }) {
           svgElement.style.width = `${Math.ceil(width)}px`;
           svgElement.style.maxWidth = 'none';
           svgElement.style.height = 'auto';
-          setNaturalWidth(Math.ceil(width));
+          const natural = Math.ceil(width);
+          setNaturalWidth(natural);
+          setZoom(computeFitZoom(container, natural));
         }
         bindFunctions?.(container);
         setStatus('ready');
@@ -117,9 +128,7 @@ export function MermaidDiagram({ source }: { source: string }) {
   const fitToWidth = useCallback(() => {
     const container = containerRef.current;
     if (!container || !naturalWidth) return;
-    const style = window.getComputedStyle(container);
-    const horizontalPadding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
-    updateZoom(Math.min(1, (container.clientWidth - horizontalPadding) / naturalWidth));
+    updateZoom(computeFitZoom(container, naturalWidth));
     container.scrollLeft = 0;
   }, [naturalWidth, updateZoom]);
 
