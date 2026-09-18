@@ -37,6 +37,7 @@ import { isImageUrl, resolveIconSrc } from '../utils/url';
 import { showToast } from '../utils/toast';
 import { fetchAvailableAgentList } from '../api/agents';
 import { useLocalComposerDraft } from '../hooks/useLocalComposerDraft';
+import { useAttachmentDrop } from '../hooks/useAttachmentDrop';
 
 type LocalSentMessage = SentMessageHistoryItem;
 
@@ -687,6 +688,11 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   const handleImageSelect = useCallback(async (files: FileList | null) => {
     await addAttachments(files);
   }, [addAttachments]);
+  const homeAttachmentDropDisabled = !canWriteFiles || !!isInitializing || !jobEnable || !connected;
+  const { isDraggingAttachment, attachmentDropHandlers } = useAttachmentDrop(
+    addAttachments,
+    homeAttachmentDropDisabled,
+  );
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     if (!canWriteFiles) return;
@@ -1692,7 +1698,16 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
           <button type="button" onClick={() => setAcpConfigError(null)} aria-label="dismiss">×</button>
         </div>
       )}
-      <div className="home-input-wrapper" style={{ position: 'relative' }}>
+      <div
+        className={`home-input-wrapper${isDraggingAttachment ? ' attachment-drag-active' : ''}`}
+        style={{ position: 'relative' }}
+        {...attachmentDropHandlers}
+      >
+          {isDraggingAttachment && (
+            <div className="attachment-drop-overlay" data-testid="attachment-drop-overlay">
+              {t('chat.dropAttachment')}
+            </div>
+          )}
           {canReadFiles && mentionState && workdir && (
             <FileMention
               keyword={mentionState.keyword}

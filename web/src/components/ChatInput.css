@@ -31,6 +31,28 @@
     0 0 0 3px rgba(249, 115, 22, 0.1);
 }
 
+.chat-input-wrapper.attachment-drag-active,
+.home-input-wrapper.attachment-drag-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.attachment-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--surface) 90%, var(--accent));
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+}
+
 .chat-input {
   flex: 1;
   /* Inside .chat-input-editor (a plain div) the textarea is no longer

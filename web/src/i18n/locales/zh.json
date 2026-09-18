@@ -124,6 +124,7 @@
     "continueQueue": "继续队列",
     "commandUnavailableWhileRunning": "当前消息执行中，此命令不能排队；请稍后重试。",
     "uploadAttachment": "上传图片或文件",
+    "dropAttachment": "松开即可上传图片或文件",
     "tokenUsageVendorHint": "厂商上报：由厂商 CLI 提供的当前会话 Token 上下文占用，非 API 计费口径。",
     "tokenUsageLocalHint": "本地估算：由本地分词器估算的当前会话 Token 上下文占用，非 API 计费口径。",
     "tokenUsageVendorLabel": "厂商上报，Token 数量 {{count}}",

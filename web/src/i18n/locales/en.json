@@ -124,6 +124,7 @@
     "continueQueue": "Continue queue",
     "commandUnavailableWhileRunning": "This command cannot be queued while a message is running. Try again when it finishes.",
     "uploadAttachment": "Upload image or file",
+    "dropAttachment": "Drop to upload images or files",
     "tokenUsageVendorHint": "Vendor-reported: current session token context usage provided by the vendor CLI, not an API billing value.",
     "tokenUsageLocalHint": "Local estimate: current session token context usage estimated by the local tokenizer, not an API billing value.",
     "tokenUsageVendorLabel": "Vendor-reported token count: {{count}}",

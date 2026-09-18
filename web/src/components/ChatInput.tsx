@@ -24,6 +24,7 @@ import { DurationBadge } from './DurationBadge';
 import { ConfigurationIcon } from './ComposerIcons';
 import { MessagePresetHistoryMenu, type SentMessageHistoryItem } from './MessagePresetHistoryMenu';
 import { useLocalComposerDraft } from '../hooks/useLocalComposerDraft';
+import { useAttachmentDrop } from '../hooks/useAttachmentDrop';
 import './ChatInput.css';
 
 function toImagePreviewUrl(path: string): string {
@@ -351,6 +352,7 @@ export function ChatInput({
   const canQueue = canQueueWhileRunning && !interactionDisabled;
   const composerLocked = interactionDisabled || (isLoading && !canQueue);
   const hasQueued = (!!queuedMessages && queuedMessages.length > 0) || messageQueuePaused;
+  const { isDraggingAttachment, attachmentDropHandlers } = useAttachmentDrop(addAttachments, composerLocked);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -758,7 +760,16 @@ export function ChatInput({
 
   return (
     <div className="chat-input-container" style={containerStyle} data-testid="chat-input-container" data-loading={isLoading ? 'true' : 'false'} data-readonly={readOnly ? 'true' : 'false'}>
-      <div className="chat-input-wrapper" style={{ position: 'relative' }}>
+      <div
+        className={`chat-input-wrapper${isDraggingAttachment ? ' attachment-drag-active' : ''}`}
+        style={{ position: 'relative' }}
+        {...attachmentDropHandlers}
+      >
+        {isDraggingAttachment && (
+          <div className="attachment-drop-overlay" data-testid="attachment-drop-overlay">
+            {t('chat.dropAttachment')}
+          </div>
+        )}
         {mentionState && workdir && !interactionDisabled && (
           <FileMention
             keyword={mentionState.keyword}
