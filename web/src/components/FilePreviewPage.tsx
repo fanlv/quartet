@@ -120,6 +120,15 @@ function buildReturnUrl(): string {
   return url.toString();
 }
 
+function buildDownloadUrl(path: string, fileShareToken: string): string {
+  const query = new URLSearchParams({ path });
+  if (fileShareToken) {
+    query.set('fileShareToken', fileShareToken);
+    return `/api/v1/public/file-preview/serve-file?${query.toString()}`;
+  }
+  return `/api/v1/serve-file?${query.toString()}`;
+}
+
 // Public share links read through a token-scoped endpoint; everything else
 // goes through the shared authenticated reader.
 async function readPreviewFile(path: string, jobId: string, signal: AbortSignal): Promise<FilePreviewData> {
@@ -592,6 +601,15 @@ export function FilePreviewPage() {
             <button type="button" className="file-preview-button" onClick={handleCopyPath}>
               {pathCopied ? '已复制' : '复制路径'}
             </button>
+          )}
+          {data && path && (
+            <a
+              className="file-preview-button"
+              href={buildDownloadUrl(path, fileShareToken)}
+              download={fileNameFromPath(path)}
+            >
+              {t('filePreview.download')}
+            </a>
           )}
           {canShareFiles && data && !shareToken && (
             <button type="button" className="file-preview-button" onClick={handleShare} disabled={shareLoading}>
