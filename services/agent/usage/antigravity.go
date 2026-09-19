@@ -3,6 +3,7 @@ package usage
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,10 +48,12 @@ type antigravityEndpoint struct {
 
 // AntigravityUsage reads the agy plan quota plus the agy CLI version. agy runs as
 // a local language server: each agy process listens on loopback ports that serve
-// the Connect-RPC quota endpoint. Antigravity 2.x guards that RPC with a CSRF
-// token from `--csrf_token` / `--extension_server_csrf_token` or the HTML page
-// at `/`; older CLI builds still answer without one. We resolve ports via
-// ps + lsof and POST until one answers.
+// the Connect-RPC quota endpoint. Current CLI builds expose that RPC on HTTPS
+// with a self-signed loopback cert; older builds still have a plaintext HTTP
+// port. Antigravity 2.x may also guard the RPC with a CSRF token from
+// `--csrf_token` / `--extension_server_csrf_token` or the HTML page at `/`.
+// We resolve ports via ps + lsof and POST (HTTPS first, then HTTP) until one
+// answers.
 //
 // agy is a short-lived process (antigravity-acp spawns it per request), so a poll
 // that catches no live+listening agy is the common case, not an error. To keep the
@@ -113,11 +116,18 @@ func (s *serviceImpl) antigravityLiveQuota(ctx context.Context, endpoints []anti
 		return nil, fmt.Errorf("no running agy process found (is antigravity active?)")
 	}
 
-	// 127.0.0.1 target: never use a proxy. Short timeout since the ports are
-	// local and a wrong (HTTPS/mTLS) port fails fast.
+	// Loopback only: never use a proxy. Skip TLS verify because current agy
+	// serves a self-signed cert on 127.0.0.1. A plaintext HTTP port still
+	// works on the same client. Short timeout so a dead/mTLS port fails fast.
 	client := &http.Client{
-		Timeout:   2 * time.Second,
-		Transport: &http.Transport{Proxy: nil},
+		Timeout: 2 * time.Second,
+		Transport: &http.Transport{
+			Proxy: nil,
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+				MinVersion:         tls.VersionTLS12,
+			},
+		},
 	}
 
 	queryCtx, cancel := context.WithCancel(ctx)
@@ -499,23 +509,49 @@ type antigravityQuotaResp struct {
 	} `json:"response"`
 }
 
-// antigravityQuota POSTs the quota RPC to one agy port over plaintext HTTP. The
-// agy HTTPS port requires mTLS and fails here — that's fine, the caller tries
-// every port and keeps the first that answers.
+// antigravityQuota POSTs the quota RPC to one agy port. Current CLI builds
+// speak HTTPS on both loopback ports; older builds still have a plaintext
+// HTTP port. Try HTTPS first, then HTTP. A leftover mTLS-only port fails
+// the handshake and is skipped.
 func (s *serviceImpl) antigravityQuota(ctx context.Context, client *http.Client, endpoint antigravityEndpoint) (*model.AntigravityUsage, error) {
-	tokens := uniqueNonEmpty(endpoint.csrf)
-	var lastErr error
-	for _, token := range tokens {
-		usage, err := s.postAntigravityQuota(ctx, client, endpoint.port, token)
+	var lastErr, httpsErr error
+	for _, scheme := range []string{"https", "http"} {
+		usage, err := s.antigravityQuotaOn(ctx, client, scheme, endpoint)
 		if err == nil {
 			return usage, nil
 		}
 		lastErr = err
+		if scheme == "https" {
+			httpsErr = err
+		}
+	}
+	// HTTP-to-HTTPS 400 is noise when the port is TLS-only; keep the HTTPS error.
+	if isHTTPOnHTTPS(lastErr) && httpsErr != nil {
+		return nil, httpsErr
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("query antigravity quota on port %d failed", endpoint.port)
+}
+
+func (s *serviceImpl) antigravityQuotaOn(ctx context.Context, client *http.Client, scheme string, endpoint antigravityEndpoint) (*model.AntigravityUsage, error) {
+	tokens := uniqueNonEmpty(endpoint.csrf)
+	var lastErr error
+	for _, token := range tokens {
+		usage, err := s.postAntigravityQuota(ctx, client, scheme, endpoint.port, token)
+		if err == nil {
+			return usage, nil
+		}
+		lastErr = err
+		if isHTTPOnHTTPS(err) {
+			return nil, err
+		}
 	}
 
 	if len(tokens) == 0 || isAntigravityMissingCSRF(lastErr) {
-		if html := fetchAntigravityHTMLCSRF(ctx, client, endpoint.port); html != "" && !containsToken(tokens, html) {
-			usage, err := s.postAntigravityQuota(ctx, client, endpoint.port, html)
+		if html := fetchAntigravityHTMLCSRF(ctx, client, scheme, endpoint.port); html != "" && !containsToken(tokens, html) {
+			usage, err := s.postAntigravityQuota(ctx, client, scheme, endpoint.port, html)
 			if err == nil {
 				return usage, nil
 			}
@@ -526,7 +562,7 @@ func (s *serviceImpl) antigravityQuota(ctx context.Context, client *http.Client,
 
 	// Older agy CLI builds answer without a CSRF token.
 	if !containsToken(tokens, "") {
-		usage, err := s.postAntigravityQuota(ctx, client, endpoint.port, "")
+		usage, err := s.postAntigravityQuota(ctx, client, scheme, endpoint.port, "")
 		if err == nil {
 			return usage, nil
 		}
@@ -535,11 +571,11 @@ func (s *serviceImpl) antigravityQuota(ctx context.Context, client *http.Client,
 	if lastErr != nil {
 		return nil, lastErr
 	}
-	return nil, fmt.Errorf("query antigravity quota on port %d failed", endpoint.port)
+	return nil, fmt.Errorf("query antigravity quota on %s://127.0.0.1:%d failed", scheme, endpoint.port)
 }
 
-func (s *serviceImpl) postAntigravityQuota(ctx context.Context, client *http.Client, port int, csrf string) (*model.AntigravityUsage, error) {
-	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, antigravityQuotaPath)
+func (s *serviceImpl) postAntigravityQuota(ctx context.Context, client *http.Client, scheme string, port int, csrf string) (*model.AntigravityUsage, error) {
+	url := fmt.Sprintf("%s://127.0.0.1:%d%s", scheme, port, antigravityQuotaPath)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(antigravityQuotaBody))
 	if err != nil {
 		return nil, err
@@ -594,8 +630,8 @@ func (s *serviceImpl) postAntigravityQuota(ctx context.Context, client *http.Cli
 // fetchAntigravityHTMLCSRF reads the CSRF token Antigravity 2.x embeds in the
 // HTML (or response header) served at `/`. A 404 / empty body means this port
 // is an older tokenless CLI server, not an error.
-func fetchAntigravityHTMLCSRF(ctx context.Context, client *http.Client, port int) string {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/", port), nil)
+func fetchAntigravityHTMLCSRF(ctx context.Context, client *http.Client, scheme string, port int) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s://127.0.0.1:%d/", scheme, port), nil)
 	if err != nil {
 		return ""
 	}
@@ -624,6 +660,13 @@ func isAntigravityMissingCSRF(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "missing csrf") || strings.Contains(msg, "csrf token")
+}
+
+func isHTTPOnHTTPS(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "HTTP request to an HTTPS server")
 }
 
 func uniqueNonEmpty(values []string) []string {
