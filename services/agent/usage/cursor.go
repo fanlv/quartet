@@ -22,7 +22,7 @@ import (
 const (
 	// cursorSummaryURL is cursor.com's usage-summary endpoint. It is
 	// authenticated by the WorkosCursorSessionToken web cookie built from the
-	// cursor-agent CLI's locally stored login token.
+	// cursor-agent CLI login token (macOS keychain or auth.json).
 	cursorSummaryURL = "https://cursor.com/api/usage-summary"
 	// cursorSandAccessURL / cursorSandUsageURL are Cursor's first-party Connect
 	// RPCs for the Grok Bot (internal codename "Sand") quota. They are
@@ -38,8 +38,9 @@ const (
 	cursorReferer   = "https://www.cursor.com/settings"
 )
 
-// cursorAuthFile is the cursor-agent CLI's login-token file (auth.json). The
-// accessToken is the raw JWT used both for the web cookie and the Bearer RPCs.
+// cursorAuthFile is the cursor-agent CLI login token. Current macOS CLI builds
+// keep it in the login keychain; older installs and non-Darwin platforms still
+// use auth.json. accessToken is the raw JWT for the web cookie and Bearer RPCs.
 type cursorAuthFile struct {
 	AccessToken  string `json:"accessToken"`
 	RefreshToken string `json:"refreshToken"`
@@ -84,20 +85,12 @@ func (s *serviceImpl) CursorUsage(ctx context.Context) (*model.CursorUsage, erro
 	verCh := make(chan string, 1)
 	go func() { verCh <- s.binVersion(ctx, "cursor-agent") }()
 
-	authPath := cursorCLIAuthPath()
-	if authPath == "" {
-		return nil, errors.New("resolve cursor-agent auth file path failed: home dir unavailable")
-	}
-	raw, err := os.ReadFile(authPath)
+	auth, source, err := readCursorAuth(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("read %s failed: %w (log in with cursor-agent first)", authPath, err)
+		return nil, err
 	}
-	var auth cursorAuthFile
-	if err := json.Unmarshal(raw, &auth); err != nil {
-		return nil, fmt.Errorf("parse %s failed: %w", authPath, err)
-	}
-	if auth.AccessToken == "" {
-		return nil, fmt.Errorf("%s: accessToken is empty", authPath)
+	if strings.TrimSpace(auth.AccessToken) == "" {
+		return nil, fmt.Errorf("%s: accessToken is empty", source)
 	}
 
 	userID, err := readCursorUserID(auth.AccessToken)
