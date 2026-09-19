@@ -25,6 +25,10 @@ const (
 	antigravityQuotaPath = "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary"
 	// antigravityQuotaBody is the metadata envelope the quota RPC expects.
 	antigravityQuotaBody = `{"metadata":{"ideName":"antigravity","extensionName":"antigravity","ideVersion":"unknown","locale":"en"}}`
+	// antigravityCSRFHeader is the language-server CSRF header. Antigravity 2.x
+	// rejects RetrieveUserQuotaSummary with HTTP 401 "missing CSRF token" unless
+	// this is set. Older agy CLI builds still accept an empty token.
+	antigravityCSRFHeader = "X-Codeium-Csrf-Token"
 	// antigravityCacheMaxAge bounds how long a cached quota stays usable when its
 	// windows carry no reset time. Mirrors TokenTracker's 7-day cache ceiling.
 	antigravityCacheMaxAge = 7 * 24 * time.Hour
@@ -34,11 +38,19 @@ const (
 	antigravityRetryInterval  = 250 * time.Millisecond
 )
 
+// antigravityEndpoint is one loopback port that may serve the quota RPC, plus
+// CSRF tokens taken from the owning process command line (empty for older CLI).
+type antigravityEndpoint struct {
+	port int
+	csrf []string
+}
+
 // AntigravityUsage reads the agy plan quota plus the agy CLI version. agy runs as
-// a local language server: each agy process listens on a plaintext-HTTP port that
-// serves an unauthenticated Connect-RPC quota endpoint (no csrf token needed). We
-// resolve those ports via ps + lsof and POST the quota request to each until one
-// answers.
+// a local language server: each agy process listens on loopback ports that serve
+// the Connect-RPC quota endpoint. Antigravity 2.x guards that RPC with a CSRF
+// token from `--csrf_token` / `--extension_server_csrf_token` or the HTML page
+// at `/`; older CLI builds still answer without one. We resolve ports via
+// ps + lsof and POST until one answers.
 //
 // agy is a short-lived process (antigravity-acp spawns it per request), so a poll
 // that catches no live+listening agy is the common case, not an error. To keep the
@@ -48,14 +60,14 @@ const (
 // fails AND no usable cached quota exists.
 func (s *serviceImpl) AntigravityUsage(ctx context.Context) (*model.AntigravityUsage, error) {
 	// Resolve the language-server ports before starting `agy --version`.
-	// Otherwise agyPids can observe our own short-lived version process and
-	// report it as an agy server with no listening socket.
-	ports, portsErr := s.antigravityListenPorts(ctx)
+	// Otherwise agyProcesses can observe our own short-lived version process
+	// and report it as an agy server with no listening socket.
+	endpoints, portsErr := s.antigravityEndpoints(ctx)
 	retryQuota := false
 	stopProbe := func() {}
-	if portsErr != nil || len(ports) == 0 {
+	if portsErr != nil || len(endpoints) == 0 {
 		var probeErr error
-		ports, stopProbe, probeErr = s.startAntigravityProbe(ctx)
+		endpoints, stopProbe, probeErr = s.startAntigravityProbe(ctx)
 		if probeErr != nil {
 			if portsErr != nil {
 				portsErr = fmt.Errorf("%v; start temporary agy quota probe failed: %w", portsErr, probeErr)
@@ -78,7 +90,7 @@ func (s *serviceImpl) AntigravityUsage(ctx context.Context) (*model.AntigravityU
 	var usage *model.AntigravityUsage
 	err := portsErr
 	if err == nil {
-		usage, err = s.antigravityLiveQuota(ctx, ports, retryQuota)
+		usage, err = s.antigravityLiveQuota(ctx, endpoints, retryQuota)
 	}
 	if err != nil {
 		if cached := s.cachedAntigravityUsage(); cached != nil {
@@ -96,8 +108,8 @@ func (s *serviceImpl) AntigravityUsage(ctx context.Context) (*model.AntigravityU
 
 // antigravityLiveQuota queries the discovered agy ports, returning the quota
 // (without Version) or an error describing why no live agy answered.
-func (s *serviceImpl) antigravityLiveQuota(ctx context.Context, ports []int, retry bool) (*model.AntigravityUsage, error) {
-	if len(ports) == 0 {
+func (s *serviceImpl) antigravityLiveQuota(ctx context.Context, endpoints []antigravityEndpoint, retry bool) (*model.AntigravityUsage, error) {
+	if len(endpoints) == 0 {
 		return nil, fmt.Errorf("no running agy process found (is antigravity active?)")
 	}
 
@@ -119,24 +131,24 @@ func (s *serviceImpl) antigravityLiveQuota(ctx context.Context, ports []int, ret
 		usage *model.AntigravityUsage
 		err   error
 	}
-	results := make(chan portResult, len(ports))
-	for _, port := range ports {
+	results := make(chan portResult, len(endpoints))
+	for _, endpoint := range endpoints {
 		go func() {
 			var lastErr error
 			for {
-				usage, err := s.antigravityQuota(queryCtx, client, port)
+				usage, err := s.antigravityQuota(queryCtx, client, endpoint)
 				if err == nil {
-					results <- portResult{port: port, usage: usage}
+					results <- portResult{port: endpoint.port, usage: usage}
 					return
 				}
 				lastErr = err
 				if !retry {
-					results <- portResult{port: port, err: lastErr}
+					results <- portResult{port: endpoint.port, err: lastErr}
 					return
 				}
 				select {
 				case <-queryCtx.Done():
-					results <- portResult{port: port, err: lastErr}
+					results <- portResult{port: endpoint.port, err: lastErr}
 					return
 				case <-time.After(antigravityRetryInterval):
 				}
@@ -145,7 +157,7 @@ func (s *serviceImpl) antigravityLiveQuota(ctx context.Context, ports []int, ret
 	}
 
 	var lastErr error
-	for range ports {
+	for range endpoints {
 		result := <-results
 		if result.err == nil {
 			return result.usage, nil
@@ -153,13 +165,13 @@ func (s *serviceImpl) antigravityLiveQuota(ctx context.Context, ports []int, ret
 		lastErr = result.err
 		logger.Warnf(ctx, "[agent.usage] antigravity quota on port %d failed: %v", result.port, result.err)
 	}
-	return nil, fmt.Errorf("query antigravity quota failed on all %d port(s): %w", len(ports), lastErr)
+	return nil, fmt.Errorf("query antigravity quota failed on all %d port(s): %w", len(endpoints), lastErr)
 }
 
 // startAntigravityProbe starts a non-generative `agy models` process solely to
 // make the local quota RPC available when no prompt-time agy process is alive.
 // The returned stop function terminates it after the quota has been read.
-func (s *serviceImpl) startAntigravityProbe(ctx context.Context) ([]int, func(), error) {
+func (s *serviceImpl) startAntigravityProbe(ctx context.Context) ([]antigravityEndpoint, func(), error) {
 	var stdout, stderr bytes.Buffer
 	cmd := exec.Command(agyBin, "models")
 	cmd.Stdout = &stdout
@@ -183,7 +195,7 @@ func (s *serviceImpl) startAntigravityProbe(ctx context.Context) ([]int, func(),
 	for {
 		ports, err := s.listenPortsForPids(ctx, []int{cmd.Process.Pid})
 		if err == nil && len(ports) > 0 {
-			return ports, stop, nil
+			return endpointsForPorts(ports, s.processCSRFTokens(ctx, cmd.Process.Pid)), stop, nil
 		}
 		lastErr = err
 
@@ -250,43 +262,81 @@ func (s *serviceImpl) cachedAntigravityUsage() *model.AntigravityUsage {
 	return &cp
 }
 
-// agyPidLineRe matches a `ps` line's leading "<pid> <first-token>". Only real
-// process lines start with a pid; agy's `-p <prompt>` argument can contain
+// agyPidLineRe matches a `ps` line's leading "<pid> <first-token> [rest]". Only
+// real process lines start with a pid; agy's `-p <prompt>` argument can contain
 // newlines, and such wrapped continuation lines don't match, so they're ignored.
-var agyPidLineRe = regexp.MustCompile(`^\s*(\d+)\s+(\S+)`)
+var agyPidLineRe = regexp.MustCompile(`^\s*(\d+)\s+(\S+)(.*)$`)
 
 // listenPortRe pulls the port out of an lsof "127.0.0.1:<port>" NAME field.
 var listenPortRe = regexp.MustCompile(`127\.0\.0\.1:(\d+)`)
 
-// antigravityListenPorts returns the 127.0.0.1 TCP ports agy processes listen on.
-// It resolves agy pids via `ps`, then their listen ports via a single `lsof`
-// call. Returns an empty slice (no error) when no agy process is running — the
-// caller turns that into a reported error. Requires ps + lsof (macOS / Linux).
-func (s *serviceImpl) antigravityListenPorts(ctx context.Context) ([]int, error) {
-	pids, err := s.agyPids(ctx)
+// antigravityExtCSRFFlagRe / antigravityCSRFFlagRe pull CSRF tokens from agy /
+// language-server argv. `--csrf_token` must not match as a suffix of
+// `--extension_server_csrf_token`, so that flag is anchored at a start/space.
+var (
+	antigravityExtCSRFFlagRe = regexp.MustCompile(`--extension_server_csrf_token(?:=|[[:space:]]+)(\S+)`)
+	antigravityCSRFFlagRe    = regexp.MustCompile(`(?:^|[[:space:]])--csrf_token(?:=|[[:space:]]+)(\S+)`)
+	antigravityHTMLCSRFRe    = regexp.MustCompile(`csrfToken"\s*:\s*"([^"]+)"`)
+)
+
+type agyProcess struct {
+	pid     int
+	command string
+}
+
+// antigravityEndpoints returns the 127.0.0.1 TCP ports agy processes listen on,
+// each tagged with CSRF tokens from that process's command line. Returns an
+// empty slice (no error) when no agy process is running — the caller turns that
+// into a reported error. Requires ps + lsof (macOS / Linux).
+func (s *serviceImpl) antigravityEndpoints(ctx context.Context) ([]antigravityEndpoint, error) {
+	procs, err := s.agyProcesses(ctx)
 	if err != nil {
 		return nil, err
 	}
 	// Guard: with no pids we must NOT run `lsof -p ""`, which would list every
 	// listening port on the host instead of none.
-	if len(pids) == 0 {
+	if len(procs) == 0 {
 		return nil, nil
 	}
-	return s.listenPortsForPids(ctx, pids)
+	pids := make([]int, len(procs))
+	csrfByPid := make(map[int][]string, len(procs))
+	for i, p := range procs {
+		pids[i] = p.pid
+		csrfByPid[p.pid] = csrfTokensFromCommand(p.command)
+	}
+	portsByPid, err := s.listenPortsByPid(ctx, pids)
+	if err != nil {
+		return nil, err
+	}
+	var endpoints []antigravityEndpoint
+	seenPort := map[int]bool{}
+	for pid, ports := range portsByPid {
+		for _, port := range ports {
+			if seenPort[port] {
+				continue
+			}
+			seenPort[port] = true
+			endpoints = append(endpoints, antigravityEndpoint{port: port, csrf: csrfByPid[pid]})
+		}
+	}
+	if len(endpoints) == 0 {
+		return nil, fmt.Errorf("lsof found no 127.0.0.1 listen port for agy pids %v", pids)
+	}
+	return endpoints, nil
 }
 
-// agyPids returns the pids whose executable basename is "agy". It reads the full
-// command (comm is unreliable across platforms) and matches on the basename, so
-// both "agy" and "/path/to/agy --add-dir ..." are recognised while
+// agyProcesses returns processes whose executable basename is "agy". It reads
+// the full command (comm is unreliable across platforms) and matches on the
+// basename, so both "agy" and "/path/to/agy --add-dir ..." are recognised while
 // "bun .../antigravity-acp" is not.
-func (s *serviceImpl) agyPids(ctx context.Context) ([]int, error) {
+func (s *serviceImpl) agyProcesses(ctx context.Context) ([]agyProcess, error) {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(cctx, "ps", "-ax", "-o", "pid=,command=").Output()
 	if err != nil {
 		return nil, fmt.Errorf("run ps failed: %w", err)
 	}
-	var pids []int
+	var procs []agyProcess
 	seen := map[int]bool{}
 	for line := range strings.SplitSeq(string(out), "\n") {
 		m := agyPidLineRe.FindStringSubmatch(line)
@@ -301,22 +351,88 @@ func (s *serviceImpl) agyPids(ctx context.Context) ([]int, error) {
 			continue
 		}
 		seen[pid] = true
-		pids = append(pids, pid)
+		procs = append(procs, agyProcess{pid: pid, command: strings.TrimSpace(m[2] + m[3])})
 	}
-	return pids, nil
+	return procs, nil
+}
+
+// processCSRFTokens reads one pid's command line and extracts CSRF flags. Used
+// for the short-lived `agy models` probe, whose argv is not in the earlier
+// process snapshot.
+func (s *serviceImpl) processCSRFTokens(ctx context.Context, pid int) []string {
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cctx, "ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
+	if err != nil {
+		return nil
+	}
+	return csrfTokensFromCommand(strings.TrimSpace(string(out)))
+}
+
+func endpointsForPorts(ports []int, csrf []string) []antigravityEndpoint {
+	endpoints := make([]antigravityEndpoint, 0, len(ports))
+	for _, port := range ports {
+		endpoints = append(endpoints, antigravityEndpoint{port: port, csrf: csrf})
+	}
+	return endpoints
+}
+
+func csrfTokensFromCommand(command string) []string {
+	var tokens []string
+	seen := map[string]bool{}
+	add := func(raw string) {
+		token := strings.Trim(raw, `"'`)
+		if token == "" || seen[token] {
+			return
+		}
+		seen[token] = true
+		tokens = append(tokens, token)
+	}
+	// Prefer the HTTP extension-server token: that is the port we POST to.
+	if m := antigravityExtCSRFFlagRe.FindStringSubmatch(command); len(m) > 1 {
+		add(m[1])
+	}
+	if m := antigravityCSRFFlagRe.FindStringSubmatch(command); len(m) > 1 {
+		add(m[1])
+	}
+	return tokens
 }
 
 // listenPortsForPids returns the distinct 127.0.0.1 listen ports held by the
-// given pids, via a single lsof call (pids passed comma-joined to -p). Must only
-// be called with a non-empty pid list.
+// given pids. Must only be called with a non-empty pid list.
 func (s *serviceImpl) listenPortsForPids(ctx context.Context, pids []int) ([]int, error) {
+	portsByPid, err := s.listenPortsByPid(ctx, pids)
+	if err != nil {
+		return nil, err
+	}
+	var ports []int
+	seen := map[int]bool{}
+	for _, pidPorts := range portsByPid {
+		for _, port := range pidPorts {
+			if seen[port] {
+				continue
+			}
+			seen[port] = true
+			ports = append(ports, port)
+		}
+	}
+	if len(ports) == 0 {
+		return nil, fmt.Errorf("lsof found no 127.0.0.1 listen port for agy pids %v", pids)
+	}
+	return ports, nil
+}
+
+// listenPortsByPid returns the 127.0.0.1 listen ports held by each pid, via a
+// single lsof call (pids passed comma-joined to -p). Must only be called with a
+// non-empty pid list.
+func (s *serviceImpl) listenPortsByPid(ctx context.Context, pids []int) (map[int][]int, error) {
 	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	pidArgs := make([]string, len(pids))
 	for i, p := range pids {
 		pidArgs[i] = strconv.Itoa(p)
 	}
-	out, err := exec.CommandContext(cctx, "lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", strings.Join(pidArgs, ",")).Output()
+	out, err := exec.CommandContext(cctx, "lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", strings.Join(pidArgs, ","), "-F", "pn").Output()
 	if err != nil {
 		// lsof exits non-zero when some pids have no matching FDs; stdout may
 		// still hold valid rows, so only surface a non-exit error (e.g. lsof
@@ -326,20 +442,48 @@ func (s *serviceImpl) listenPortsForPids(ctx context.Context, pids []int) ([]int
 			return nil, fmt.Errorf("run lsof failed: %w", err)
 		}
 	}
-	var ports []int
-	seen := map[int]bool{}
-	for _, m := range listenPortRe.FindAllStringSubmatch(string(out), -1) {
-		port, err := strconv.Atoi(m[1])
-		if err != nil || seen[port] {
+	return parseLsofPN(string(out)), nil
+}
+
+// parseLsofPN reads `lsof -F pn` records: a `p<pid>` line followed by
+// `n<address>` lines for that process's sockets.
+func parseLsofPN(out string) map[int][]int {
+	portsByPid := map[int][]int{}
+	seen := map[string]bool{}
+	pid := 0
+	for line := range strings.SplitSeq(out, "\n") {
+		if line == "" {
 			continue
 		}
-		seen[port] = true
-		ports = append(ports, port)
+		switch line[0] {
+		case 'p':
+			n, err := strconv.Atoi(line[1:])
+			if err != nil {
+				pid = 0
+				continue
+			}
+			pid = n
+		case 'n':
+			if pid == 0 {
+				continue
+			}
+			m := listenPortRe.FindStringSubmatch(line[1:])
+			if m == nil {
+				continue
+			}
+			port, err := strconv.Atoi(m[1])
+			if err != nil {
+				continue
+			}
+			key := strconv.Itoa(pid) + ":" + strconv.Itoa(port)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			portsByPid[pid] = append(portsByPid[pid], port)
+		}
 	}
-	if len(ports) == 0 {
-		return nil, fmt.Errorf("lsof found no 127.0.0.1 listen port for agy pids %v", pids)
-	}
-	return ports, nil
+	return portsByPid
 }
 
 // antigravityQuotaResp is the subset of RetrieveUserQuotaSummary we read.
@@ -358,14 +502,53 @@ type antigravityQuotaResp struct {
 // antigravityQuota POSTs the quota RPC to one agy port over plaintext HTTP. The
 // agy HTTPS port requires mTLS and fails here — that's fine, the caller tries
 // every port and keeps the first that answers.
-func (s *serviceImpl) antigravityQuota(ctx context.Context, client *http.Client, port int) (*model.AntigravityUsage, error) {
-	endpoint := fmt.Sprintf("http://127.0.0.1:%d%s", port, antigravityQuotaPath)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(antigravityQuotaBody))
+func (s *serviceImpl) antigravityQuota(ctx context.Context, client *http.Client, endpoint antigravityEndpoint) (*model.AntigravityUsage, error) {
+	tokens := uniqueNonEmpty(endpoint.csrf)
+	var lastErr error
+	for _, token := range tokens {
+		usage, err := s.postAntigravityQuota(ctx, client, endpoint.port, token)
+		if err == nil {
+			return usage, nil
+		}
+		lastErr = err
+	}
+
+	if len(tokens) == 0 || isAntigravityMissingCSRF(lastErr) {
+		if html := fetchAntigravityHTMLCSRF(ctx, client, endpoint.port); html != "" && !containsToken(tokens, html) {
+			usage, err := s.postAntigravityQuota(ctx, client, endpoint.port, html)
+			if err == nil {
+				return usage, nil
+			}
+			lastErr = err
+			tokens = append(tokens, html)
+		}
+	}
+
+	// Older agy CLI builds answer without a CSRF token.
+	if !containsToken(tokens, "") {
+		usage, err := s.postAntigravityQuota(ctx, client, endpoint.port, "")
+		if err == nil {
+			return usage, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("query antigravity quota on port %d failed", endpoint.port)
+}
+
+func (s *serviceImpl) postAntigravityQuota(ctx context.Context, client *http.Client, port int, csrf string) (*model.AntigravityUsage, error) {
+	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, antigravityQuotaPath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(antigravityQuotaBody))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Connect-Protocol-Version", "1")
+	if csrf != "" {
+		req.Header.Set(antigravityCSRFHeader, csrf)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -406,6 +589,63 @@ func (s *serviceImpl) antigravityQuota(ctx context.Context, client *http.Client,
 		return nil, fmt.Errorf("quota response has no known buckets (body: %s)", strings.TrimSpace(string(body)))
 	}
 	return usage, nil
+}
+
+// fetchAntigravityHTMLCSRF reads the CSRF token Antigravity 2.x embeds in the
+// HTML (or response header) served at `/`. A 404 / empty body means this port
+// is an older tokenless CLI server, not an error.
+func fetchAntigravityHTMLCSRF(ctx context.Context, client *http.Client, port int) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/", port), nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if token := strings.TrimSpace(resp.Header.Get(antigravityCSRFHeader)); token != "" {
+		return token
+	}
+	body, err := readAllLimited(resp)
+	if err != nil || len(body) == 0 {
+		return ""
+	}
+	m := antigravityHTMLCSRFRe.FindSubmatch(body)
+	if len(m) < 2 {
+		return ""
+	}
+	return string(m[1])
+}
+
+func isAntigravityMissingCSRF(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "missing csrf") || strings.Contains(msg, "csrf token")
+}
+
+func uniqueNonEmpty(values []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, v := range values {
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
+}
+
+func containsToken(values []string, want string) bool {
+	for _, v := range values {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }
 
 // toAntigravityWindow converts one quota bucket into a UsageWindow. The API

@@ -12,7 +12,7 @@
 - Antigravity 由两部分组成：`antigravity-acp`（ACP wrapper，通过 bun 运行）与 `agy`（真正承载额度/会话的本地 language server CLI）。
 - 版本以 `agy --version`（如 `1.1.1`）为准。`antigravity-acp` 自身版本（如 `1.0.0`）只是 wrapper 版本，不是要展示的目标。
 - 每个 `agy` 进程会在 `127.0.0.1` 上监听**两个端口**：一个**明文 HTTP** 端口对外提供额度用的 Connect-RPC 接口，另一个是需要客户端证书（mTLS）的 HTTPS 端口，无法直接访问。
-- 额度接口 `RetrieveUserQuotaSummary` **无需 csrf token、无需任何鉴权**，直接向明文 HTTP 端口 POST 即可拿到数据（进程命令行中并不存在 `--csrf_token` / `--extension_server_port` 参数）。
+- 额度接口 `RetrieveUserQuotaSummary` 在较新的 Antigravity / `agy` 上需要 CSRF：从进程参数 `--csrf_token` / `--extension_server_csrf_token` 读取，或从该端口首页 HTML 里的 `csrfToken` 读取，再随请求带上。旧版 `agy` 仍可无 token 访问。
 - 返回结构为 `response.groups[].buckets[]`，每个 bucket 含 `bucketId`、`remainingFraction`（剩余比例 0~1）、`resetTime`（RFC3339）。`bucketId` 取值固定为四种：
 
   | bucketId | 含义 |
@@ -31,11 +31,12 @@
 **服务方法**：在 `services/agent/usage` 中新增 `AntigravityUsage(ctx)`，与现有 Codex/Claude 逻辑并列。执行步骤：
 
 1. **版本**（可与额度并发）：直接运行 `agy --version`，取首个 semver。注意：不能复用现有的 `acpVersionAsync`——它按 `antigravity-acp` 的 serve 命令解析，拿到的是 wrapper 版本而非 `agy` 版本；这里需要独立探测 `agy`。版本探测失败不应阻断额度（版本是补充信息）。
-2. **端口发现**：用 `ps` 找出所有 `agy` 进程，再用 `lsof` 取得它们在 `127.0.0.1` 上的监听端口。无需解析任何进程参数。
+2. **端口发现**：用 `ps` 找出所有 `agy` 进程，再用 `lsof` 取得它们在 `127.0.0.1` 上的监听端口，并同时收集该进程上的 CSRF 参数。
 3. **拉取额度**：对候选端口用**明文 HTTP** POST：
    - URL：`http://127.0.0.1:<port>/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`
-   - Header：`Content-Type: application/json`、`Connect-Protocol-Version: 1`
+   - Header：`Content-Type: application/json`、`Connect-Protocol-Version: 1`；若已拿到 CSRF 则再带上对应请求头
    - Body：`{"metadata":{"ideName":"antigravity","extensionName":"antigravity","ideVersion":"unknown","locale":"en"}}`
+   - 进程参数没有 token 时，先读该端口首页里的 CSRF，再回退到无 token 请求以兼容旧版
    - 取第一个返回合法额度 JSON 的端口即可（HTTPS 端口会因 mTLS 握手失败，自然被跳过）。
 4. **解析组装**：遍历 `response.groups[].buckets[]`，按 `bucketId` 落到对应字段，并做两处换算：
    - `used_percent = (1 - remainingFraction) * 100`（API 给的是**剩余**比例，UI 环填充的是**使用**率，必须取反，否则显示颠倒）；
