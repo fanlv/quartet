@@ -432,6 +432,14 @@ private struct ChatWebView: UIViewRepresentable {
                 return .cancel
             }
 
+            // HTML 文件预览通过 iframe srcdoc 渲染，WebKit 会把该子 frame
+            // 的内部地址表示为 about:srcdoc。只允许子 frame 使用它，顶层页面
+            // 仍然只能加载 http/https。
+            if destinationURL.absoluteString.caseInsensitiveCompare("about:srcdoc") == .orderedSame,
+               navigationAction.targetFrame?.isMainFrame == false {
+                return .allow
+            }
+
             if let scheme = destinationURL.scheme?.lowercased(),
                ["http", "https"].contains(scheme) {
                 return .allow
