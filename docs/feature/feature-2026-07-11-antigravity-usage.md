@@ -12,7 +12,7 @@
 - Antigravity 由两部分组成：`antigravity-acp`（ACP wrapper，通过 bun 运行）与 `agy`（真正承载额度/会话的本地 language server CLI）。
 - 版本以 `agy --version`（如 `1.1.1`）为准。`antigravity-acp` 自身版本（如 `1.0.0`）只是 wrapper 版本，不是要展示的目标。
 - 每个 `agy` 进程会在 `127.0.0.1` 上监听**两个端口**。当前 CLI 两个端口都可能是 HTTPS（自签证书，探测时跳过校验）；旧版仍有一个明文 HTTP 端口。先试 HTTPS，再回退 HTTP。
-- 额度接口 `RetrieveUserQuotaSummary` 在较新的 Antigravity / `agy` 上可能需要 CSRF：从进程参数 `--csrf_token` / `--extension_server_csrf_token` 读取，或从该端口首页 HTML 里的 `csrfToken` 读取，再随请求带上。旧版 `agy` 仍可无 token 访问。
+- 额度接口 `RetrieveUserQuotaSummary` 在较新的 Antigravity / `agy` 上可能需要 CSRF：从进程参数 `--csrf_token` / `--extension_server_csrf_token` 读取，或从该端口首页 HTML 里的 `csrfToken` 读取，再随请求带上。旧版 `agy` 仍可无 token 访问。`agy` 1.2+ 常把 CSRF 留在进程内部、外面读不到；这时改用本机 OAuth 文件走 Cloud Code 额度接口。
 - 返回结构为 `response.groups[].buckets[]`，每个 bucket 含 `bucketId`、`remainingFraction`（剩余比例 0~1）、`resetTime`（RFC3339）。`bucketId` 取值固定为四种：
 
   | bucketId | 含义 |
@@ -38,7 +38,8 @@
    - Body：`{"metadata":{"ideName":"antigravity","extensionName":"antigravity","ideVersion":"unknown","locale":"en"}}`
    - 进程参数没有 token 时，先读该端口首页里的 CSRF，再回退到无 token 请求以兼容旧版
    - 取第一个返回合法额度 JSON 的端口即可。本机 HTTPS 使用自签证书，探测时跳过校验。
-4. **解析组装**：遍历 `response.groups[].buckets[]`，按 `bucketId` 落到对应字段，并做两处换算：
+   - 本地语言服务器因 CSRF 拒绝时，用 `~/.gemini/antigravity-cli/antigravity-oauth-token` 刷新后请求 Cloud Code `retrieveUserQuotaSummary`（先 daily 再正式环境）。出网代理复用 ACP 环境变量、进程环境，或正在运行的 `agy` 的 `HTTPS_PROXY`。
+4. **解析组装**：遍历 `groups[].buckets[]`（本地接口可能包在 `response` 下），按 `bucketId` 落到对应字段，并做两处换算：
    - `used_percent = (1 - remainingFraction) * 100`（API 给的是**剩余**比例，UI 环填充的是**使用**率，必须取反，否则显示颠倒）；
    - `reset_at = resetTime`(RFC3339) 转 unix 秒，供 UI tooltip 显示重置时刻。
 5. 失败即返回完整错误（遵循「错误全量展示」约定）。

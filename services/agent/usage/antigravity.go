@@ -62,51 +62,68 @@ type antigravityEndpoint struct {
 // TokenTracker reference does. A hard error is only returned when the live fetch
 // fails AND no usable cached quota exists.
 func (s *serviceImpl) AntigravityUsage(ctx context.Context) (*model.AntigravityUsage, error) {
-	// Resolve the language-server ports before starting `agy --version`.
-	// Otherwise agyProcesses can observe our own short-lived version process
-	// and report it as an agy server with no listening socket.
-	endpoints, portsErr := s.antigravityEndpoints(ctx)
-	retryQuota := false
-	stopProbe := func() {}
-	if portsErr != nil || len(endpoints) == 0 {
-		var probeErr error
-		endpoints, stopProbe, probeErr = s.startAntigravityProbe(ctx)
-		if probeErr != nil {
-			if portsErr != nil {
-				portsErr = fmt.Errorf("%v; start temporary agy quota probe failed: %w", portsErr, probeErr)
-			} else {
-				portsErr = fmt.Errorf("start temporary agy quota probe failed: %w", probeErr)
-			}
-		} else {
-			portsErr = nil
-			retryQuota = true
-		}
-	}
-	defer stopProbe()
-
 	// The version probe runs in parallel — it is supplementary (must not add
 	// serial latency to the quota RPC), and the buffered channel means the
 	// goroutine never blocks even when an early error return skips the read.
 	verCh := make(chan string, 1)
 	go func() { verCh <- s.binVersion(ctx, agyBin) }()
 
-	var usage *model.AntigravityUsage
-	err := portsErr
-	if err == nil {
-		usage, err = s.antigravityLiveQuota(ctx, endpoints, retryQuota)
-	}
-	if err != nil {
-		if cached := s.cachedAntigravityUsage(); cached != nil {
-			cached.Version = <-verCh
-			logger.Warnf(ctx, "[agent.usage] antigravity live quota failed (%v); serving last cached quota", err)
-			return cached, nil
-		}
-		return nil, err
+	finish := func(usage *model.AntigravityUsage) *model.AntigravityUsage {
+		usage.Version = <-verCh
+		s.storeAntigravityUsage(usage)
+		return usage
 	}
 
-	usage.Version = <-verCh
-	s.storeAntigravityUsage(usage)
-	return usage, nil
+	// Prefer an already-running language server when it answers. agy 1.2+
+	// commonly rejects that RPC without an unexposed CSRF token, so Cloud
+	// Code is the reliable path and we do not pay for a temporary `agy models`
+	// probe unless both live sources fail.
+	endpoints, portsErr := s.antigravityEndpoints(ctx)
+	var localErr error
+	if portsErr == nil && len(endpoints) > 0 {
+		usage, err := s.antigravityLiveQuota(ctx, endpoints, false)
+		if err == nil {
+			return finish(usage), nil
+		}
+		localErr = err
+		logger.Warnf(ctx, "[agent.usage] antigravity local quota failed (%v); trying Cloud Code", err)
+	} else if portsErr != nil {
+		localErr = portsErr
+	}
+
+	usage, cloudErr := s.cloudCodeAntigravityUsage(ctx)
+	if cloudErr == nil {
+		return finish(usage), nil
+	}
+
+	if localErr == nil || len(endpoints) == 0 {
+		var probeErr error
+		var stopProbe func()
+		endpoints, stopProbe, probeErr = s.startAntigravityProbe(ctx)
+		if probeErr == nil {
+			defer stopProbe()
+			usage, err := s.antigravityLiveQuota(ctx, endpoints, true)
+			if err == nil {
+				return finish(usage), nil
+			}
+			localErr = err
+		} else if localErr != nil {
+			localErr = fmt.Errorf("%v; start temporary agy quota probe failed: %w", localErr, probeErr)
+		} else {
+			localErr = fmt.Errorf("start temporary agy quota probe failed: %w", probeErr)
+		}
+	}
+
+	err := cloudErr
+	if localErr != nil {
+		err = fmt.Errorf("%v; %w", localErr, cloudErr)
+	}
+	if cached := s.cachedAntigravityUsage(); cached != nil {
+		cached.Version = <-verCh
+		logger.Warnf(ctx, "[agent.usage] antigravity live quota failed (%v); serving last cached quota", err)
+		return cached, nil
+	}
+	return nil, err
 }
 
 // antigravityLiveQuota queries the discovered agy ports, returning the quota
@@ -497,16 +514,40 @@ func parseLsofPN(out string) map[int][]int {
 }
 
 // antigravityQuotaResp is the subset of RetrieveUserQuotaSummary we read.
+// Local language-server replies nest groups under response; Cloud Code returns
+// them at the top level.
 type antigravityQuotaResp struct {
 	Response struct {
-		Groups []struct {
-			Buckets []struct {
-				BucketID          string  `json:"bucketId"`
-				RemainingFraction float64 `json:"remainingFraction"`
-				ResetTime         string  `json:"resetTime"` // RFC3339
-			} `json:"buckets"`
-		} `json:"groups"`
+		Groups []antigravityQuotaGroup `json:"groups"`
 	} `json:"response"`
+	Groups []antigravityQuotaGroup `json:"groups"`
+}
+
+type antigravityQuotaGroup struct {
+	Buckets []antigravityQuotaBucket `json:"buckets"`
+}
+
+type antigravityQuotaBucket struct {
+	BucketID          string  `json:"bucketId"`
+	RemainingFraction float64 `json:"remainingFraction"`
+	ResetTime         string  `json:"resetTime"` // RFC3339
+	Remaining         *struct {
+		RemainingFraction float64 `json:"remainingFraction"`
+	} `json:"remaining"`
+}
+
+func (r antigravityQuotaResp) groups() []antigravityQuotaGroup {
+	if len(r.Groups) > 0 {
+		return r.Groups
+	}
+	return r.Response.Groups
+}
+
+func (b antigravityQuotaBucket) remainingFraction() float64 {
+	if b.Remaining != nil {
+		return b.Remaining.RemainingFraction
+	}
+	return b.RemainingFraction
 }
 
 // antigravityQuota POSTs the quota RPC to one agy port. Current CLI builds
@@ -596,6 +637,14 @@ func (s *serviceImpl) postAntigravityQuota(ctx context.Context, client *http.Cli
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
+	usage, err := parseAntigravityQuota(body)
+	if err != nil {
+		return nil, err
+	}
+	return usage, nil
+}
+
+func parseAntigravityQuota(body []byte) (*model.AntigravityUsage, error) {
 	var r antigravityQuotaResp
 	if err := json.Unmarshal(body, &r); err != nil {
 		return nil, fmt.Errorf("parse quota response failed: %w (body: %s)", err, strings.TrimSpace(string(body)))
@@ -603,9 +652,9 @@ func (s *serviceImpl) postAntigravityQuota(ctx context.Context, client *http.Cli
 
 	usage := &model.AntigravityUsage{}
 	found := false
-	for _, g := range r.Response.Groups {
+	for _, g := range r.groups() {
 		for _, b := range g.Buckets {
-			w := toAntigravityWindow(b.RemainingFraction, b.ResetTime)
+			w := toAntigravityWindow(b.remainingFraction(), b.ResetTime)
 			switch b.BucketID {
 			case "3p-weekly":
 				usage.ClaudeWeekly = w
