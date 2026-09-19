@@ -200,7 +200,7 @@ quartet-cli agent list [--json]       # 已安装 ACP agent 及模型目录；�
 - `config.agentType`：**当 sessionStrategy 为 new（或空）时必填**；inherit 时可省（继承上游 Agent 会话）。
 - `config.modelId` / `acpMode` / `acpThoughtLevel`（可选）。
 - `outputVariables` / `lastAssistantAlias` / `timeoutSeconds`：同 shell；`timeoutSeconds` 默认不写。
-- 输出变量靠模型输出 `QUARTET_OUTPUT:名=值`（§5）。
+- 输出变量靠模型输出具名 `QUARTET_OUTPUT_BEGIN` / `QUARTET_OUTPUT_END` 多行块（§5）。
 
 ### clarify（澄清 Agent 节点，与用户讨论后续跑）
 - 与 prompt 相同的 Agent/输出契约。
@@ -267,8 +267,9 @@ quartet-cli agent list [--json]       # 已安装 ACP agent 及模型目录；�
   - `quartet_set "名" "值"` → 写一个输出变量（安全承载空值/空格/等号）。
   - `quartet_break` / `quartet_stop` → 提前结束当前循环（仅 loop 内）。
   - `quartet_return` → 提前成功结束整个 run。
-- Prompt/Clarify 模型输出里：行内出现 `QUARTET_OUTPUT:名=值`（按首个 `=` 切分，值可空、可含 `=`；同名多行取最后一行）。
-  - 声明在 `outputVariables` 的变量**必须被产出**，否则节点失败；未声明的 `QUARTET_OUTPUT` 也会流向下游。
+- Prompt/Clarify 模型输出里：为每个变量输出具名多行块，起止标记分别为 `QUARTET_OUTPUT_BEGIN:名` 和 `QUARTET_OUTPUT_END:名`。标记各自独占一行，块内内容按原文保存，可为空或包含换行、引号、等号，无需 JSON/Base64 转义。
+  - 声明在 `outputVariables` 的变量**必须被产出**，否则节点失败；未声明的具名输出块也会流向下游。同名输出多次时取最后一个。
+  - 旧的单行 `QUARTET_OUTPUT:名=值` 仍可读取，但新工作流统一使用多行块。
   - 系统会自动在 prompt 末尾追加输出协议引导，**你写 config 时不用自己加这段后缀**。
 
 **`_last_assistant_msg`（内置保留变量）**：本节点的原始最终输出（Prompt/Clarify=模型原始输出，Shell=stdout 全量）。可用 `config.lastAssistantAlias` 起个别名给下游 `{{别名}}` 引用。

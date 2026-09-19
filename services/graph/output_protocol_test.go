@@ -8,16 +8,28 @@ import (
 func TestParseQuartetOutput_Success(t *testing.T) {
 	raw := strings.Join([]string{
 		"some reasoning here",
-		"QUARTET_OUTPUT:foo=bar",
+		"final answerQUARTET_OUTPUT:legacy=keptQUARTET_OUTPUT_BEGIN:foo",
+		"first line",
+		"second=\"quoted\"",
+		"QUARTET_OUTPUT_END:fooQUARTET_OUTPUT_BEGIN:bar",
+		"adjacent block",
+		"QUARTET_OUTPUT_END:bar",
 		"  \tQUARTET_OUTPUT:baz=hello world", // leading whitespace ignored
 		"QUARTET_OUTPUT:empty=",              // empty value allowed
 		"QUARTET_OUTPUT:eq=a=b=c",            // first '=' split, value keeps '='
 	}, "\n")
-	res, err := ParseQuartetOutput(raw, []string{"foo", "baz", "empty", "eq"})
+	res, err := ParseQuartetOutput(raw, []string{"legacy", "foo", "bar", "baz", "empty", "eq"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := map[string]string{"foo": "bar", "baz": "hello world", "empty": "", "eq": "a=b=c"}
+	want := map[string]string{
+		"legacy": "kept",
+		"foo":    "first line\nsecond=\"quoted\"",
+		"bar":    "adjacent block",
+		"baz":    "hello world",
+		"empty":  "",
+		"eq":     "a=b=c",
+	}
 	for k, v := range want {
 		if res.Variables[k] != v {
 			t.Fatalf("var %q = %q, want %q", k, res.Variables[k], v)
@@ -60,6 +72,9 @@ func TestParseQuartetOutput_Errors(t *testing.T) {
 		{"missing", "QUARTET_OUTPUT:foo=1", []string{"foo", "bar"}, "bar"},
 		{"invalid name", "QUARTET_OUTPUT:1bad=1", []string{"foo"}, "1bad"},
 		{"reserved name", "QUARTET_OUTPUT:_secret=1", []string{"foo"}, "_secret"},
+		{"missing block end", "QUARTET_OUTPUT_BEGIN:foo\nvalue", []string{"foo"}, "foo"},
+		{"mismatched block end", "QUARTET_OUTPUT_BEGIN:foo\nvalue\nQUARTET_OUTPUT_END:bar", []string{"foo"}, "foo"},
+		{"nested block", "QUARTET_OUTPUT_BEGIN:foo\nQUARTET_OUTPUT_BEGIN:bar\nQUARTET_OUTPUT_END:foo", []string{"foo"}, "foo"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -118,7 +133,8 @@ func TestBuildOutputProtocolSuffix(t *testing.T) {
 		t.Fatal("no declared vars should yield empty suffix")
 	}
 	suffix := buildOutputProtocolSuffix([]string{"a", "b"})
-	if !strings.Contains(suffix, "QUARTET_OUTPUT:a=") || !strings.Contains(suffix, "QUARTET_OUTPUT:b=") {
+	if !strings.Contains(suffix, "QUARTET_OUTPUT_BEGIN:a") || !strings.Contains(suffix, "QUARTET_OUTPUT_END:a") ||
+		!strings.Contains(suffix, "QUARTET_OUTPUT_BEGIN:b") || !strings.Contains(suffix, "QUARTET_OUTPUT_END:b") {
 		t.Fatalf("suffix missing per-variable lines: %q", suffix)
 	}
 }

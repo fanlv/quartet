@@ -1226,7 +1226,7 @@
       "outputVarsOptional": "Output variable declaration (optional, comma-separated)",
       "outputVarsPlaceholder": "review, verdict",
       "outputVarsShellDesc": "Write with quartet_set \"name\" \"value\" in the script.",
-      "outputVarsAgentDesc": "The model must output a QUARTET_OUTPUT:<name>=<value> line per variable (the marker is matched anywhere in a line; a protocol suffix is appended on save).",
+      "outputVarsAgentDesc": "The model must output a QUARTET_OUTPUT_BEGIN:<name> / QUARTET_OUTPUT_END:<name> multiline block per variable. Block content is preserved verbatim with no JSON escaping (a protocol suffix is appended on save).",
       "lastAssistantAlias": "_last_assistant_msg alias (optional)",
       "lastAssistantAliasPlaceholder": "e.g. reply",
       "lastAssistantAliasDesc": "After the node finishes, its raw final output is automatically written to this alias variable.",

@@ -124,7 +124,7 @@ interface GraphInspectorProps {
   onDrawerToggle?: () => void;
 }
 
-// CSV <-> string[] helpers for the output-variable list (single-line scalars).
+// CSV <-> string[] helpers for output-variable declaration names.
 function listToText(list: string[] | undefined): string {
   return (list || []).join(', ');
 }
