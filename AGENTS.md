@@ -82,7 +82,7 @@ Go tests: `go test ./...`
 - Logging: use `pkg/logger` (`logger.Infof/Warnf/Errorf/...`). Avoid `log.Printf`, `fmt.Printf`, etc.
 - Tests: during development, do not add unit tests unless explicitly requested.
 - Go requires `1.25` or newer.
-- Default backend startup requires `LOCAL_MEMORY`; the web server binds to `0.0.0.0:8090` (plain HTTP) by default, or `0.0.0.0:443` (HTTPS, serving the built UI same-origin) when `certs/` holds `cert.pem`+`key.pem`. When TLS is active on :443, the backend additionally serves a loopback-only plaintext listener on `127.0.0.1:8090` so local tooling (quartet-cli, workflow shell scripts) can reach the API without TLS handling. `QUARTET_LISTEN_ADDR` overrides the backend address but not the TLS decision；证书存在但加载失败是硬错误，不会静默降级成 HTTP；Makefile 的 stop/status/watch 脚本仍按证书推导的 443/8090 端口工作。
+- Default backend startup requires `LOCAL_MEMORY`; the web server binds to `0.0.0.0:8090` (plain HTTP) by default, or `0.0.0.0:443` (HTTPS, serving the built UI same-origin) when `certs/` holds `cert.pem`+`key.pem`. When TLS is active on :443, the backend additionally serves a loopback-only plaintext listener on `127.0.0.1:8090` so local tooling (quartet-cli, workflow shell scripts) can reach the API without TLS handling. `QUARTET_LISTEN_ADDR` overrides the backend address but not the TLS decision；证书存在但加载失败是硬错误，不会静默降级成 HTTP；Makefile 的 stop/status/watch 脚本仍按证书推导的 443/8090 端口工作。TLS 监听同时开启 ALPN 并注册 h2，协议优先级为 `h2` → `http/1.1`；不支持 h2 的客户端按原样回退，明文回环监听不参与协商。
 - Frontend requires Node `>=22.18.0 <23` and npm `>=10.9.0 <11`.
 - 跨平台：进程启停、PATH 查找、重启等有平台差异的实现按 `_unix.go` / `_windows.go` 拆分文件，不要在业务代码里写 `runtime.GOOS` 分支。查找外部 CLI 统一走 `pkg/executil.LookPath`，它在进程 PATH 之外还会兜底检查官方安装器使用的用户级目录。
 
@@ -133,7 +133,8 @@ Go tests: `go test ./...`
 - 文件类接口既有 JSON body，也有 multipart 上传，不要再假设"所有接口都走 POST + JSON"
 - 响应压缩：JSON 响应体超过阈值时由中间件 gzip；SSE 和 body stream（文件下载）一律跳过，新增流式接口不要改成缓冲响应，否则会破坏 flush 语义。
 - 未匹配路由回落：非 API 路径回落到前端静态构建（SPA index fallback），未知 `/api` 路径返回 JSON 404；该 fallback 注册在所有具体路由之后。
-- SSE 连接模型：graph 工作流任务页面同一时刻只保留一条长连接——run live（pending/running/stepStopping）时只订阅 `/api/v1/job/:id/graph-run/events`，run 非 live（terminal/awaitingInput）时只订阅 `/api/v1/job/:id/events`；GraphRunProgress 等组件不得再开第二条流。站点当前全链路 HTTP/1.1，浏览器单域名仅约 6 条连接，SSE 占满会让 stop 等普通 POST 在 socket 池里饿死
+- SSE 连接模型：graph 工作流任务页面同一时刻只保留一条长连接——run live（pending/running/stepStopping）时只订阅 `/api/v1/job/:id/graph-run/events`，run 非 live（terminal/awaitingInput）时只订阅 `/api/v1/job/:id/events`；GraphRunProgress 等组件不得再开第二条流。证书存在时后端经 ALPN 协商 HTTP/2，多个 tab 的 SSE 复用同一条 TCP 连接，不再受浏览器单域名约 6 条连接的限制；但明文 8090 与不支持 h2 的客户端仍走 HTTP/1.1，一页一条流的约束继续有效。
+- 新增 SSE 接口必须用 handler 层的 `newSSEWriter` 建流，不要直接调 `sse.NewWriter`：后者在 HTTP/2 上会退化成 HTTP/1.1 分块写，把分块头直接写进共享 TCP 连接，破坏该连接上所有其他 tab 的流。同理，SSE 出错时不要关闭底层连接——HTTP/2 下那是所有 tab 共用的连接。
 - 对话结束 Hook 默认只在 Job 没有可见实时查看者时执行。Web 的普通/Graph SSE 必须携带稳定 `viewerId`，并在页面可见性变化与每次重连后同步状态；公共分享流不计入 viewer。iOS 对话页只在 scene 为 active 时保持 SSE。
 
 ### agent-browser 页面鉴权

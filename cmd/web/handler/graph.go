@@ -517,7 +517,7 @@ func (h *Handler) JobGraphRunEvents(ctx context.Context, c *app.RequestContext) 
 	}(time.Now())
 
 	c.SetStatusCode(hertzConsts.StatusOK)
-	w := sse.NewWriter(c)
+	w := newSSEWriter(c)
 	if err := w.WriteKeepAlive(); err != nil {
 		if isClientDisconnectErr(err) {
 			logger.Debugf(ctx, "[graph-sse] initial keep-alive failed (client disconnected): connId=%s runId=%s err=%v", connID, runID, err)

@@ -81,6 +81,7 @@ require (
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/goph/emperror v0.17.2 // indirect
+	github.com/hertz-contrib/http2 v0.1.8 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect

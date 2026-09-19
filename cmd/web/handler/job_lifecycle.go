@@ -13,7 +13,6 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/cloudwego/hertz/pkg/app"
 	hertzConsts "github.com/cloudwego/hertz/pkg/protocol/consts"
-	"github.com/cloudwego/hertz/pkg/protocol/sse"
 	"github.com/fanlv/quartet/pkg/httputil"
 	"github.com/fanlv/quartet/pkg/logger"
 	graphsvc "github.com/fanlv/quartet/services/graph"
@@ -456,7 +455,7 @@ func (h *Handler) JobEvents(ctx context.Context, c *app.RequestContext) {
 	}()
 
 	c.SetStatusCode(hertzConsts.StatusOK)
-	w := sse.NewWriter(c)
+	w := newSSEWriter(c)
 
 	if err := w.WriteKeepAlive(); err != nil {
 		// Client disconnected before we could send anything — common for users
@@ -619,6 +618,9 @@ const sseReadBatchSize = 32
 // socket is gone, but with a benign ErrConnClosed instead of the misleading
 // ErrConcurrentAccess).
 //
+// All of the above is HTTP/1.1-only. See the isHTTP2 branch below for why the
+// same recovery is both harmful and unnecessary on an h2 stream.
+//
 // `seq` is 0 for keep-alive writes (which have no event id) and the event's
 // resume seq for data writes; both feed the diagnostic log only. `connID`
 // is the per-connection tag so these low-level close/drain lines join the
@@ -632,6 +634,18 @@ func writeWithTimeout(ctx context.Context, c *app.RequestContext, connID, jobID 
 	case err := <-done:
 		return err
 	case <-t.C:
+		// HTTP/2 multiplexes every tab of this browser onto one TCP
+		// connection, so the close-and-drain recovery below would tear
+		// down every other stream on it to rescue this one. It is also
+		// unnecessary: there is no netpoll flushing lock to break — a
+		// stuck h2 write is parked on stream flow control and unblocks
+		// on its own when the stream or connection ends. Report the
+		// timeout and let the handler return; hertz finalizes just this
+		// stream.
+		if isHTTP2(c) {
+			logger.Warnf(ctx, "[sse] write timeout on http/2 stream, abandoning this stream only (shared connection left intact): connId=%s jobId=%s seq=%d timeout=%s", connID, jobID, seq, timeout)
+			return errSSEWriteTimeout
+		}
 		// Connection is presumed wedged — close the underlying socket to
 		// unblock netpoll. The outer caller (keep-alive / write-event
 		// path in JobEvents) already logs a single Warn for the teardown

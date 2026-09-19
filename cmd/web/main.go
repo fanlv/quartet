@@ -17,6 +17,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/config"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
+	"github.com/cloudwego/hertz/pkg/protocol/suite"
 	"github.com/fanlv/quartet/cmd/web/handler"
 	acpagent "github.com/fanlv/quartet/pkg/acp"
 	"github.com/fanlv/quartet/pkg/logger"
@@ -27,6 +28,8 @@ import (
 	"github.com/fanlv/quartet/services/schedule"
 	"github.com/fanlv/quartet/types/consts"
 	"github.com/hertz-contrib/cors"
+	http2config "github.com/hertz-contrib/http2/config"
+	http2factory "github.com/hertz-contrib/http2/factory"
 )
 
 const (
@@ -48,6 +51,16 @@ const (
 const maxRequestBodySize = 16 << 20 // 16 MiB: 10 MiB upload cap + multipart overhead.
 const httpShutdownTimeout = 5 * time.Second
 const startupCheckEnv = "QUARTET_STARTUP_CHECK"
+
+// http2MaxConcurrentStreams is the per-connection stream budget advertised to
+// browsers. Every open tab holds one SSE stream plus whatever normal requests
+// it makes, and they all share a single h2 connection now, so the h2 spec's
+// suggested default of 100 is raised to leave plenty of headroom.
+const http2MaxConcurrentStreams = 250
+
+// http2ReadTimeout is only read to decide whether to clear the connection read
+// deadline after request headers arrive. See its use in newServer.
+const http2ReadTimeout = 3 * time.Minute
 
 // Filled by `go build -ldflags` in Makefile. Keep defaults explicit so
 // `go run ./cmd/web` and ad-hoc builds still produce a useful startup log
@@ -500,10 +513,34 @@ func newServer(lc listenConfig, trustedProxies []*net.IPNet) *server.Hertz {
 	// WithTLS flips Hertz to the standard (net/http) transporter — netpoll has
 	// no TLS support — and serves HTTPS only: the port will not accept plaintext
 	// requests (matching the previous vite-on-443 behaviour).
+	//
+	// ALPN + the h2 protocol server are what let a browser keep more than ~6
+	// tabs open: under HTTP/1.1 every tab's SSE stream pins one of the six
+	// sockets Chrome allows per origin, and tab seven then blocks on its very
+	// first document request. HTTP/2 multiplexes all of them onto one
+	// connection. Registered only in the TLS branch — browsers negotiate h2
+	// through ALPN, and the loopback plaintext listener has no TLS handshake to
+	// negotiate on (quartet-cli speaks HTTP/1.1 there, which is fine).
 	if lc.tlsCfg != nil {
-		opts = append(opts, server.WithTLS(lc.tlsCfg))
+		opts = append(opts, server.WithTLS(lc.tlsCfg), server.WithALPN(true))
 	}
 	h := server.Default(opts...)
+	if lc.tlsCfg != nil {
+		h.AddProtocol(suite.HTTP2, http2factory.NewServerFactory(
+			// Only consulted to disarm the accept-time read deadline once
+			// request headers are in, which is what keeps a read-idle SSE
+			// stream alive. Never used to arm one.
+			http2config.WithReadTimeout(http2ReadTimeout),
+			// Mirrors server.WithIdleTimeout above. The h2 server stops this
+			// timer while any stream is open, so a long-lived SSE stream holds
+			// the connection and only a genuinely idle one gets a GOAWAY.
+			http2config.WithIdleTimeout(30*time.Minute),
+			http2config.WithMaxConcurrentStreams(http2MaxConcurrentStreams),
+		))
+		// Server-preference order: engine.Init appends "http/1.1" after this,
+		// so h2 wins for any client offering both and old clients still work.
+		lc.tlsCfg.NextProtos = append(lc.tlsCfg.NextProtos, suite.HTTP2)
+	}
 	// Hertz trusts forwarding headers from every peer by default. Restrict them
 	// so login throttling cannot be bypassed with a forged X-Forwarded-For.
 	h.SetClientIPFunc(app.ClientIPWithOption(app.ClientIPOptions{
