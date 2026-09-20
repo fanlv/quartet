@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import './MermaidDiagram.css';
 
 type MermaidAPI = typeof import('mermaid')['default'];
@@ -7,6 +8,13 @@ let mermaidPromise: Promise<MermaidAPI> | null = null;
 const minZoom = 0.25;
 const maxZoom = 2;
 const zoomStep = 0.25;
+const dragThreshold = 4;
+
+type DragState = {
+  pointerId: number;
+  startX: number;
+  startScrollLeft: number;
+};
 
 function loadMermaid(): Promise<MermaidAPI> {
   if (!mermaidPromise) {
@@ -70,10 +78,13 @@ export function MermaidDiagram({ source }: { source: string }) {
   const reactId = useId();
   const renderId = useMemo(() => `mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`, [reactId]);
   const containerRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<DragState | null>(null);
+  const draggedRef = useRef(false);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
   const [naturalWidth, setNaturalWidth] = useState(0);
   const [zoom, setZoom] = useState(1);
+  const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,6 +143,43 @@ export function MermaidDiagram({ source }: { source: string }) {
     container.scrollLeft = 0;
   }, [naturalWidth, updateZoom]);
 
+  const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const container = event.currentTarget;
+    if (event.pointerType !== 'mouse' || event.button !== 0 || container.scrollWidth <= container.clientWidth) return;
+
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startScrollLeft: container.scrollLeft,
+    };
+    draggedRef.current = false;
+  }, []);
+
+  const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    const deltaX = event.clientX - drag.startX;
+    if (!draggedRef.current && Math.abs(deltaX) >= dragThreshold) {
+      draggedRef.current = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setDragging(true);
+    }
+    if (!draggedRef.current) return;
+    event.currentTarget.scrollLeft = drag.startScrollLeft - deltaX;
+    event.preventDefault();
+  }, []);
+
+  const handlePointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setDragging(false);
+    if (event.type === 'pointercancel') draggedRef.current = false;
+  }, []);
+
   if (status === 'error') {
     return (
       <div className="mermaid-diagram-error" role="alert">
@@ -172,7 +220,22 @@ export function MermaidDiagram({ source }: { source: string }) {
           </div>
         </figcaption>
       )}
-      <div ref={containerRef} className="mermaid-diagram-canvas" role="img" aria-label="Mermaid 图表" />
+      <div
+        ref={containerRef}
+        className={`mermaid-diagram-canvas${dragging ? ' is-dragging' : ''}`}
+        role="img"
+        aria-label="Mermaid 图表"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+        onClickCapture={(event) => {
+          if (!draggedRef.current) return;
+          event.preventDefault();
+          event.stopPropagation();
+          draggedRef.current = false;
+        }}
+      />
     </figure>
   );
 }
