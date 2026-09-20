@@ -9768,19 +9768,18 @@
         }
       }
     },
-    "支持最大 10MB 的图片" : {
-      "extractionState" : "stale",
+    "支持最大 500MB 的文件" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Images up to 10 MB"
+            "value" : "Files up to 500 MB"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "支持最大 10MB 的图片"
+            "value" : "支持最大 500MB 的文件"
           }
         }
       }

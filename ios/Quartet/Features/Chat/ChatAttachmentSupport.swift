@@ -4,8 +4,8 @@ import UIKit
 import QuickLook
 
 enum ChatAttachmentProcessor {
-    static let maximumImageBytes = 10 * 1024 * 1024
-    static let maximumFileBytes = 10 * 1024 * 1024
+    static let maximumImageBytes = 500 * 1024 * 1024
+    static let maximumFileBytes = 500 * 1024 * 1024
 
     @MainActor
     static func prepareFileUpload(
@@ -21,7 +21,7 @@ enum ChatAttachmentProcessor {
             throw APIError(summary: "文件为空", detail: "未读取到有效文件数据。")
         }
         guard data.count <= maximumFileBytes else {
-            throw APIError(summary: "文件过大", detail: "文件超过服务端 10MB 限制，请选择更小的文件后重试。")
+            throw APIError(summary: "文件过大", detail: "文件超过服务端 500MB 限制，请选择更小的文件后重试。")
         }
         let filename = URL(fileURLWithPath: suggestedFilename).lastPathComponent
         return PendingUpload(
@@ -86,7 +86,7 @@ enum ChatAttachmentProcessor {
 
         throw APIError(
             summary: "图片过大",
-            detail: "压缩后的图片仍超过服务端 10MB 限制，请选择更小的图片后重试。"
+            detail: "压缩后的图片仍超过服务端 500MB 限制，请选择更小的图片后重试。"
         )
     }
 

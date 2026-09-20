@@ -48,7 +48,7 @@ const (
 	keyFileName     = "key.pem"
 )
 
-const maxRequestBodySize = 16 << 20 // 16 MiB: 10 MiB upload cap + multipart overhead.
+const maxRequestBodySize = 516 << 20 // 516 MiB: 500 MiB upload cap + multipart overhead.
 const httpShutdownTimeout = 5 * time.Second
 const startupCheckEnv = "QUARTET_STARTUP_CHECK"
 

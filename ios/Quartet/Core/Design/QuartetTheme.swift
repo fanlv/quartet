@@ -1346,7 +1346,7 @@ struct AttachmentSourcePopover: View {
 
                 actionRow(
                     title: "文件",
-                    detail: "支持最大 10MB 的图片",
+                    detail: "支持最大 500MB 的文件",
                     systemImage: "folder.fill",
                     action: onFile
                 )

@@ -27,7 +27,7 @@ import (
 const maxReadFileSize = 1 << 20    // 1MB
 const maxWriteFileSize = 1 << 20   // 1MB
 const maxServeFileSize = 10 << 20  // 10MB
-const maxUploadFileSize = 10 << 20 // 10MB
+const maxUploadFileSize = 500 << 20 // 500MB
 const binaryDetectSampleSize = 512 // bytes sampled from file head for UTF-8 validity check
 
 func (h *Handler) ReadFile(ctx context.Context, c *app.RequestContext) {
@@ -475,7 +475,7 @@ func (h *Handler) UploadFile(ctx context.Context, c *app.RequestContext) {
 	}
 
 	if file.Size > maxUploadFileSize {
-		httputil.BadRequest(c, "file exceeds 10MB limit")
+		httputil.BadRequest(c, fmt.Sprintf("file exceeds %dMB limit", maxUploadFileSize>>20))
 		return
 	}
 
