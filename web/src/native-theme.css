@@ -277,6 +277,16 @@
   max-width: 1220px;
 }
 
+/* Graph runs already dedicate the left rail to session navigation, so the
+   timeline and composer should use the rest of the workspace. Keep this in
+   the theme layer because its #root-scoped desktop measure otherwise
+   overrides JobChat.css's graph layout rules. */
+#root .chatbot-body.graph-layout .chatbot-main,
+#root .chatbot-body.graph-layout .chat-input-container {
+  max-width: none;
+  margin-inline: 0;
+}
+
 #root .chatbot-container :is(.header-logo-text, .header-title-input) {
   font-size: 13px;
 }
