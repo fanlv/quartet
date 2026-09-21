@@ -41,7 +41,9 @@ func (e *OutputProtocolError) Error() string { return e.Message }
 //     accumulated assistant text on its line; the value is every subsequent
 //     line verbatim until a dedicated QUARTET_OUTPUT_END:<name> line. It may be
 //     empty and may contain newlines, equals signs, quotes, and JSON-like text;
-//   - a nested begin marker, mismatched closing name, unexpected closing marker,
+//   - a same-name begin marker before the closing marker restarts that block
+//     (models may abandon an overlong draft and rewrite it); a different-name
+//     nested begin marker, mismatched closing name, unexpected closing marker,
 //     or missing closing marker fails the node with the complete protocol error;
 //   - legacy single-line form remains accepted: QUARTET_OUTPUT:<name>=<value> is
 //     matched as a substring anywhere within a line, may occur multiple times on
@@ -86,6 +88,7 @@ func ParseQuartetOutput(rawOutput string, declared []string) (*OutputParseResult
 			}
 
 			endLine := -1
+			restartLine := -1
 			remainder := ""
 			for candidate := lineIndex + 1; candidate < len(lines); candidate++ {
 				candidateLine := strings.TrimSuffix(lines[candidate], "\r")
@@ -107,11 +110,20 @@ func ParseQuartetOutput(rawOutput string, declared []string) (*OutputParseResult
 					break
 				}
 				if strings.HasPrefix(trimmed, quartetOutputBeginMarker) {
+					nestedName := strings.TrimSpace(strings.TrimPrefix(trimmed, quartetOutputBeginMarker))
+					if nestedName == name {
+						restartLine = candidate
+						break
+					}
 					return nil, &OutputProtocolError{
 						Variable: name,
 						Message:  fmt.Sprintf("model output block for variable %q contains a nested %s marker before its closing marker", name, quartetOutputBeginMarker),
 					}
 				}
+			}
+			if restartLine >= 0 {
+				lineIndex = restartLine - 1
+				continue
 			}
 			if endLine < 0 {
 				return nil, &OutputProtocolError{
