@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/fanlv/quartet/pkg/logger"
@@ -195,7 +196,13 @@ func (sc *scheduler) scopeForKey(key model.GraphInstanceKey) *scopeRun {
 		NodeID:     last.LoopNodeID,
 		Iterations: key.Iterations[:len(key.Iterations)-1],
 	})
-	return sc.activeLoops[scopeKeyStr]
+	scope := sc.activeLoops[scopeKeyStr]
+	// A rebuilt loop has only one active round. Completed rounds share its
+	// container key, and their end nodes have no terminal instance to skip.
+	if scope == nil || !slices.Equal(scope.prefix, key.Iterations) {
+		return nil
+	}
+	return scope
 }
 
 // resolveRebuildParent returns the parent scope for a loop being rebuilt from a
