@@ -1589,15 +1589,35 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       const toolMessageIndexByCallId = new Map<string, number>();
       const now = Date.now();
 
-      for (const msg of historyMessages) {
+      // Older persisted messages may not carry startedAt. Use the next known
+      // history timestamp for those rows so a refresh does not relabel them
+      // with the current wall clock; fall back to the previous known timestamp
+      // only when the missing row is at the end of the transcript.
+      const startedAtFallbacks = new Array<number>(historyMessages.length).fill(0);
+      let nearestStartedAt = 0;
+      for (let i = historyMessages.length - 1; i >= 0; i--) {
+        const startedAt = historyMessages[i]?.startedAt || 0;
+        if (startedAt > 0) nearestStartedAt = startedAt;
+        startedAtFallbacks[i] = nearestStartedAt;
+      }
+      nearestStartedAt = 0;
+      for (let i = 0; i < historyMessages.length; i++) {
+        const startedAt = historyMessages[i]?.startedAt || 0;
+        if (startedAt > 0) nearestStartedAt = startedAt;
+        if (startedAtFallbacks[i] === 0) startedAtFallbacks[i] = nearestStartedAt || now;
+      }
+
+      for (let messageIndex = 0; messageIndex < historyMessages.length; messageIndex++) {
+        const msg = historyMessages[messageIndex];
+        const messageStartedAt = msg.startedAt || startedAtFallbacks[messageIndex];
         if (msg.role === 'user') {
-          converted.push({ id: msg.id, role: MessageRoleEnum.USER, content: msg.content, createdAt: msg.startedAt || now, status: MessageStatusEnum.Finished, sessionId: tagSessionId, pending: false, failed: false, imageUrls: msg.imageUrls || undefined, fileAttachments: msg.fileAttachments || undefined, isShellOutput: msg.isShellOutput || false });
+          converted.push({ id: msg.id, role: MessageRoleEnum.USER, content: msg.content, createdAt: messageStartedAt, status: MessageStatusEnum.Finished, sessionId: tagSessionId, pending: false, failed: false, imageUrls: msg.imageUrls || undefined, fileAttachments: msg.fileAttachments || undefined, isShellOutput: msg.isShellOutput || false });
         } else if (msg.role === 'assistant') {
           if (msg.isThinking) {
             // Separate thought entry emitted by the history API when thought_msg_id is present.
-            converted.push({ id: msg.id, role: MessageRoleEnum.ASSISTANT, content: '', createdAt: msg.startedAt || now, status: MessageStatusEnum.Finished, thinkingContent: msg.reasoningContent || '', isThinking: false, isShellOutput: false, sessionId: tagSessionId, finishedAt: msg.finishedAt || undefined, thinkingFinishedAt: msg.thoughtFinishedAt || undefined });
+            converted.push({ id: msg.id, role: MessageRoleEnum.ASSISTANT, content: '', createdAt: messageStartedAt, status: MessageStatusEnum.Finished, thinkingContent: msg.reasoningContent || '', isThinking: false, isShellOutput: false, sessionId: tagSessionId, finishedAt: msg.finishedAt || undefined, thinkingFinishedAt: msg.thoughtFinishedAt || undefined });
           } else {
-            converted.push({ id: msg.id, role: MessageRoleEnum.ASSISTANT, content: msg.content, createdAt: msg.startedAt || now, status: MessageStatusEnum.Finished, thinkingContent: msg.reasoningContent || '', isThinking: false, isShellOutput: msg.isShellOutput || false, sessionId: tagSessionId, finishedAt: msg.finishedAt || undefined, thinkingFinishedAt: msg.thoughtFinishedAt || undefined });
+            converted.push({ id: msg.id, role: MessageRoleEnum.ASSISTANT, content: msg.content, createdAt: messageStartedAt, status: MessageStatusEnum.Finished, thinkingContent: msg.reasoningContent || '', isThinking: false, isShellOutput: msg.isShellOutput || false, sessionId: tagSessionId, finishedAt: msg.finishedAt || undefined, thinkingFinishedAt: msg.thoughtFinishedAt || undefined });
           }
           if (msg.toolCalls) {
             // Legacy history may not carry per-tool `startedAt`. In that case,
@@ -2448,7 +2468,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         try {
           const msgs = await loadHistory(active, active, false);
           if (!cancelled && msgs.length > 0) {
-            setMessages((prev) => mergeMessages(prev, msgs, { deduplicateToolCallIds: true }));
+            setMessages((prev) => mergeLatestHistoryPage(prev, msgs));
             setLoadedSessionIds((prev) => new Set([...prev, active]));
           }
         } catch (err) {
@@ -3058,7 +3078,9 @@ export function useJobChat(options: UseJobChatOptions = {}) {
                   historySessionIdsRef.current = [activeSid];
                   oldestLoadedSessionIndexRef.current = 0;
                   historyPagingSessionRef.current = activeSid;
-                  setMessages((prev) => (prev.length === 0 ? activeMessages : mergeMessages(prev, activeMessages)));
+                  setMessages((prev) => (
+                    prev.length === 0 ? activeMessages : mergeLatestHistoryPage(prev, activeMessages)
+                  ));
                   setLoadedSessionIds(new Set([activeSid]));
                   setHasMoreEarlierMessages(activePage.page.hasMoreBefore);
                   setIsLoadingHistory(false);
@@ -3084,13 +3106,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
             if (!cancelled && latestPage.messages.length > 0) {
               setMessages((prev) => {
                 if (prev.length === 0) return latestPage.messages;
-                // Reuse mergeMessages so this path gets the same id-based and
-                // semantic dedup (optimistic user messages and pure thought
-                // bubbles whose live id diverged from the persisted
-                // thought_msg_id) as every other history merge. A hand-rolled
-                // id-only filter here would miss thought bubbles and
-                // reintroduce duplicate thinking bubbles.
-                return mergeMessages(prev, latestPage.messages, { deduplicateToolCallIds: true });
+                return mergeLatestHistoryPage(prev, latestPage.messages);
               });
             }
             if (!cancelled) {

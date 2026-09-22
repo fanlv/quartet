@@ -454,7 +454,14 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 		if err != nil {
 			return nodeOutcome{}, err
 		}
-		userMsg := &schema.Message{Role: schema.User, Content: prompt}
+		startedAt := time.Now().UnixMilli()
+		userMsg := &schema.Message{
+			Role:    schema.User,
+			Content: prompt,
+			Extra: map[string]any{
+				msgextra.KeyStartedAt: startedAt,
+			},
+		}
 		// Persist the rendered prompt as the session's user message NOW — before
 		// the agent subprocess spawns and starts replying — so the Chat sidebar
 		// shows the auto-sent prompt the instant the node starts instead of
@@ -469,10 +476,10 @@ func (s *serviceImpl) executeNode(ctx context.Context, run *model.GraphRun, node
 		// to the agent's own in-Run persistence (message just shows a bit later).
 		if carrySession == "" && node.Config.SessionStrategy != model.GraphSessionStrategyInherit && strings.TrimSpace(prompt) != "" {
 			if recorder, ok := runner.(PromptUserMessageRecorder); ok {
-				if err := recorder.RecordPromptUserMessage(ctx, run.JobID, sessionID, prompt, time.Now().UnixMilli()); err != nil {
+				if err := recorder.RecordPromptUserMessage(ctx, run.JobID, sessionID, prompt, startedAt); err != nil {
 					logger.Warnf(ctx, "[graph] record prompt user message failed: runId=%s nodeId=%s sessionId=%s err=%v", run.ID, node.ID, sessionID, err)
 				} else {
-					userMsg.Extra = map[string]any{msgextra.KeyPrePersisted: true}
+					userMsg.Extra[msgextra.KeyPrePersisted] = true
 				}
 			}
 		}
@@ -534,13 +541,20 @@ func (s *serviceImpl) executeClarifyNode(ctx context.Context, run *model.GraphRu
 
 	prompt := node.Config.Prompt + buildOutputProtocolSuffix(node.Config.OutputVariables)
 	prompt = substituteVariables(prompt, mergeLoopVars(vars, loopVars), disabled)
-	userMsg := &schema.Message{Role: schema.User, Content: prompt}
+	startedAt := time.Now().UnixMilli()
+	userMsg := &schema.Message{
+		Role:    schema.User,
+		Content: prompt,
+		Extra: map[string]any{
+			msgextra.KeyStartedAt: startedAt,
+		},
+	}
 	if node.Config.SessionStrategy != model.GraphSessionStrategyInherit {
 		if recorder, ok := runner.(PromptUserMessageRecorder); ok {
-			if err := recorder.RecordPromptUserMessage(ctx, run.JobID, sessionID, prompt, time.Now().UnixMilli()); err != nil {
+			if err := recorder.RecordPromptUserMessage(ctx, run.JobID, sessionID, prompt, startedAt); err != nil {
 				logger.Warnf(ctx, "[graph] record clarify user message failed: runId=%s nodeId=%s sessionId=%s err=%v", run.ID, node.ID, sessionID, err)
 			} else {
-				userMsg.Extra = map[string]any{msgextra.KeyPrePersisted: true}
+				userMsg.Extra[msgextra.KeyPrePersisted] = true
 			}
 		}
 	}
