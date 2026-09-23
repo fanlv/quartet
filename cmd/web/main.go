@@ -48,7 +48,6 @@ const (
 	keyFileName     = "key.pem"
 )
 
-const maxRequestBodySize = 516 << 20 // 516 MiB: 500 MiB upload cap + multipart overhead.
 const httpShutdownTimeout = 5 * time.Second
 const startupCheckEnv = "QUARTET_STARTUP_CHECK"
 
@@ -508,7 +507,8 @@ func newServer(lc listenConfig, trustedProxies []*net.IPNet) *server.Hertz {
 		server.WithExitWaitTime(httpShutdownTimeout),
 		server.WithIdleTimeout(30 * time.Minute),
 		server.WithStreamBody(true),
-		server.WithMaxRequestBodySize(maxRequestBodySize),
+		// Hertz treats zero as unlimited and streams multipart files to disk.
+		server.WithMaxRequestBodySize(0),
 	}
 	// WithTLS flips Hertz to the standard (net/http) transporter — netpoll has
 	// no TLS support — and serves HTTPS only: the port will not accept plaintext

@@ -4,9 +4,6 @@ import UIKit
 import QuickLook
 
 enum ChatAttachmentProcessor {
-    static let maximumImageBytes = 500 * 1024 * 1024
-    static let maximumFileBytes = 500 * 1024 * 1024
-
     @MainActor
     static func prepareFileUpload(
         data: Data,
@@ -19,9 +16,6 @@ enum ChatAttachmentProcessor {
         }
         guard !data.isEmpty else {
             throw APIError(summary: "文件为空", detail: "未读取到有效文件数据。")
-        }
-        guard data.count <= maximumFileBytes else {
-            throw APIError(summary: "文件过大", detail: "文件超过服务端 500MB 限制，请选择更小的文件后重试。")
         }
         let filename = URL(fileURLWithPath: suggestedFilename).lastPathComponent
         return PendingUpload(
@@ -44,7 +38,7 @@ enum ChatAttachmentProcessor {
 
         let baseName = sanitizedBaseName(from: suggestedFilename)
         let type = contentType ?? inferredType(from: suggestedFilename) ?? .jpeg
-        if data.count <= maximumImageBytes, UIImage(data: data) != nil {
+        if UIImage(data: data) != nil {
             return PendingUpload(
                 data: data,
                 filename: "\(baseName).\(type.preferredFilenameExtension ?? "jpg")",
@@ -66,27 +60,15 @@ enum ChatAttachmentProcessor {
     static func prepareImageUpload(image: UIImage, suggestedFilename: String? = nil) throws -> PendingUpload {
         let normalized = normalizedImage(image)
         let baseName = sanitizedBaseName(from: suggestedFilename)
-        let dimensions: [CGFloat] = [2304, 1920, 1600, 1280, 960]
-        let qualities: [CGFloat] = [0.9, 0.8, 0.7, 0.58, 0.46, 0.34]
-
-        for dimension in dimensions {
-            let candidate = resizedImage(normalized, maxDimension: dimension)
-            for quality in qualities {
-                guard let data = candidate.jpegData(compressionQuality: quality) else { continue }
-                if data.count <= maximumImageBytes {
-                    return PendingUpload(
-                        data: data,
-                        filename: "\(baseName).jpg",
-                        mimeType: "image/jpeg",
-                        isImage: true
-                    )
-                }
-            }
+        let candidate = resizedImage(normalized, maxDimension: 2304)
+        guard let data = candidate.jpegData(compressionQuality: 0.9) else {
+            throw APIError(summary: "图片编码失败", detail: "无法将所选图片编码为 JPEG。".localizedForApp)
         }
-
-        throw APIError(
-            summary: "图片过大",
-            detail: "压缩后的图片仍超过服务端 500MB 限制，请选择更小的图片后重试。"
+        return PendingUpload(
+            data: data,
+            filename: "\(baseName).jpg",
+            mimeType: "image/jpeg",
+            isImage: true
         )
     }
 

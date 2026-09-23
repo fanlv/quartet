@@ -114,7 +114,7 @@ final class SentMessageHistoryStore {
             let url = try attachmentURL(itemID: item.id, attachmentID: attachment.id)
             do {
                 return PendingUpload(
-                    data: try Data(contentsOf: url),
+                    data: try Data(contentsOf: url, options: .mappedIfSafe),
                     filename: attachment.filename,
                     mimeType: attachment.mimeType,
                     isImage: attachment.isImage

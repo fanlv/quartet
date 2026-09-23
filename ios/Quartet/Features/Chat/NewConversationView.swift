@@ -1358,7 +1358,7 @@ struct NewConversationView: View {
             let didAccess = url.startAccessingSecurityScopedResource()
             do {
                 let data = try await Task.detached(priority: .userInitiated) {
-                    try Data(contentsOf: url)
+                    try Data(contentsOf: url, options: .mappedIfSafe)
                 }.value
                 uploads.append(try await MainActor.run {
                     try ChatAttachmentProcessor.prepareFileUpload(

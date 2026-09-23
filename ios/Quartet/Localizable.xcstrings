@@ -5816,6 +5816,22 @@
         }
       }
     },
+    "图片编码失败" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image Encoding Failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片编码失败"
+          }
+        }
+      }
+    },
     "图片编辑，第 1 步，共 2 步：裁剪" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -9768,18 +9784,18 @@
         }
       }
     },
-    "支持最大 500MB 的文件" : {
+    "选择要上传的文件" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Files up to 500 MB"
+            "value" : "Choose a file to upload"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "支持最大 500MB 的文件"
+            "value" : "选择要上传的文件"
           }
         }
       }
@@ -17906,6 +17922,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "附件上传失败"
+          }
+        }
+      }
+    },
+    "准备上传文件失败：%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to prepare upload file: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "准备上传文件失败：%@"
+          }
+        }
+      }
+    },
+    "无法将所选图片编码为 JPEG。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not encode the selected image as JPEG."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法将所选图片编码为 JPEG。"
           }
         }
       }

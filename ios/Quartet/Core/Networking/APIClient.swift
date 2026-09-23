@@ -916,16 +916,28 @@ struct APIClient: @unchecked Sendable {
             .replacingOccurrences(of: "\r", with: "_")
             .replacingOccurrences(of: "\n", with: "_")
             .replacingOccurrences(of: "\"", with: "_")
-        var body = Data()
-        body.append(Data("--\(boundary)\r\n".utf8))
-        body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(multipartFilename)\"\r\n".utf8))
-        body.append(Data("Content-Type: \(mimeType)\r\n\r\n".utf8))
-        body.append(data)
-        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        let uploadURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quartet-upload-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: uploadURL) }
+        do {
+            try Data().write(to: uploadURL)
+            let handle = try FileHandle(forWritingTo: uploadURL)
+            defer { try? handle.close() }
+            try handle.write(contentsOf: Data("--\(boundary)\r\n".utf8))
+            try handle.write(contentsOf: Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(multipartFilename)\"\r\n".utf8))
+            try handle.write(contentsOf: Data("Content-Type: \(mimeType)\r\n\r\n".utf8))
+            try handle.write(contentsOf: data)
+            try handle.write(contentsOf: Data("\r\n--\(boundary)--\r\n".utf8))
+        } catch {
+            throw APIError(
+                summary: "附件上传失败",
+                detail: AppLanguage.localizedFormat("准备上传文件失败：%@", String(describing: error))
+            )
+        }
 
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.httpBody = body
+        request.timeoutInterval = 30 * 60
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if !csrfToken.isEmpty { request.setValue(csrfToken, forHTTPHeaderField: "X-CSRF-Token") }
@@ -933,7 +945,7 @@ struct APIClient: @unchecked Sendable {
         let responseData: Data
         let response: URLResponse
         do {
-            (responseData, response) = try await session.data(for: request)
+            (responseData, response) = try await session.upload(for: request, fromFile: uploadURL)
         } catch {
             throw APIError(summary: "附件上传失败", detail: "POST \(endpoint.absoluteString)\n\n\(String(describing: error))")
         }

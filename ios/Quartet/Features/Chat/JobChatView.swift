@@ -1658,7 +1658,7 @@ struct JobChatView: View {
         }
 
         let data = try await Task.detached(priority: .userInitiated) {
-            try Data(contentsOf: url)
+            try Data(contentsOf: url, options: .mappedIfSafe)
         }.value
 
         return try await MainActor.run {
