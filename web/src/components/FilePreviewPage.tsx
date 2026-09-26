@@ -332,10 +332,14 @@ function MarkdownPreviewImage({ basePath, src, alt }: { basePath: string; src: s
 export function FilePreviewPage() {
   const { t } = useTranslation();
   const principal = useAuthPrincipal();
-  const params = useMemo(() => new URLSearchParams(window.location.search), []);
-  const path = params.get('path')?.trim() || '';
-  const jobId = params.get('jobId')?.trim() || '';
-  const fileShareToken = params.get('fileShareToken') || '';
+  const [{ path, jobId, fileShareToken }] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      path: params.get('path')?.trim() || '',
+      jobId: params.get('jobId')?.trim() || '',
+      fileShareToken: params.get('fileShareToken') || '',
+    };
+  });
   const isPublic = !!fileShareToken;
   const canShareFiles = !isPublic && (principal?.permissions.includes('file.share') ?? false);
   const markdown = isMarkdownPath(path);

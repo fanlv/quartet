@@ -3237,7 +3237,10 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   // Load-on-switch: Graph sessions are hydrated only when selected; preloading
   // every node would defeat message-level pagination on large workflows. A
   // short in-flight guard prevents duplicate requests while React commits the
-  // loaded-session set. Failed loads are handed to the retry-on-switch effect.
+  // loaded-session set. Keep an in-flight result when selection changes: the
+  // guard would otherwise block a return visit until the discarded request
+  // settles, then leave that session empty with no request to restart it.
+  // Failed loads are handed to the retry-on-switch effect.
   const switchLoadingSessionsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!isGraph || !activeSessionId) return;
@@ -3246,25 +3249,38 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     if (failedSessionIdsRef.current.has(activeSessionId)) return;
     if (switchLoadingSessionsRef.current.has(activeSessionId)) return;
     const sid = activeSessionId;
+    const jobGeneration = historyHydrationGenerationRef.current;
     switchLoadingSessionsRef.current.add(sid);
-    let cancelled = false;
     (async () => {
       try {
-        const msgs = await loadHistory(sid, sid);
-        if (cancelled) return;
-        if (msgs.length > 0) {
-          setMessages((prev) => mergeMessages(prev, msgs, { deduplicateToolCallIds: true }));
+        const page = await loadHistoryPage(sid, sid);
+        if (historyHydrationGenerationRef.current !== jobGeneration) return;
+        historyPageStateRef.current.set(sid, {
+          beforeCursor: page.page.beforeCursor,
+          hasMoreBefore: page.page.hasMoreBefore,
+          tagSessionId: sid,
+        });
+        if (activeSessionIdRef.current === sid) {
+          historyPagingSessionRef.current = sid;
+          historySessionIdsRef.current = [sid];
+          oldestLoadedSessionIndexRef.current = 0;
+          prefetchedHistoryRef.current = null;
+          earlierHistoryLoadRef.current = null;
+          setHasMoreEarlierMessages(page.page.hasMoreBefore);
+        }
+        if (page.messages.length > 0) {
+          setMessages((prev) => mergeMessages(prev, page.messages, { deduplicateToolCallIds: true }));
         }
         setLoadedSessionIds((prev) => new Set([...prev, sid]));
       } catch (err) {
+        if (historyHydrationGenerationRef.current !== jobGeneration) return;
         console.error(`[load-on-switch] Failed to load session ${sid}:`, err);
         failedSessionIdsRef.current = new Set([...failedSessionIdsRef.current, sid]);
       } finally {
         switchLoadingSessionsRef.current.delete(sid);
       }
     })();
-    return () => { cancelled = true; };
-  }, [isGraph, activeSessionId, loadedSessionIds, loadHistory]);
+  }, [isGraph, activeSessionId, loadedSessionIds, loadHistoryPage]);
 
   // Retry loading a session that failed during background hydration when the
   // user switches to it. Without this, the session would appear as a blank
