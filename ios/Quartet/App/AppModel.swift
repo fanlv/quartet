@@ -4,6 +4,13 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
+struct NewConversationConfiguration {
+    let agentID: String
+    let modelID: String
+    let modeID: String
+    let thoughtLevelID: String
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     enum ConnectionPhase: Equatable, Sendable {
@@ -1402,6 +1409,36 @@ final class AppModel: ObservableObject {
         defaults.string(forKey: StorageKey.lastSentMessageWorkspaceID(for: serverAddress))
     }
 
+    var lastNewConversationConfiguration: NewConversationConfiguration? {
+        guard let values = defaults.dictionary(
+            forKey: StorageKey.lastNewConversationConfiguration(for: serverAddress, username: username)
+        ),
+        let agentID = values["agentID"] as? String,
+        let modelID = values["modelID"] as? String,
+        let modeID = values["modeID"] as? String,
+        let thoughtLevelID = values["thoughtLevelID"] as? String else {
+            return nil
+        }
+        return NewConversationConfiguration(
+            agentID: agentID,
+            modelID: modelID,
+            modeID: modeID,
+            thoughtLevelID: thoughtLevelID
+        )
+    }
+
+    func recordNewConversationConfiguration(_ configuration: NewConversationConfiguration) {
+        defaults.set(
+            [
+                "agentID": configuration.agentID,
+                "modelID": configuration.modelID,
+                "modeID": configuration.modeID,
+                "thoughtLevelID": configuration.thoughtLevelID,
+            ],
+            forKey: StorageKey.lastNewConversationConfiguration(for: serverAddress, username: username)
+        )
+    }
+
     var newConversationDraft: String {
         defaults.string(
             forKey: StorageKey.newConversationDraft(for: serverAddress, username: username)
@@ -2650,6 +2687,13 @@ final class AppModel: ObservableObject {
             let scope = "\(server)|\(username)"
             let encodedScope = Data(scope.utf8).base64EncodedString()
             return "quartet.newConversationDraft.\(encodedScope)"
+        }
+
+        static func lastNewConversationConfiguration(for serverAddress: String, username: String) -> String {
+            let server = connectionIdentity(for: serverAddress) ?? serverAddress
+            let scope = "\(server)|\(username)"
+            let encodedScope = Data(scope.utf8).base64EncodedString()
+            return "quartet.lastNewConversationConfiguration.\(encodedScope)"
         }
 
         static func jobConversationDraft(for serverAddress: String, username: String, jobID: String) -> String {

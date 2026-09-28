@@ -132,6 +132,8 @@ struct NewConversationView: View {
     @State private var modelID = ""
     @State private var modeID = ""
     @State private var thoughtLevelID = ""
+    @State private var preferredThoughtLevelID: String?
+    @State private var hasExplicitConfigurationSelection = false
     @State private var linkedThoughtLevels: AgentThoughtLevelState?
     @State private var linkedThoughtLevelSelection: NewConversationAgentModelSelection?
     @State private var thoughtLevelRequestID: UUID?
@@ -654,7 +656,10 @@ struct NewConversationView: View {
         .accessibilityLabel("工作空间，当前为\(workspace?.displayName ?? "未选择")")
         .accessibilityHint("点按弹出工作空间列表")
         .accessibilityIdentifier("new-task-workspace-picker")
-        .onChange(of: workspaceID) { _, _ in applyWorkspaceDefaults() }
+        .onChange(of: workspaceID) { _, _ in
+            hasExplicitConfigurationSelection = false
+            applyWorkspaceDefaults()
+        }
     }
 
     private var agentPicker: some View {
@@ -883,6 +888,9 @@ struct NewConversationView: View {
                     workspaceID = initialWorkspaceID
                     applyWorkspaceDefaults()
                     didInitializeSelection = true
+                } else if !hasExplicitConfigurationSelection {
+                    // Validation can make the remembered Agent available after the first snapshot.
+                    applyWorkspaceDefaults()
                 } else if !selectedWasAvailable, agent?.available == true {
                     applyAgentDefaults(includeWorkspaceDefault: true)
                 }
@@ -915,20 +923,27 @@ struct NewConversationView: View {
     }
 
     private func applyWorkspaceDefaults() {
-        let requested = workspace?.defaultAgent
+        let requested = workspace?.defaultAgent?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasWorkspaceDefault = !(requested ?? "").isEmpty
+        let remembered = model.lastNewConversationConfiguration
+        let rememberedAgent = remembered.flatMap { selection in
+            agents.first { $0.available && $0.agentId == selection.agentID }
+        }
         let fallback = agents.first(where: \.available) ?? agents.first
-        if let requested {
+        if hasWorkspaceDefault, let requested {
             agentID = agents.first(where: {
                 $0.available && ($0.type == requested || $0.agentId == requested)
             })?.id ?? fallback?.id ?? ""
         } else {
-            agentID = fallback?.id ?? ""
+            agentID = rememberedAgent?.id ?? fallback?.id ?? ""
         }
-        applyAgentDefaults(includeWorkspaceDefault: true)
+        let selectedRemembered = !hasWorkspaceDefault && rememberedAgent?.id == agentID
+        applyAgentDefaults(includeWorkspaceDefault: true, remembered: selectedRemembered ? remembered : nil)
     }
 
     private func selectAgent(_ id: String) {
         guard agentID != id else { return }
+        hasExplicitConfigurationSelection = true
         let previousSelection = thoughtLevelSelection
         agentID = id
         applyAgentDefaults(includeWorkspaceDefault: false)
@@ -938,30 +953,53 @@ struct NewConversationView: View {
             thoughtLevelID = ""
             Task { await refreshThoughtLevels(for: selection) }
         }
+        rememberCurrentConfiguration()
     }
 
     private func selectModel(_ id: String) {
         guard modelID != id else { return }
+        hasExplicitConfigurationSelection = true
         modelID = id
+        preferredThoughtLevelID = nil
         invalidateThoughtLevelsIfNeeded()
+        rememberCurrentConfiguration()
     }
 
-    private func applyAgentDefaults(includeWorkspaceDefault: Bool = false) {
+    private func rememberCurrentConfiguration() {
+        guard let agent, agent.available else { return }
+        model.recordNewConversationConfiguration(NewConversationConfiguration(
+            agentID: agent.agentId,
+            modelID: modelID,
+            modeID: modeID,
+            thoughtLevelID: thoughtLevelID
+        ))
+    }
+
+    private func applyAgentDefaults(
+        includeWorkspaceDefault: Bool = false,
+        remembered: NewConversationConfiguration? = nil
+    ) {
         guard let agent else { return }
         let preferences = agentPreferences[agent.agentId] ?? agentPreferences[agent.type]
         let availableModels = agent.models?.availableModels ?? []
         let workspaceMatchesAgent = workspace?.defaultAgent == agent.type || workspace?.defaultAgent == agent.agentId
         let workspaceModel = includeWorkspaceDefault && workspaceMatchesAgent ? workspace?.defaultModel : nil
         modelID = validID(workspaceModel, in: availableModels.map(\.modelId))
+            ?? validID(remembered?.modelID, in: availableModels.map(\.modelId))
             ?? validID(preferences?.defaultModelID, in: availableModels.map(\.modelId))
             ?? availableModels.first?.modelId
             ?? agent.modelId
 
         let availableModes = agent.modes?.availableModes.map(\.id) ?? []
-        modeID = validID(preferences?.defaultMode, in: availableModes)
+        let rememberedMode = remembered.flatMap { selection in
+            selection.modeID.isEmpty ? "" : validID(selection.modeID, in: availableModes)
+        }
+        modeID = rememberedMode
+            ?? validID(preferences?.defaultMode, in: availableModes)
             ?? validID(agent.modes?.currentModeId, in: availableModes)
             ?? ""
 
+        preferredThoughtLevelID = modelID == remembered?.modelID ? remembered?.thoughtLevelID : nil
         invalidateThoughtLevelsIfNeeded()
     }
 
@@ -994,9 +1032,16 @@ struct NewConversationView: View {
             let available = state.availableThoughtLevels.map(\.id)
             linkedThoughtLevels = state
             linkedThoughtLevelSelection = selection
-            thoughtLevelID = validID(preferences?.defaultThoughtLevel, in: available)
+            let rememberedThoughtLevel = preferredThoughtLevelID.flatMap { id in
+                id.isEmpty ? "" : validID(id, in: available)
+            }
+            thoughtLevelID = rememberedThoughtLevel
+                ?? validID(preferences?.defaultThoughtLevel, in: available)
                 ?? validID(state.currentThoughtLevelId, in: available)
                 ?? ""
+            if hasExplicitConfigurationSelection {
+                rememberCurrentConfiguration()
+            }
         } catch is CancellationError {
             return
         } catch {
@@ -1077,9 +1122,17 @@ struct NewConversationView: View {
         case .model:
             return Binding(get: { modelID }, set: { selectModel($0) })
         case .mode:
-            return Binding(get: { modeID }, set: { modeID = $0 })
+            return Binding(get: { modeID }, set: {
+                hasExplicitConfigurationSelection = true
+                modeID = $0
+                rememberCurrentConfiguration()
+            })
         case .thoughtLevel:
-            return Binding(get: { thoughtLevelID }, set: { thoughtLevelID = $0 })
+            return Binding(get: { thoughtLevelID }, set: {
+                hasExplicitConfigurationSelection = true
+                thoughtLevelID = $0
+                rememberCurrentConfiguration()
+            })
         }
     }
 
@@ -1114,6 +1167,12 @@ struct NewConversationView: View {
             )
             let jobID = try await model.createJob(request: request)
             self.createIntent = nil
+            model.recordNewConversationConfiguration(NewConversationConfiguration(
+                agentID: agent.agentId,
+                modelID: payload.modelID,
+                modeID: payload.modeID ?? "",
+                thoughtLevelID: payload.thoughtLevelID ?? ""
+            ))
             let submittedMessage = message
             let submittedAttachments = pendingAttachments
             model.clearNewConversationDraft()
