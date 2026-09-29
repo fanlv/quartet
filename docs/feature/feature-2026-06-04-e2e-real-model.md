@@ -93,7 +93,7 @@
 - 数据模型：`types/model/job.go` 的 `E2EScenario` 字段、`types/model/request.go` 的 `E2EScenario` 字段。
 - 仓储：`repository/model_config.go` 中为 E2E 测试 Model 预置的相关逻辑。
 
-> 说明：项目处于开发阶段，按 `docs/CLAUDE.md` 不考虑历史 Job 记录里 `E2EScenario` 字段的兼容迁移，直接移除。
+> 说明：项目处于开发阶段，按 `docs/AGENTS.md` 不考虑历史 Job 记录里 `E2EScenario` 字段的兼容迁移，直接移除。
 
 ### 4.4 前端与测试基建清除
 

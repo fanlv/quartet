@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import './AgentsLocalEditor.css';
 
 interface AgentsLocalEditorProps {
-  // 工作目录绝对路径，组件内部据此拼接 AGENTS / CLAUDE 文件路径。
+  // 工作目录绝对路径，组件内部据此拼接 AGENTS 文件路径。
   workdir: string;
   jobId?: string;
   onClose: () => void;
@@ -14,13 +14,6 @@ type SaveStatus = 'idle' | 'saving' | 'error';
 type AgentsTarget = 'AGENTS.local.md' | 'AGENTS.md';
 
 const AGENTS_TARGETS: AgentsTarget[] = ['AGENTS.local.md', 'AGENTS.md'];
-
-// AGENTS.* 真实内容文件对应的 CLAUDE.* 指针文件，内容固定为对 AGENTS.* 的引用，
-// 让 Claude Code 通过 @./AGENTS(.local).md 读取真实规则，避免全文重复维护两份。
-const CLAUDE_POINTER: Record<AgentsTarget, { file: string; content: string }> = {
-  'AGENTS.local.md': { file: 'CLAUDE.local.md', content: '@./AGENTS.local.md' },
-  'AGENTS.md': { file: 'CLAUDE.md', content: '@./AGENTS.md' },
-};
 
 export function AgentsLocalEditor({ workdir, jobId, onClose }: AgentsLocalEditorProps) {
   const [target, setTarget] = useState<AgentsTarget>('AGENTS.local.md');
@@ -210,17 +203,8 @@ export function AgentsLocalEditor({ workdir, jobId, onClose }: AgentsLocalEditor
     setSaving(true);
     setSaveStatus('saving');
     try {
-      // 编辑器只写 AGENTS.* 真实内容；对应的 CLAUDE.* 仅写一个引用指针，
-      // 让 Claude Code 通过 @./AGENTS(.local).md 读取，无需维护两份全文。
       const agentsResult = await writeFile(filePath, saved);
       if (agentsResult.code !== 0) {
-        setSaveStatus('error');
-        return;
-      }
-      const pointer = CLAUDE_POINTER[target];
-      const claudeResult = await writeFile(`${workdir}/${pointer.file}`, pointer.content);
-      if (claudeResult.code !== 0) {
-        // AGENTS.* 已保存，CLAUDE.* 指针写入失败。保持 dirty=true 让用户重试。
         setSaveStatus('error');
         return;
       }
@@ -238,7 +222,7 @@ export function AgentsLocalEditor({ workdir, jobId, onClose }: AgentsLocalEditor
     } finally {
       setSaving(false);
     }
-  }, [filePath, content, writeFile, target, workdir]);
+  }, [filePath, content, writeFile]);
 
   const handleTargetChange = useCallback((next: AgentsTarget) => {
     if (next === target) return;
