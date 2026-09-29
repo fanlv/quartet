@@ -2,6 +2,8 @@ package install
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -88,12 +90,20 @@ type InstallSpec struct {
 	InstallSteps   PlatformSteps
 	UpgradeSteps   PlatformSteps
 	UninstallSteps PlatformSteps
-	// VersionPackage is an npm package whose published version matches the
-	// executable release, even when PATH currently selects a native install.
+	// VersionPackage is the npm package whose published version is the latest
+	// release for an npm installation of this agent.
 	VersionPackage string
 	// VersionURL returns the latest executable version as a plain semver string.
-	VersionURL   string
-	Instructions string
+	VersionURL string
+	// NativeVersionURL is the plain-semver latest endpoint of the native
+	// installer. When the resolved executable lives under NativeInstallDirs,
+	// version checks use this endpoint instead of VersionPackage, so the
+	// compared release matches the channel the upgrade command actually follows.
+	NativeVersionURL string
+	// NativeInstallDirs are home-relative directories or files that identify a
+	// native installer layout, such as ".local/share/codebuddy".
+	NativeInstallDirs []string
+	Instructions      string
 }
 
 func (s InstallSpec) StepsForInstall(platform Platform) []InstallStep {
@@ -180,7 +190,56 @@ func (s InstallSpec) Clone() InstallSpec {
 	s.InstallSteps = s.InstallSteps.clone()
 	s.UpgradeSteps = s.UpgradeSteps.clone()
 	s.UninstallSteps = s.UninstallSteps.clone()
+	s.NativeInstallDirs = append([]string(nil), s.NativeInstallDirs...)
 	return s
+}
+
+// UsesNativeRelease reports whether resolvedPath is the native installer layout
+// declared by NativeInstallDirs. Symlinks are resolved first, and an executable
+// that lands inside a package-manager tree stays on the npm version channel.
+func (s InstallSpec) UsesNativeRelease(resolvedPath string) bool {
+	if strings.TrimSpace(s.NativeVersionURL) == "" || len(s.NativeInstallDirs) == 0 || resolvedPath == "" {
+		return false
+	}
+	real := resolvedPath
+	if evaluated, err := filepath.EvalSymlinks(resolvedPath); err == nil && evaluated != "" {
+		real = evaluated
+	}
+	if strings.Contains(filepath.ToSlash(real), "/node_modules/") {
+		return false
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return false
+	}
+	for _, dir := range s.NativeInstallDirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
+		}
+		root := filepath.Join(home, filepath.FromSlash(dir))
+		if pathWithin(real, root) {
+			return true
+		}
+	}
+	return false
+}
+
+func pathWithin(path, root string) bool {
+	path = filepath.Clean(path)
+	root = filepath.Clean(root)
+	if runtime.GOOS == "windows" {
+		path = strings.ToLower(path)
+		root = strings.ToLower(root)
+	}
+	if path == root {
+		return true
+	}
+	separator := string(filepath.Separator)
+	if !strings.HasSuffix(root, separator) {
+		root += separator
+	}
+	return strings.HasPrefix(path, root)
 }
 
 func cloneSteps(in []InstallStep) []InstallStep {

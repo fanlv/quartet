@@ -95,10 +95,11 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 			definition = entry.Builtin.RuntimeDefinition()
 			versionPackage = strings.TrimSpace(entry.Builtin.Install.VersionPackage)
 			versionURL = strings.TrimSpace(entry.Builtin.Install.VersionURL)
-			if versionPackage == "" {
+			nativeVersionURL := strings.TrimSpace(entry.Builtin.Install.NativeVersionURL)
+			if versionPackage == "" && nativeVersionURL == "" {
 				packages = entry.Builtin.Install.NPMPackages(platform)
 			}
-			probeBinary = versionPackage != "" || versionURL != "" || len(packages) == 0 || entry.Builtin.Install.HasNonNPMSteps(platform)
+			probeBinary = versionPackage != "" || versionURL != "" || nativeVersionURL != "" || len(packages) == 0 || entry.Builtin.Install.HasNonNPMSteps(platform)
 			upgradeSupported = entry.Builtin.Install.AutoUpgradeable(platform)
 		case model.AgentCatalogSourceCustom:
 			if entry.Custom == nil || entry.Custom.Lifecycle != model.AgentLifecycleActive {
@@ -141,6 +142,10 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 			binaryTasks = append(binaryTasks, binaryTask{
 				infoIndex: infoIndex, componentIndex: componentIndex, binary: definition.Bin,
 			})
+			if entry.Source == model.AgentCatalogSourceBuiltin && entry.Builtin.Install.UsesNativeRelease(installed.Bin.ResolvedPath) {
+				versionURL = strings.TrimSpace(entry.Builtin.Install.NativeVersionURL)
+				versionPackage = ""
+			}
 			if versionPackage != "" {
 				publishedVersionRefs[versionPackage] = append(
 					publishedVersionRefs[versionPackage],

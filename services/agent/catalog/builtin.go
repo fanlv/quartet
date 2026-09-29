@@ -259,16 +259,23 @@ var builtinAgents = []BuiltinAgent{
 		Install: agentinstall.InstallSpec{
 			Method:       agentinstall.InstallMethodNPM,
 			InstallSteps: agentinstall.NPMInstallFlow("@tencent-ai/codebuddy-code"),
-			// `codebuddy update` detects whether the running executable came from
-			// npm or the native installer and updates that installation in place.
+			// `codebuddy update` follows the install channel: npm installs update from
+			// the npm registry, native installs update from the publisher's release
+			// endpoint. Those two channels are not always the same version.
 			UpgradeSteps: allPlatforms(agentinstall.CommandStep("codebuddy", "update")),
 			UninstallSteps: agentinstall.NPMOrNativeUninstallFlow(
 				[]string{"@tencent-ai/codebuddy-code"},
 				".local/bin/codebuddy", ".local/share/codebuddy",
 				"AppData/Local/codebuddy/bin",
 			),
-			VersionPackage: "@tencent-ai/codebuddy-code",
-			Instructions:   "卸载只移除 CodeBuddy 程序文件；~/.codebuddy 下的配置、凭据和会话会保留。",
+			VersionPackage:   "@tencent-ai/codebuddy-code",
+			NativeVersionURL: "https://acc-1258344699.cos.accelerate.myqcloud.com/@tencent-ai/codebuddy-code/releases/latest",
+			NativeInstallDirs: []string{
+				".local/share/codebuddy",
+				".local/bin/codebuddy",
+				"AppData/Local/codebuddy",
+			},
+			Instructions: "卸载只移除 CodeBuddy 程序文件；~/.codebuddy 下的配置、凭据和会话会保留。",
 		},
 	},
 	{
