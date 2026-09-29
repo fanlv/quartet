@@ -142,6 +142,8 @@
     "commandSendFailed": "命令发送失败：{{error}}",
     "loadAgentsFailed": "加载 Agent 列表失败，首条消息未能发送：{{error}}",
     "noAgentsAvailable": "没有可用的 Agent，首条消息未能发送。",
+    "loadingSessionMessages": "正在加载 Session 消息…",
+    "sessionLoadFailed": "Session 消息加载失败",
     "waitingToSend": "等待发送...",
     "imagesCount": "{{count}} 张图片",
     "switchWorkspace": "切换工作空间",

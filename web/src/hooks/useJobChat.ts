@@ -637,12 +637,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   }, [loadedSessionIds]);
   // A Graph instance becomes visible in the sidebar before its transcript is
   // necessarily readable. Do not permanently cache that brief empty snapshot:
-  // retry terminal sessions a few times, while still allowing a genuinely
-  // empty transcript to settle instead of leaving the loading UI up forever.
+  // retry terminal sessions a few times, then expose an explicit error with a
+  // manual retry instead of disguising the failed load as an empty transcript.
   const emptySessionLoadAttemptsRef = useRef<Map<string, number>>(new Map());
   const [sessionLoadRetrySeq, setSessionLoadRetrySeq] = useState(0);
-  // Sessions whose background hydration failed; will be retried on switch.
-  const failedSessionIdsRef = useRef<Set<string>>(new Set());
+  const [sessionLoadErrors, setSessionLoadErrors] = useState<Map<string, string>>(new Map());
 
   // Per-session agent metadata (populated during loadHistory for Graph sessions)
   const sessionMetaMapRef = useRef<Map<string, { modelId: string | null; type: string | null; acpMode: string | null; acpThoughtLevel: string | null }>>(new Map());
@@ -940,6 +939,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     sessionMetaMapRef.current = new Map();
     sessionTokensRef.current = new Map();
     emptySessionLoadAttemptsRef.current.clear();
+    setSessionLoadErrors(new Map());
     setLoadedSessionIds(new Set());
     setTotalTokens(0);
     setTokenUsageEstimated(true);
@@ -3253,8 +3253,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   useEffect(() => {
     if (!isGraph || !activeSessionId) return;
     if (loadedSessionIds.has(activeSessionId)) return;
-    // The retry effect owns sessions that already failed a load.
-    if (failedSessionIdsRef.current.has(activeSessionId)) return;
+    if (sessionLoadErrors.has(activeSessionId)) return;
     if (switchLoadingSessionsRef.current.has(activeSessionId)) return;
     const sid = activeSessionId;
     const jobGeneration = historyHydrationGenerationRef.current;
@@ -3278,6 +3277,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         }
         if (page.messages.length > 0) {
           emptySessionLoadAttemptsRef.current.delete(sid);
+          setSessionLoadErrors((prev) => {
+            if (!prev.has(sid)) return prev;
+            const next = new Map(prev);
+            next.delete(sid);
+            return next;
+          });
           setMessages((prev) => mergeMessages(prev, page.messages, { deduplicateToolCallIds: true }));
           setLoadedSessionIds((prev) => new Set([...prev, sid]));
           return;
@@ -3288,8 +3293,15 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         );
         const attempts = (emptySessionLoadAttemptsRef.current.get(sid) ?? 0) + 1;
         emptySessionLoadAttemptsRef.current.set(sid, attempts);
-        if (sessionStillRunning || attempts >= 3) {
+        if (sessionStillRunning) {
           setLoadedSessionIds((prev) => new Set([...prev, sid]));
+          return;
+        }
+        if (attempts >= 3) {
+          setSessionLoadErrors((prev) => new Map(prev).set(
+            sid,
+            `Session ${sid} returned no messages after ${attempts} attempts.`,
+          ));
           return;
         }
         window.setTimeout(() => {
@@ -3300,45 +3312,32 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       } catch (err) {
         if (historyHydrationGenerationRef.current !== jobGeneration) return;
         console.error(`[load-on-switch] Failed to load session ${sid}:`, err);
-        failedSessionIdsRef.current = new Set([...failedSessionIdsRef.current, sid]);
+        const detail = err instanceof Error ? err.message : String(err);
+        setSessionLoadErrors((prev) => new Map(prev).set(sid, detail));
       } finally {
         switchLoadingSessionsRef.current.delete(sid);
       }
     })();
-  }, [isGraph, activeSessionId, loadedSessionIds, loadHistoryPage, sessionLoadRetrySeq]);
+  }, [isGraph, activeSessionId, loadedSessionIds, loadHistoryPage, sessionLoadErrors, sessionLoadRetrySeq]);
 
-  // Retry loading a session that failed during background hydration when the
-  // user switches to it. Without this, the session would appear as a blank
-  // chat with no error indicator and no way to recover.
-  useEffect(() => {
-    if (!isGraph || !activeSessionId) return;
-    if (!failedSessionIdsRef.current.has(activeSessionId)) return;
-    // Already loaded (e.g. by another path) — clean up stale failure record.
-    if (loadedSessionIds.has(activeSessionId)) {
-      failedSessionIdsRef.current = new Set(
-        [...failedSessionIdsRef.current].filter(id => id !== activeSessionId)
-      );
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const msgs = await loadHistory(activeSessionId, activeSessionId);
-        if (cancelled) return;
-        failedSessionIdsRef.current = new Set(
-          [...failedSessionIdsRef.current].filter(id => id !== activeSessionId)
-        );
-        if (msgs.length > 0) {
-          setMessages((prev) => mergeMessages(prev, msgs));
-        }
-        setLoadedSessionIds((prev) => new Set([...prev, activeSessionId]));
-      } catch (err) {
-        console.error(`[retry] Failed to reload session ${activeSessionId}:`, err);
-        // Leave in failedSessionIdsRef so next switch can retry again.
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isGraph, activeSessionId, loadedSessionIds, loadHistory]);
+  const retryGraphSessionLoad = useCallback(() => {
+    const sid = activeSessionIdRef.current;
+    if (!sid) return;
+    emptySessionLoadAttemptsRef.current.delete(sid);
+    setSessionLoadErrors((prev) => {
+      if (!prev.has(sid)) return prev;
+      const next = new Map(prev);
+      next.delete(sid);
+      return next;
+    });
+    setLoadedSessionIds((prev) => {
+      if (!prev.has(sid)) return prev;
+      const next = new Set(prev);
+      next.delete(sid);
+      return next;
+    });
+    setSessionLoadRetrySeq((seq) => seq + 1);
+  }, []);
 
   // Defensive dedup at the aggregation point. The messages array is written
   // by several paths (SSE live events, initial history load, reconnect merge,
@@ -3424,6 +3423,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     graphSessions,
     activeSessionId,
     setActiveSessionId,
+    graphSessionLoadError: activeSessionId ? sessionLoadErrors.get(activeSessionId) ?? null : null,
+    retryGraphSessionLoad,
     endedSessionIds,
     loadedSessionIds,
     // Session metadata resolver (maps sessionId -> { modelId, type, acpMode })

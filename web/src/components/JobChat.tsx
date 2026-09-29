@@ -199,6 +199,8 @@ export function JobChat(props: JobChatProps) {
     graphSessions,
     activeSessionId,
     setActiveSessionId,
+    graphSessionLoadError,
+    retryGraphSessionLoad,
     endedSessionIds,
     loadedSessionIds,
     sendMessage,
@@ -1812,9 +1814,15 @@ export function JobChat(props: JobChatProps) {
             above the composer, whatever height the composer currently has.
           */}
           <div className="timeline-viewport">
-          {isGraph && activeSessionId && !loadedSessionIds.has(activeSessionId) ? (
+          {isGraph && activeSessionId && graphSessionLoadError ? (
+            <div className="graph-session-load-error" role="alert">
+              <strong>{t('chat.sessionLoadFailed')}</strong>
+              <pre>{graphSessionLoadError}</pre>
+              <button type="button" onClick={retryGraphSessionLoad}>{t('common.retry')}</button>
+            </div>
+          ) : isGraph && activeSessionId && !loadedSessionIds.has(activeSessionId) ? (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#888' }}>
-              Loading session messages...
+              {t('chat.loadingSessionMessages')}
             </div>
           ) : (
           <MessageList

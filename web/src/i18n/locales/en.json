@@ -142,6 +142,8 @@
     "commandSendFailed": "Command failed: {{error}}",
     "loadAgentsFailed": "Failed to load the agent list, so the first message was not sent: {{error}}",
     "noAgentsAvailable": "No agents are available, so the first message was not sent.",
+    "loadingSessionMessages": "Loading Session messages…",
+    "sessionLoadFailed": "Failed to load Session messages",
     "waitingToSend": "Waiting to send...",
     "imagesCount": "{{count}} image(s)",
     "switchWorkspace": "Switch workspace",

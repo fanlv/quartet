@@ -837,6 +837,35 @@
   letter-spacing: 0.2px;
 }
 
+.graph-session-load-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 24px;
+  color: #991b1b;
+  text-align: center;
+}
+
+.graph-session-load-error pre {
+  max-width: min(720px, 100%);
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font: inherit;
+}
+
+.graph-session-load-error button {
+  padding: 6px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fff;
+  color: #991b1b;
+  cursor: pointer;
+}
+
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
