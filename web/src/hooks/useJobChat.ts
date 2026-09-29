@@ -635,6 +635,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   useEffect(() => {
     loadedSessionIdsRef.current = loadedSessionIds;
   }, [loadedSessionIds]);
+  // A Graph instance becomes visible in the sidebar before its transcript is
+  // necessarily readable. Do not permanently cache that brief empty snapshot:
+  // retry terminal sessions a few times, while still allowing a genuinely
+  // empty transcript to settle instead of leaving the loading UI up forever.
+  const emptySessionLoadAttemptsRef = useRef<Map<string, number>>(new Map());
+  const [sessionLoadRetrySeq, setSessionLoadRetrySeq] = useState(0);
   // Sessions whose background hydration failed; will be retried on switch.
   const failedSessionIdsRef = useRef<Set<string>>(new Set());
 
@@ -933,6 +939,8 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     console.debug(`[JobEvents][TRACE-SEQ0] gate-init existingJobId=${existingJobId ?? '(none)'} snapshotReadyInitial=${!existingJobId} lastEventSeqRef=${JSON.stringify(lastEventSeqRef.current)}`);
     sessionMetaMapRef.current = new Map();
     sessionTokensRef.current = new Map();
+    emptySessionLoadAttemptsRef.current.clear();
+    setLoadedSessionIds(new Set());
     setTotalTokens(0);
     setTokenUsageEstimated(true);
     setError(null);
@@ -3269,9 +3277,26 @@ export function useJobChat(options: UseJobChatOptions = {}) {
           setHasMoreEarlierMessages(page.page.hasMoreBefore);
         }
         if (page.messages.length > 0) {
+          emptySessionLoadAttemptsRef.current.delete(sid);
           setMessages((prev) => mergeMessages(prev, page.messages, { deduplicateToolCallIds: true }));
+          setLoadedSessionIds((prev) => new Set([...prev, sid]));
+          return;
         }
-        setLoadedSessionIds((prev) => new Set([...prev, sid]));
+
+        const sessionStillRunning = graphSessionsRef.current.some(
+          (entry) => entry.sessionId === sid && entry.status === 'running'
+        );
+        const attempts = (emptySessionLoadAttemptsRef.current.get(sid) ?? 0) + 1;
+        emptySessionLoadAttemptsRef.current.set(sid, attempts);
+        if (sessionStillRunning || attempts >= 3) {
+          setLoadedSessionIds((prev) => new Set([...prev, sid]));
+          return;
+        }
+        window.setTimeout(() => {
+          if (activeSessionIdRef.current === sid) {
+            setSessionLoadRetrySeq((seq) => seq + 1);
+          }
+        }, attempts * 400);
       } catch (err) {
         if (historyHydrationGenerationRef.current !== jobGeneration) return;
         console.error(`[load-on-switch] Failed to load session ${sid}:`, err);
@@ -3280,7 +3305,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         switchLoadingSessionsRef.current.delete(sid);
       }
     })();
-  }, [isGraph, activeSessionId, loadedSessionIds, loadHistoryPage]);
+  }, [isGraph, activeSessionId, loadedSessionIds, loadHistoryPage, sessionLoadRetrySeq]);
 
   // Retry loading a session that failed during background hydration when the
   // user switches to it. Without this, the session would appear as a blank
