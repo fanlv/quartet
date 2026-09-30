@@ -25,6 +25,11 @@ type Settings struct {
 	Username  string `json:"username"`
 	AvatarURL string `json:"avatar_url"`
 
+	// Language is the interface language preference ("zh" or "en"). It is
+	// persisted so every client that reaches this instance shares one choice
+	// instead of each browser origin keeping its own.
+	Language string `json:"language,omitempty"`
+
 	TitleGenerationAgent *AgentRoleConfig      `json:"title_generation_agent,omitempty"`
 	GroupReplyAgent      *AgentRoleConfig      `json:"group_reply_agent,omitempty"`
 	IMSessionAgent       *IMSessionAgentConfig `json:"im_session_agent,omitempty"`

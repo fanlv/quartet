@@ -21,6 +21,25 @@ func (h *Handler) GetSettings(ctx context.Context, c *app.RequestContext) {
 	})
 }
 
+type saveLanguageRequest struct {
+	Language string `json:"language"`
+}
+
+func (h *Handler) SaveLanguage(ctx context.Context, c *app.RequestContext) {
+	var req saveLanguageRequest
+	if err := c.BindJSON(&req); err != nil {
+		httputil.BadRequest(c, "invalid request: "+err.Error())
+		return
+	}
+	if err := h.settingsService.SaveLanguage(req.Language); err != nil {
+		httputil.BadRequest(c, err.Error())
+		return
+	}
+	c.JSON(200, map[string]any{
+		"code": 0,
+	})
+}
+
 func (h *Handler) SaveSettings(ctx context.Context, c *app.RequestContext) {
 	var req model.Settings
 	if err := c.BindJSON(&req); err != nil {

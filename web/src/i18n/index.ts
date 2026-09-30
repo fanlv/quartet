@@ -4,6 +4,11 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 import en from './locales/en.json';
 import zh from './locales/zh.json';
 
+// Boot cache. The durable copy lives in the instance settings
+// ($LOCAL_MEMORY/quartet/data/settings.json), which is what makes the choice
+// survive a domain change; localStorage only covers the pre-login page.
+export const LANGUAGE_STORAGE_KEY = 'quartet-language';
+
 i18n
   .use(LanguageDetector)
   .use(initReactI18next)
@@ -19,7 +24,7 @@ i18n
     detection: {
       order: ['localStorage'],
       caches: ['localStorage'],
-      lookupLocalStorage: 'quartet-language',
+      lookupLocalStorage: LANGUAGE_STORAGE_KEY,
     },
   });
 

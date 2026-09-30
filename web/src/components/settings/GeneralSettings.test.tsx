@@ -36,17 +36,18 @@ describe('GeneralSettings i18n behavior', () => {
       '/api/v1/config/settings/title-generation-agent': jsonResponse({ code: 0, config: null }),
       '/api/v1/config/settings/group-reply-agent': jsonResponse({ code: 0, config: null }),
       '/api/v1/config/settings/im-session-agent': jsonResponse({ code: 0, config: null }),
+      '/api/v1/config/settings/language': jsonResponse({ code: 0 }),
     })
 
     render(<GeneralSettings />)
 
     expect(await screen.findByText('User Settings')).toBeTruthy()
-    expect(screen.getByText('Select display language for the interface')).toBeTruthy()
+    expect(screen.getByText('Select the interface language. It takes effect immediately and is stored in the instance settings, shared by every domain and device')).toBeTruthy()
 
     await user.selectOptions(screen.getByRole('combobox'), 'zh')
 
     expect(await screen.findByText('用户配置')).toBeTruthy()
-    expect(screen.getByText('选择界面显示语言')).toBeTruthy()
+    expect(screen.getByText('选择界面显示语言，立即生效并保存到实例配置，各域名与设备共用同一选择')).toBeTruthy()
     expect(screen.queryByText('User Settings')).toBeNull()
     await waitFor(() => expect(document.documentElement.lang).toBe('zh'))
     expect(localStorage.getItem('quartet-language')).toBe('zh')

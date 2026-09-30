@@ -431,7 +431,7 @@
     "general": {
       "sectionTitle": "User Settings",
       "language": "Language",
-      "languageDesc": "Select display language for the interface",
+      "languageDesc": "Select the interface language. It takes effect immediately and is stored in the instance settings, shared by every domain and device",
       "username": "Username",
       "usernamePlaceholder": "User",
       "usernameDesc": "Username displayed in chat interface, default is User",

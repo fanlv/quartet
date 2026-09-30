@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { normalizeLanguage, saveLanguagePreference } from '../../utils/languagePreference';
 
 interface GeneralSettingsProps {
   onSettingsChanged?: () => void;
@@ -60,6 +61,21 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
     }
   };
 
+  // Language applies immediately (no Save button round trip) and is persisted
+  // to the instance settings so every domain and device picks up the choice.
+  const handleLanguageChange = async (value: string) => {
+    const language = normalizeLanguage(value);
+    if (!language) return;
+    setMessage(null);
+    await i18n.changeLanguage(language);
+    try {
+      await saveLanguagePreference(language);
+      onSettingsChanged?.();
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setMessage(null);
@@ -107,7 +123,7 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
           <select
             className="settings-input"
             value={i18n.language.startsWith('zh') ? 'zh' : 'en'}
-            onChange={(e) => i18n.changeLanguage(e.target.value)}
+            onChange={(e) => void handleLanguageChange(e.target.value)}
             data-testid="settings-language-select"
           >
             <option value="en">English</option>

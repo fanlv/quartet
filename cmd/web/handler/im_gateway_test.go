@@ -39,6 +39,7 @@ func (f *fakeSettings) GetSettings() (*model.Settings, error) {
 	return &model.Settings{}, nil
 }
 func (f *fakeSettings) SaveSettings(*model.Settings) error                    { return nil }
+func (f *fakeSettings) SaveLanguage(string) error                             { return nil }
 func (f *fakeSettings) SaveTitleGenerationAgent(*model.AgentRoleConfig) error { return nil }
 func (f *fakeSettings) SaveGroupReplyAgent(*model.AgentRoleConfig) error      { return nil }
 func (f *fakeSettings) SaveIMSessionAgent(*model.IMSessionAgentConfig) error {

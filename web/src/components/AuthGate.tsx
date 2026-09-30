@@ -4,6 +4,7 @@ import type { AuthPrincipal } from '../auth';
 import { AUTH_EXPIRED_EVENT, setAuthPrincipal } from '../auth';
 import { markBootStage } from '../utils/boot';
 import { setAuthForwarderEnabled } from '../utils/frontend-log';
+import { syncLanguageFromServer } from '../utils/languagePreference';
 import './AuthGate.css';
 
 type GateStage = 'probing' | 'ready' | 'initialize' | 'login' | 'changePassword' | 'recovery' | 'probeFailed';
@@ -77,6 +78,9 @@ export function AuthGate({ children }: AuthGateProps) {
         const principal = await fetchPrincipal();
         setAuthPrincipal(principal);
         setCanReportLogs(principal.permissions.includes('logs.report'));
+        // Apply the instance language before the app paints, so a fresh
+        // browser origin does not flash the fallback language first.
+        await syncLanguageFromServer();
         setStage(principal.user.mustChangePassword ? 'changePassword' : 'ready');
       } catch (error) {
         setAuthPrincipal(null);
@@ -145,6 +149,7 @@ export function AuthGate({ children }: AuthGateProps) {
       const principal = await response.json() as AuthPrincipal;
       setAuthPrincipal(principal);
       setCanReportLogs(principal.permissions.includes('logs.report'));
+      await syncLanguageFromServer();
       setPassword(''); setConfirmPassword(''); setCurrentPassword('');
       setStage(principal.user.mustChangePassword ? 'changePassword' : 'ready');
     } catch (error) { setDetail(errorDetail(error)); } finally { setSubmitting(false); }

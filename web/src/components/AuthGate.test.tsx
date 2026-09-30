@@ -25,7 +25,7 @@ const principal = {
 
 describe('AuthGate', () => {
   it('renders children for a valid cookie session', async () => {
-    mockFetchByRoute({ '/api/v1/health': jsonResponse({ authState: 'ready' }), '/api/v1/auth/me': jsonResponse(principal) })
+    mockFetchByRoute({ '/api/v1/health': jsonResponse({ authState: 'ready' }), '/api/v1/auth/me': jsonResponse(principal), '/api/v1/config/settings/get': jsonResponse({ code: 0, settings: { language: 'en' } }) })
     render(<AuthGate><div>App Ready</div></AuthGate>)
     expect(await screen.findByText('App Ready')).toBeTruthy()
   })
@@ -38,7 +38,7 @@ describe('AuthGate', () => {
   })
 
   it('logs in with username and password', async () => {
-    mockFetchByRoute({ '/api/v1/health': jsonResponse({ authState: 'ready' }), '/api/v1/auth/me': jsonResponse({ error: 'authentication required' }, { status: 401 }), '/api/v1/auth/login': jsonResponse(principal) })
+    mockFetchByRoute({ '/api/v1/health': jsonResponse({ authState: 'ready' }), '/api/v1/auth/me': jsonResponse({ error: 'authentication required' }, { status: 401 }), '/api/v1/auth/login': jsonResponse(principal), '/api/v1/config/settings/get': jsonResponse({ code: 0, settings: { language: 'en' } }) })
     render(<AuthGate><div>App Ready</div></AuthGate>)
     await userEvent.type(await screen.findByPlaceholderText('Username'), 'admin')
     await userEvent.type(screen.getByPlaceholderText('Password'), 'password1')
@@ -48,7 +48,7 @@ describe('AuthGate', () => {
 
   it('shows recovery details and retries', async () => {
     let calls = 0
-    mockFetchByRoute({ '/api/v1/health': () => { calls += 1; return calls === 1 ? jsonResponse({ authState: 'recovery', authError: 'broken role file' }) : jsonResponse({ authState: 'ready' }) }, '/api/v1/auth/me': jsonResponse(principal) })
+    mockFetchByRoute({ '/api/v1/health': () => { calls += 1; return calls === 1 ? jsonResponse({ authState: 'recovery', authError: 'broken role file' }) : jsonResponse({ authState: 'ready' }) }, '/api/v1/auth/me': jsonResponse(principal), '/api/v1/config/settings/get': jsonResponse({ code: 0, settings: { language: 'en' } }) })
     render(<AuthGate><div>App Ready</div></AuthGate>)
     expect(await screen.findByText('broken role file')).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: 'Retry' }))

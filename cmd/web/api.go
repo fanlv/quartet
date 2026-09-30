@@ -133,6 +133,7 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	settings := config.Group("/settings")
 	settings.GET("/get", permit(auth.PermissionConfigRead), h.GetSettings)
 	settings.POST("/save", permit(auth.PermissionConfigWrite), h.SaveSettings)
+	settings.PUT("/language", permit(auth.PermissionConfigWrite), h.SaveLanguage)
 	settings.GET("/title-generation-agent", permit(auth.PermissionConfigRead), h.GetTitleGenerationAgent)
 	settings.PUT("/title-generation-agent", permit(auth.PermissionConfigWrite), h.SaveTitleGenerationAgent)
 	settings.GET("/group-reply-agent", permit(auth.PermissionConfigRead), h.GetGroupReplyAgent)

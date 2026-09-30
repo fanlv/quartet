@@ -18,6 +18,7 @@ import (
 type SettingsService interface {
 	GetSettings() (*model.Settings, error)
 	SaveSettings(s *model.Settings) error
+	SaveLanguage(language string) error
 	SaveTitleGenerationAgent(config *model.AgentRoleConfig) error
 	SaveGroupReplyAgent(config *model.AgentRoleConfig) error
 	SaveIMSessionAgent(agent *model.IMSessionAgentConfig) error
@@ -89,6 +90,9 @@ func (s *settingsServiceImpl) SaveSettings(settings *model.Settings) error {
 		// whitelist here so a stale web snapshot cannot overwrite a concurrent
 		// IM-triggered admin add/remove.
 		settings.WeChatAdminIDs = append([]string(nil), current.WeChatAdminIDs...)
+		// The language preference has its own endpoint (SaveLanguage), so a
+		// stale general-settings form must not roll it back.
+		settings.Language = current.Language
 		// Agent role settings have dedicated owners. Preserve the latest
 		// service-side values so an old or concurrently opened general page
 		// cannot overwrite them with a stale snapshot.
@@ -101,6 +105,23 @@ func (s *settingsServiceImpl) SaveSettings(settings *model.Settings) error {
 	}
 	normalizeACPEnvVars(settings)
 	normalizeAgentPrefs(settings)
+	return s.repo.Save(settings)
+}
+
+// SaveLanguage persists the interface language preference. Only the languages
+// the frontend actually ships are accepted.
+func (s *settingsServiceImpl) SaveLanguage(language string) error {
+	normalized := strings.ToLower(strings.TrimSpace(language))
+	if normalized != "zh" && normalized != "en" {
+		return fmt.Errorf("unsupported language %q: supported values are \"zh\" and \"en\"", language)
+	}
+	s.settingsMu.Lock()
+	defer s.settingsMu.Unlock()
+	settings, err := s.repo.Get()
+	if err != nil {
+		return err
+	}
+	settings.Language = normalized
 	return s.repo.Save(settings)
 }
 

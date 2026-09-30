@@ -429,7 +429,7 @@
     "general": {
       "sectionTitle": "用户配置",
       "language": "语言",
-      "languageDesc": "选择界面显示语言",
+      "languageDesc": "选择界面显示语言，立即生效并保存到实例配置，各域名与设备共用同一选择",
       "username": "用户名",
       "usernamePlaceholder": "User",
       "usernameDesc": "显示在聊天界面中的用户名，默认为 User",
