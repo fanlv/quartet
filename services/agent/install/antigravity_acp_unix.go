@@ -4,7 +4,6 @@ package install
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +23,7 @@ func installAntigravityLauncher(binaryPath string, args []string) error {
 	var script strings.Builder
 	script.WriteString("#!/bin/sh\nset -eu\nexec ")
 	script.WriteString(shellQuote(binaryPath))
-	for _, arg := range antigravityACPLaunchArgs(args) {
+	for _, arg := range args {
 		if strings.TrimSpace(arg) == "" {
 			continue
 		}
@@ -51,38 +50,4 @@ func ensureServerExecutable(path string) error {
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
-}
-
-// antigravityACPLaunchArgs keeps the registry arguments and, on a host whose
-// loopback has no IPv6 address, adds the server's own bypass. The official
-// binary aborts during startup when ::1 is missing.
-func antigravityACPLaunchArgs(args []string) []string {
-	out := append([]string{}, args...)
-	if ipv6LoopbackPresent() {
-		return out
-	}
-	for _, arg := range out {
-		if strings.Contains(arg, "enforce_kernel_ipv6_support") {
-			return out
-		}
-	}
-	return append(out, "--enforce_kernel_ipv6_support=false")
-}
-
-func ipv6LoopbackPresent() bool {
-	iface, err := net.InterfaceByName("lo")
-	if err != nil {
-		return false
-	}
-	addrs, err := iface.Addrs()
-	if err != nil {
-		return false
-	}
-	for _, addr := range addrs {
-		ipNet, ok := addr.(*net.IPNet)
-		if ok && ipNet.IP.Equal(net.IPv6loopback) {
-			return true
-		}
-	}
-	return false
 }
