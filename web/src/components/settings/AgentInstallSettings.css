@@ -419,18 +419,10 @@
   }
 }
 
-.agent-check-btn {
+.agent-auto-check-status {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-width: 112px;
-  white-space: nowrap;
-}
-
-.agent-check-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.72;
+  gap: 5px;
 }
 
 .agent-check-spinner {

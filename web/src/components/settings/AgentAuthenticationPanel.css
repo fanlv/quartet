@@ -10,37 +10,98 @@
 }
 
 .agent-auth-panel {
-  width: min(640px, 100%);
+  width: min(560px, 100%);
   max-height: 85dvh;
   overflow-y: auto;
-  padding: 20px;
+  padding: 24px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--surface);
   color: var(--fg);
+  box-shadow: 0 16px 48px var(--overlay, rgb(0 0 0 / 15%));
   outline: none;
 }
 
-.agent-auth-heading, .agent-auth-actions, .agent-auth-steps {
+.agent-auth-heading, .agent-auth-actions {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.agent-auth-heading { justify-content: space-between; }
-.agent-auth-heading h3 { margin: 0; font-size: 16px; }
-.agent-auth-panel p { font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
-.agent-auth-actions { justify-content: flex-end; flex-wrap: wrap; margin-top: 20px; }
-.agent-auth-steps { padding: 0; list-style-position: inside; font-size: 13px; color: var(--muted); }
-.agent-auth-steps li { flex: 1; padding: 10px; background: var(--elevated); border-radius: 6px; }
-.agent-auth-steps .complete, .agent-auth-success { color: var(--success); }
-.agent-auth-steps .current, .agent-auth-progress { color: var(--accent); }
-.agent-auth-note { color: var(--muted); }
-.agent-auth-method { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.agent-auth-heading { justify-content: space-between; margin-bottom: 24px; }
+.agent-auth-heading h3 { margin: 0; font-size: 17px; font-weight: 600; }
+.agent-auth-panel p { margin: 12px 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.agent-auth-actions { justify-content: flex-end; flex-wrap: wrap; margin-top: 24px; }
+.agent-auth-actions .settings-btn { min-width: 92px; }
+.agent-auth-note { color: var(--muted); font-size: 12px; }
+.agent-auth-method { display: flex; align-items: center; gap: 12px; margin: 20px 0; font-size: 13px; }
 .agent-auth-method select { flex: 1; min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--elevated); color: var(--fg); }
-.agent-auth-output { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font-size: 12px; line-height: 1.5; padding: 12px; border-radius: 6px; background: var(--elevated); }
+.agent-auth-output { margin: 10px 0 16px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font-size: 12px; line-height: 1.7; padding: 12px; border-radius: 6px; background: var(--elevated); }
 .agent-auth-output.error { color: var(--danger); }
-.agent-auth-link { font-size: 13px; margin: 12px 0; }
-.agent-auth-link a { color: var(--accent); }
-.agent-auth-panel summary { cursor: pointer; color: var(--muted); font-size: 13px; }
-.agent-auth-panel :is(button, select, a):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.agent-auth-output a { color: var(--accent-deep); text-decoration: underline; text-underline-offset: 3px; }
+.agent-auth-output a:hover { color: var(--accent-hover); }
+.agent-auth-links { display: grid; gap: 10px; margin: 20px 0; }
+.agent-auth-link p { margin-top: 0; }
+.agent-auth-link > a {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent-border, var(--border));
+  border-radius: 8px;
+  color: var(--accent-deep);
+  background: var(--accent-soft, var(--elevated));
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 160ms;
+}
+.agent-auth-link > a:hover { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+.agent-auth-log { margin-top: 20px; }
+.agent-auth-help { margin-top: 16px; color: var(--muted); }
+.agent-auth-help summary, .agent-auth-log summary { width: fit-content; cursor: pointer; color: var(--muted); font-size: 12px; }
+.agent-auth-panel :is(button, select, a, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.agent-auth-close {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 22px;
+  cursor: pointer;
+  transition: background 160ms, color 160ms;
+}
+.agent-auth-close:hover { color: var(--fg); background: var(--elevated); }
+
+.agent-auth-status { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 20px; color: var(--muted); }
+.agent-auth-status-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  font-size: 17px;
+  font-weight: 600;
+}
+.agent-auth-status strong { display: block; padding-top: 4px; font-size: 14px; font-weight: 600; line-height: 1.6; }
+.agent-auth-status p { margin: 3px 0 0; color: var(--muted); }
+.agent-auth-status.checking, .agent-auth-status.login, .agent-auth-status.success { color: var(--accent-deep); }
+.agent-auth-status.error { color: var(--danger); }
+
+.agent-auth-recheck { margin-right: auto; padding: 6px 0; border: none; color: var(--muted); background: transparent; font-size: 12px; cursor: pointer; }
+.agent-auth-recheck:hover { color: var(--accent-deep); }
+#root .agent-auth-panel .settings-btn-primary:not(:disabled) { color: var(--accent-fg); background: var(--accent-deep); }
+#root .agent-auth-panel .settings-btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-deep) 92%, var(--fg)); }
+
+@media (max-width: 480px) {
+  .agent-auth-overlay { padding: 12px; }
+  .agent-auth-panel { padding: 20px; }
+  .agent-auth-method { flex-direction: column; align-items: stretch; gap: 8px; }
+}

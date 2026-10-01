@@ -110,7 +110,7 @@ interface DeleteResult {
 }
 
 interface ValidationFeedback {
-  status: 'checking' | 'success' | 'warning' | 'error';
+  status: 'warning';
   message: string;
 }
 
@@ -443,7 +443,7 @@ function readUpgradeResult(
 // component versions and runs catalog-controlled install/upgrade flows. The
 // backend only accepts an agent_id; complete step output, recheck and
 // validation results remain visible in the UI.
-export function AgentInstallSettings({ onConfigureEnvironment }: { onConfigureEnvironment?: () => void } = {}) {
+export function AgentInstallSettings() {
   const { t } = useTranslation();
   const [catalog, setCatalog] = useState<CatalogAgent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -474,6 +474,77 @@ export function AgentInstallSettings({ onConfigureEnvironment }: { onConfigureEn
   const [expandedAgentIds, setExpandedAgentIds] = useState<Set<string>>(() => new Set());
   const batchUpgradeRunningRef = useRef(false);
   const installActionRunningRef = useRef(false);
+  const autoValidatedRef = useRef(new Set<string>());
+  const validationTargets = JSON.stringify(catalog
+    .filter((agent) => agent.installed && !agent.deprecated && agent.lifecycle === 'active')
+    .map((agent) => ({ agentId: agent.agent_id, revision: agent.current_revision || '' })));
+
+  useEffect(() => {
+    const targets = JSON.parse(validationTargets) as Array<{ agentId: string; revision: string }>;
+    const validated = autoValidatedRef.current;
+    const currentKeys = new Set(targets.map(({ agentId, revision }) => JSON.stringify([agentId, revision])));
+    for (const key of validated) {
+      if (!currentKeys.has(key)) validated.delete(key);
+    }
+    if (targets.length === 0) return;
+    const controller = new AbortController();
+    const inFlight = new Set<string>();
+    const updateAgent = (agentId: string, revision: string, update: Partial<CatalogAgent>) => {
+      if (controller.signal.aborted) return;
+      setCatalog((current) => current.map((agent) => agent.agent_id === agentId
+        && (agent.current_revision || '') === revision && agent.installed && agent.lifecycle === 'active'
+        ? { ...agent, ...update } : agent));
+    };
+    const checkNext = async () => {
+      while (!controller.signal.aborted) {
+        const target = targets.shift();
+        if (!target) return;
+        const { agentId, revision } = target;
+        const key = JSON.stringify([agentId, revision]);
+        if (validated.has(key)) continue;
+        validated.add(key);
+        inFlight.add(key);
+        updateAgent(agentId, revision, { refreshing: true });
+        try {
+          const data = await authRequest(`/api/v1/agent/${encodeURIComponent(agentId)}/revalidate`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+            body: JSON.stringify({ revision }),
+          });
+          if (controller.signal.aborted) return;
+          const validation = data.validation as { success?: boolean; error?: string; authentication_required?: boolean; refreshed_at?: number } | undefined;
+          if (!validation || typeof validation.success !== 'boolean'
+            || (validation.error !== undefined && typeof validation.error !== 'string')
+            || (validation.authentication_required !== undefined && typeof validation.authentication_required !== 'boolean')) {
+            throw new Error(JSON.stringify(data, null, 2));
+          }
+          const status = validation.success ? 'available' : validation.authentication_required ? 'needs_authentication' : 'unavailable';
+          const detail = !validation.success ? validation.error || JSON.stringify(data, null, 2) : undefined;
+          updateAgent(agentId, revision, {
+            availability: status, availability_error: detail, refreshing: false,
+            last_validation_status: status, last_validation_error: detail,
+            last_validation_at: typeof validation.refreshed_at === 'number' ? validation.refreshed_at : Date.now(),
+          });
+          const warning = typeof data.warning === 'string' ? data.warning : '';
+          if (warning) {
+            setValidationFeedback((current) => ({ ...current, [agentId]: { status: 'warning', message: warning } }));
+          }
+        } catch (err) {
+          if (controller.signal.aborted) return;
+          updateAgent(agentId, revision, {
+            availability: 'unavailable', refreshing: false,
+            availability_error: err instanceof Error ? err.message : String(err),
+          });
+        } finally {
+          inFlight.delete(key);
+        }
+      }
+    };
+    void Promise.all([checkNext(), checkNext()]);
+    return () => {
+      controller.abort();
+      for (const key of inFlight) validated.delete(key);
+    };
+  }, [validationTargets, authRequest]);
 
   const loadData = useCallback(async (showLoading = true, preserveContentOnError = false) => {
     if (showLoading) setLoading(true);
@@ -605,46 +676,6 @@ export function AgentInstallSettings({ onConfigureEnvironment }: { onConfigureEn
       await loadVersions(true);
     } catch (err) {
       setManagementMessage(err instanceof Error ? err.message : String(err));
-    } finally {
-      setManagementPending('');
-    }
-  };
-
-  const revalidate = async (agent: CatalogAgent) => {
-    setManagementPending(agent.agent_id);
-    setManagementMessage('');
-    setValidationFeedback((current) => ({
-      ...current,
-      [agent.agent_id]: {
-        status: 'checking',
-        message: t('settings.agents.checkInProgress'),
-      },
-    }));
-    try {
-      const url = `/api/v1/agent/${encodeURIComponent(agent.agent_id)}/revalidate`;
-      const data = await requestJSON(t, url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      await loadData(false);
-      const warning = typeof data.warning === 'string' ? data.warning : '';
-      const validation = data.validation as { authentication_required?: boolean; error?: string } | undefined;
-      const requiresAuthentication = validation?.authentication_required === true;
-      setValidationFeedback((current) => ({
-        ...current,
-        [agent.agent_id]: {
-          status: warning || requiresAuthentication ? 'warning' : 'success',
-          message: [requiresAuthentication ? t('settings.agents.auth.required') : t('settings.agents.checkSucceeded'), warning, requiresAuthentication ? validation?.error : ''].filter(Boolean).join('\n\n'),
-        },
-      }));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      await loadData(false);
-      setValidationFeedback((current) => ({
-        ...current,
-        [agent.agent_id]: { status: 'error', message },
-      }));
     } finally {
       setManagementPending('');
     }
@@ -1139,8 +1170,12 @@ export function AgentInstallSettings({ onConfigureEnvironment }: { onConfigureEn
         name={authenticationAgent.display_name}
         request={authRequest}
         onClose={() => setAuthenticationAgent(null)}
-        onConfigureEnvironment={onConfigureEnvironment}
         onChanged={() => {
+          setValidationFeedback((current) => {
+            const next = { ...current };
+            delete next[authenticationAgent.agent_id];
+            return next;
+          });
           window.dispatchEvent(new CustomEvent('quartet:agent-catalog-changed', { detail: { agentId: authenticationAgent.agent_id } }));
           void loadData(false);
         }}
@@ -1189,7 +1224,6 @@ export function AgentInstallSettings({ onConfigureEnvironment }: { onConfigureEn
           const busy = installBusy?.id === agent.agent_id;
           const requestError = requestErrors[agent.agent_id];
           const checkFeedback = validationFeedback[agent.agent_id];
-          const checking = checkFeedback?.status === 'checking';
           const versionInfo = versions[agent.agent_id];
           const expanded = expandedAgentIds.has(agent.agent_id);
           const detailId = `agent-install-details-${agent.agent_id}`;
@@ -1216,7 +1250,7 @@ export function AgentInstallSettings({ onConfigureEnvironment }: { onConfigureEn
                       <span className={`agent-status agent-status-${agent.availability}`}>
                         {t(`settings.agents.status.${agent.availability}`)}
                       </span>
-                      {agent.refreshing && <span>{t('settings.agents.status.refreshing')}</span>}
+                      {agent.refreshing && <span className="agent-auto-check-status" role="status"><span className="agent-check-spinner" aria-hidden="true" />{t('settings.agents.checkingAvailability')}</span>}
                       {agent.current_revision && <code className="agent-install-rev">{agent.current_revision}</code>}
                     </span>
                   </span>
@@ -1303,17 +1337,11 @@ export function AgentInstallSettings({ onConfigureEnvironment }: { onConfigureEn
                 <div
                   id={`agent-check-feedback-${agent.agent_id}`}
                   className={`agent-check-feedback ${checkFeedback.status}`}
-                  role={checkFeedback.status === 'error' ? 'alert' : 'status'}
-                  aria-live={checkFeedback.status === 'error' ? 'assertive' : 'polite'}
+                  role="status"
+                  aria-live="polite"
                 >
                   <span className="agent-check-feedback-icon" aria-hidden="true">
-                    {checkFeedback.status === 'checking'
-                      ? <span className="agent-check-spinner" />
-                      : checkFeedback.status === 'success'
-                        ? '✓'
-                        : checkFeedback.status === 'warning'
-                          ? '!'
-                          : '×'}
+                    !
                   </span>
                   <div className="agent-check-feedback-content">
                     <strong>
@@ -1343,19 +1371,6 @@ export function AgentInstallSettings({ onConfigureEnvironment }: { onConfigureEn
                   data-testid="agent-install-card-details"
                 >
                   <div className="agent-install-actions">
-                    {agent.lifecycle !== 'deleted' && !agent.deprecated && agent.installed && (
-                      <button
-                        className="settings-btn settings-btn-secondary agent-check-btn"
-                        disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null}
-                        onClick={() => void revalidate(agent)}
-                        title={t('settings.agents.checkAvailabilityHint')}
-                        aria-label={t('settings.agents.checkAvailabilityFor', { name: agent.display_name })}
-                        aria-describedby={checkFeedback ? `agent-check-feedback-${agent.agent_id}` : undefined}
-                      >
-                        {checking && <span className="agent-check-spinner" aria-hidden="true" />}
-                        {t(checking ? 'settings.agents.checkingAvailability' : 'settings.agents.checkAvailability')}
-                      </button>
-                    )}
                     {agent.source === 'custom' && agent.lifecycle === 'active' && (
                       <>
                         <button className="settings-btn settings-btn-secondary" disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null} onClick={() => openCustomForm(agent)}>
