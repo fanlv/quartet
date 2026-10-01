@@ -267,7 +267,10 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 		return nil, err
 	}
 
-	acpProbeCache, err := probe.NewCacheService()
+	// Install flows run with the Agent's configured ACP environment, so an
+	// Agent that needs a proxy to reach its own vendor can be installed,
+	// upgraded and removed with the same settings its runtime uses.
+	acpProbeCache, err := probe.NewCacheService(ss.GetACPEnvVars)
 	if err != nil {
 		return nil, err
 	}

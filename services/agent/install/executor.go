@@ -49,7 +49,13 @@ type StepResult struct {
 // timeout, stopping at the first failed step. It returns the results of every
 // step that was started. ErrInstallInFlight is returned (without results) when
 // another install is already running.
-func RunSteps(ctx context.Context, steps []InstallStep, perStepTimeout time.Duration) ([]StepResult, error) {
+//
+// env carries the agent's own runtime environment (its configured ACP env
+// vars): preset commands run with it appended to the backend process
+// environment, and internal steps use it for their own outbound requests, so
+// an agent that needs a proxy to reach its vendor can also be installed and
+// upgraded through that proxy.
+func RunSteps(ctx context.Context, steps []InstallStep, perStepTimeout time.Duration, env map[string]string) ([]StepResult, error) {
 	if !installMu.TryLock() {
 		return nil, ErrInstallInFlight
 	}
@@ -57,7 +63,7 @@ func RunSteps(ctx context.Context, steps []InstallStep, perStepTimeout time.Dura
 
 	results := make([]StepResult, 0, len(steps))
 	for _, step := range steps {
-		result := runStep(ctx, step, perStepTimeout)
+		result := runStep(ctx, step, perStepTimeout, env)
 		results = append(results, result)
 		if result.Error != "" || result.TimedOut || result.ExitCode != 0 {
 			break
@@ -66,17 +72,18 @@ func RunSteps(ctx context.Context, steps []InstallStep, perStepTimeout time.Dura
 	return results, nil
 }
 
-func runStep(ctx context.Context, step InstallStep, timeout time.Duration) (result StepResult) {
+func runStep(ctx context.Context, step InstallStep, timeout time.Duration, env map[string]string) (result StepResult) {
 	result = StepResult{Display: step.Display, ExitCode: -1}
 	started := time.Now()
 	stepCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	if strings.HasPrefix(step.Program, "quartet-internal:") {
-		return runInternalStep(stepCtx, step, started, timeout)
+		return runInternalStep(stepCtx, step, started, timeout, env)
 	}
 
 	cmd := commandForStep(step.Program, step.Args...)
 	cmd.Dir = step.Dir
+	cmd.Env = environWith(env)
 	processTree, err := newProcessTree(cmd)
 	if err != nil {
 		result.DurationMs = time.Since(started).Milliseconds()
@@ -189,16 +196,16 @@ func commandForStep(program string, args ...string) *exec.Cmd {
 	return executil.Command(program, args...)
 }
 
-func runInternalStep(ctx context.Context, step InstallStep, started time.Time, timeout time.Duration) StepResult {
+func runInternalStep(ctx context.Context, step InstallStep, started time.Time, timeout time.Duration, env map[string]string) StepResult {
 	result := StepResult{Display: step.Display, ExitCode: -1}
 	var err error
 	switch step.Program {
 	case InternalProgramRemovePaths:
 		err = removeUserPaths(ctx, step.Args, &result)
 	case InternalProgramBuildEinoCLI:
-		err = buildEinoCLI(ctx, &result)
+		err = buildEinoCLI(ctx, env, &result)
 	case InternalProgramInstallAntigravityACP:
-		err = installOfficialAntigravityACP(ctx, &result)
+		err = installOfficialAntigravityACP(ctx, env, &result)
 	default:
 		err = fmt.Errorf("unknown internal install program %q", step.Program)
 	}
@@ -282,7 +289,7 @@ func validateExistingParentInsideHome(realHome, target string) error {
 	}
 }
 
-func buildEinoCLI(ctx context.Context, result *StepResult) error {
+func buildEinoCLI(ctx context.Context, env map[string]string, result *StepResult) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("resolve user home for eino-cli install failed: %w", err)
@@ -306,6 +313,7 @@ func buildEinoCLI(ctx context.Context, result *StepResult) error {
 	temporary := target + fmt.Sprintf(".tmp.%d", os.Getpid())
 	cmd := executil.CommandContext(ctx, "go", "build", "-o", temporary, "./cmd/eino-cli")
 	cmd.Dir = "."
+	cmd.Env = environWith(env)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -332,6 +340,29 @@ func replaceFile(source, target string) error {
 		return err
 	}
 	return os.Rename(source, target)
+}
+
+// environWith overlays values on the backend process environment. Values win
+// over an entry with the same exact key; an empty overlay leaves the child
+// process environment untouched (nil lets os/exec inherit it).
+func environWith(values map[string]string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	inherited := os.Environ()
+	out := make([]string, 0, len(inherited)+len(values))
+	for _, entry := range inherited {
+		if key, _, ok := strings.Cut(entry, "="); ok {
+			if _, overridden := values[key]; overridden {
+				continue
+			}
+		}
+		out = append(out, entry)
+	}
+	for key, value := range values {
+		out = append(out, key+"="+value)
+	}
+	return out
 }
 
 func setStepContextError(result *StepResult, err error, timeout time.Duration) {

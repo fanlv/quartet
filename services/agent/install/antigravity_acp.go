@@ -74,7 +74,7 @@ type acpRegistryBinary struct {
 	Args    []string `json:"args"`
 }
 
-func installOfficialAntigravityACP(ctx context.Context, result *StepResult) error {
+func installOfficialAntigravityACP(ctx context.Context, env map[string]string, result *StepResult) error {
 	root, err := executil.AntigravityACPRoot()
 	if err != nil {
 		return err
@@ -82,7 +82,7 @@ func installOfficialAntigravityACP(ctx context.Context, result *StepResult) erro
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return fmt.Errorf("create Antigravity ACP directory %q failed: %w", root, err)
 	}
-	release, err := fetchAntigravityACPRelease(ctx)
+	release, err := fetchAntigravityACPRelease(ctx, env)
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func installOfficialAntigravityACP(ctx context.Context, result *StepResult) erro
 	archivePath := filepath.Join(root, ".download-"+release.agent.Version+".zip")
 	defer os.Remove(archivePath)
 	note(ctx, result, "downloading %s", release.binary.Archive)
-	if err := downloadFile(ctx, release.binary.Archive, archivePath); err != nil {
+	if err := downloadFile(ctx, env, release.binary.Archive, archivePath); err != nil {
 		return err
 	}
 
@@ -186,12 +186,12 @@ type antigravityRelease struct {
 	platform string
 }
 
-func fetchAntigravityACPRelease(ctx context.Context) (antigravityRelease, error) {
+func fetchAntigravityACPRelease(ctx context.Context, env map[string]string) (antigravityRelease, error) {
 	platform, err := antigravityRegistryPlatform()
 	if err != nil {
 		return antigravityRelease{}, err
 	}
-	body, err := httpGetLimited(ctx, acpRegistryURL, acpRegistryHost, maxRegistryBody)
+	body, err := httpGetLimited(ctx, env, acpRegistryURL, acpRegistryHost, maxRegistryBody)
 	if err != nil {
 		return antigravityRelease{}, fmt.Errorf("fetch ACP Registry failed: %w", err)
 	}
@@ -327,8 +327,8 @@ func removeOtherAntigravityVersions(root, keep string) ([]string, error) {
 	return removed, nil
 }
 
-func downloadFile(ctx context.Context, source, destination string) error {
-	body, err := openDownload(ctx, source)
+func downloadFile(ctx context.Context, env map[string]string, source, destination string) error {
+	body, err := openDownload(ctx, env, source)
 	if err != nil {
 		return err
 	}
@@ -344,7 +344,7 @@ func downloadFile(ctx context.Context, source, destination string) error {
 	return nil
 }
 
-func openDownload(ctx context.Context, source string) (io.ReadCloser, error) {
+func openDownload(ctx context.Context, env map[string]string, source string) (io.ReadCloser, error) {
 	if err := requireDownloadURL(source, antigravityArchiveHost); err != nil {
 		return nil, err
 	}
@@ -353,7 +353,7 @@ func openDownload(ctx context.Context, source string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("build download request for %q failed: %w", source, err)
 	}
 	request.Header.Set("User-Agent", "quartet")
-	client := &http.Client{CheckRedirect: allowHostRedirect(antigravityArchiveHost)}
+	client := httpClientForEnv(env, allowHostRedirect(antigravityArchiveHost))
 	response, err := client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("download %s failed: %w", source, err)
@@ -366,7 +366,7 @@ func openDownload(ctx context.Context, source string) (io.ReadCloser, error) {
 	return response.Body, nil
 }
 
-func httpGetLimited(ctx context.Context, source, host string, limit int64) ([]byte, error) {
+func httpGetLimited(ctx context.Context, env map[string]string, source, host string, limit int64) ([]byte, error) {
 	if err := requireDownloadURL(source, host); err != nil {
 		return nil, err
 	}
@@ -375,7 +375,7 @@ func httpGetLimited(ctx context.Context, source, host string, limit int64) ([]by
 		return nil, fmt.Errorf("build request for %q failed: %w", source, err)
 	}
 	request.Header.Set("User-Agent", "quartet")
-	client := &http.Client{CheckRedirect: allowHostRedirect(host)}
+	client := httpClientForEnv(env, allowHostRedirect(host))
 	response, err := client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("request %s failed: %w", source, err)
@@ -596,14 +596,15 @@ func note(ctx context.Context, result *StepResult, format string, args ...any) {
 
 // OfficialAntigravityACPVersions reads the installed registry marker and the
 // current ACP Registry release. A missing marker still returns the registry
-// version when that fetch succeeds.
+// version when that fetch succeeds. Unlike the install flow this probe runs on
+// ordinary page loads, so it stays on the backend process environment.
 func OfficialAntigravityACPVersions(ctx context.Context) (current, latest string, err error) {
 	root, rootErr := executil.AntigravityACPRoot()
 	if rootErr != nil {
 		return "", "", rootErr
 	}
 	current = readMarker(root, executil.AntigravityACPVersionFile)
-	release, fetchErr := fetchAntigravityACPRelease(ctx)
+	release, fetchErr := fetchAntigravityACPRelease(ctx, nil)
 	if fetchErr != nil {
 		if current == "" {
 			return "", "", fetchErr

@@ -93,7 +93,7 @@ func TestReconcileDeletingAgents_RestartClearsWorkspaceDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload Agent catalog after restart: %v", err)
 	}
-	probeCache, err := probe.NewCacheService()
+	probeCache, err := probe.NewCacheService(nil)
 	if err != nil {
 		t.Fatalf("create ACP probe cache: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestReconcileDeletingAgents_WorkspaceCleanupFailureKeepsDeleting(t *testing
 	if err := agentCatalog.SaveCustom(ctx, []model.CustomAgent{deletingAgentForReconcileTest(agentID)}); err != nil {
 		t.Fatalf("persist deleting Agent: %v", err)
 	}
-	probeCache, err := probe.NewCacheService()
+	probeCache, err := probe.NewCacheService(nil)
 	if err != nil {
 		t.Fatalf("create ACP probe cache: %v", err)
 	}

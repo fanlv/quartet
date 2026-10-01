@@ -17,10 +17,16 @@ import (
 
 const acpProbeDiskRefreshInterval = 10 * time.Minute
 
+// AgentEnvProvider returns the enabled ACP environment variables configured
+// for an agent (a stable AgentID, an install command or a bin name), keyed by
+// variable name. Install flows hand the result to every preset step.
+type AgentEnvProvider func(agentType string) map[string]string
+
 // CacheService owns the persisted ACP selector snapshot and coordinates it
 // with the process-wide live probe cache.
 type CacheService struct {
 	repo           repository.ACPProbeCacheRepo
+	agentEnv       AgentEnvProvider
 	persistMu      sync.Mutex
 	persistPending atomic.Bool
 }
@@ -89,12 +95,15 @@ func (s *CacheService) InvalidateBindingsAndPersist(
 	return s.persistLocked(ctx, true)
 }
 
-func NewCacheService() (*CacheService, error) {
+// NewCacheService builds the probe cache service. agentEnv supplies each
+// agent's configured ACP environment for install flows; pass nil to install
+// with the backend process environment only.
+func NewCacheService(agentEnv AgentEnvProvider) (*CacheService, error) {
 	repo, err := repository.NewACPProbeCacheRepo()
 	if err != nil {
 		return nil, fmt.Errorf("create ACP probe cache repository failed: %w", err)
 	}
-	return &CacheService{repo: repo}, nil
+	return &CacheService{repo: repo, agentEnv: agentEnv}, nil
 }
 
 // LoadPersisted reads the disk snapshot for the current request. Missing

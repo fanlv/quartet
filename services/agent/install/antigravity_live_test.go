@@ -46,7 +46,7 @@ func TestLiveOfficialAgyAndAntigravityACP(t *testing.T) {
 		t.Setenv("HOME", home)
 		t.Setenv("USERPROFILE", home)
 		var result StepResult
-		if err := installOfficialAntigravityACP(ctx, &result); err != nil {
+		if err := installOfficialAntigravityACP(ctx, nil, &result); err != nil {
 			t.Fatalf("install official Antigravity ACP server failed: %v\n%s", err, result.Stdout)
 		}
 		t.Log(result.Stdout)

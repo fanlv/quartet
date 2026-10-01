@@ -19,12 +19,14 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/hertz-contrib/cors v0.1.0
+	github.com/hertz-contrib/http2 v0.1.8
 	github.com/kanrichan/resvg-go v0.0.1
 	github.com/larksuite/oapi-sdk-go/v3 v3.5.3
 	github.com/tiktoken-go/tokenizer v0.7.0
 	github.com/volcengine/volcengine-go-sdk v1.2.9
 	golang.org/x/crypto v0.43.0
 	golang.org/x/image v0.22.0
+	golang.org/x/net v0.46.0
 	golang.org/x/sync v0.17.0
 	golang.org/x/sys v0.37.0
 	golang.org/x/term v0.36.0
@@ -81,7 +83,6 @@ require (
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/goph/emperror v0.17.2 // indirect
-	github.com/hertz-contrib/http2 v0.1.8 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
@@ -119,7 +120,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.29.0 // indirect
 	golang.org/x/arch v0.20.0 // indirect
 	golang.org/x/exp v0.0.0-20250718183923-645b1fa84792 // indirect
-	golang.org/x/net v0.46.0 // indirect
 	golang.org/x/oauth2 v0.23.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 	google.golang.org/api v0.197.0 // indirect

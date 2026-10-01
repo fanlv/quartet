@@ -26,6 +26,17 @@ var (
 	ErrNotUninstallable  = errors.New("built-in agent does not support automatic uninstall")
 )
 
+// installEnv returns the ACP environment configured for a built-in Agent. Every
+// preset install, upgrade and uninstall step runs with it, so an Agent that
+// needs a variable such as a proxy to reach its own vendor can be installed
+// and removed with the same settings its runtime uses.
+func (s *CacheService) installEnv(def ACPAgentDef) map[string]string {
+	if s == nil || s.agentEnv == nil {
+		return nil
+	}
+	return s.agentEnv(def.AgentID)
+}
+
 // ValidateAgent forces a live ACP validation for the given agent command and
 // updates the in-memory selector cache on success. Unlike the background
 // refresh fan-out it never consults the failure backoff — explicit
@@ -84,7 +95,7 @@ func (s *CacheService) runBuiltinAgentInstall(ctx context.Context, agentID strin
 		if upgrade {
 			stepsToRun = def.Install.StepsForUpgrade(platform)
 		}
-		steps, err := agentinstall.RunSteps(ctx, stepsToRun, installStepTimeout)
+		steps, err := agentinstall.RunSteps(ctx, stepsToRun, installStepTimeout, s.installEnv(def))
 		if err != nil {
 			return nil, err
 		}
@@ -158,7 +169,7 @@ func (s *CacheService) UninstallBuiltinAgent(ctx context.Context, agentID string
 	definition := agentinstall.Definition{Bin: def.Bin, ACPProgram: def.ACPProgram}
 	result := &model.AgentInstallResult{AgentID: agentID}
 
-	steps, err := agentinstall.RunSteps(ctx, def.Install.StepsForUninstall(platform), installStepTimeout)
+	steps, err := agentinstall.RunSteps(ctx, def.Install.StepsForUninstall(platform), installStepTimeout, s.installEnv(def))
 	if err != nil {
 		return nil, err
 	}
