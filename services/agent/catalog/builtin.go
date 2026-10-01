@@ -133,6 +133,7 @@ var builtinAgents = []BuiltinAgent{
 		},
 		DisplayName: "Claude", IconURL: "https://avatars.githubusercontent.com/u/81847", SupportsHeadlessPrint: true,
 		Install: npmInstallSpecWithUpgrade(
+			"claude", "claude-agent-acp",
 			allPlatforms(
 				agentinstall.CommandStep("claude", "update"),
 				agentinstall.NPMStep("@agentclientprotocol/claude-agent-acp"),
@@ -150,16 +151,16 @@ var builtinAgents = []BuiltinAgent{
 			Method: agentinstall.InstallMethodScript,
 			InstallSteps: agentinstall.PlatformSteps{
 				Darwin: []agentinstall.InstallStep{
-					agentinstall.UnixScriptStep("https://antigravity.google/cli/install.sh", "bash"),
-					agentinstall.OfficialAntigravityACPStep(),
+					agentinstall.UnixScriptStep("https://antigravity.google/cli/install.sh", "bash").WhenMissing("agy"),
+					agentinstall.OfficialAntigravityACPStep().WhenMissing(agentinstall.AntigravityACPProgram),
 				},
 				Linux: []agentinstall.InstallStep{
-					agentinstall.UnixScriptStep("https://antigravity.google/cli/install.sh", "bash"),
-					agentinstall.OfficialAntigravityACPStep(),
+					agentinstall.UnixScriptStep("https://antigravity.google/cli/install.sh", "bash").WhenMissing("agy"),
+					agentinstall.OfficialAntigravityACPStep().WhenMissing(agentinstall.AntigravityACPProgram),
 				},
 				Windows: []agentinstall.InstallStep{
-					agentinstall.PowerShellScriptStep("https://antigravity.google/cli/install.ps1"),
-					agentinstall.OfficialAntigravityACPStep(),
+					agentinstall.PowerShellScriptStep("https://antigravity.google/cli/install.ps1").WhenMissing("agy"),
+					agentinstall.OfficialAntigravityACPStep().WhenMissing(agentinstall.AntigravityACPProgram),
 				},
 			},
 			UpgradeSteps: agentinstall.PlatformSteps{
@@ -246,6 +247,7 @@ var builtinAgents = []BuiltinAgent{
 		},
 		DisplayName: "Codex", IconURL: "https://avatars.githubusercontent.com/u/14957082", SupportsHeadlessPrint: false,
 		Install: npmInstallSpecWithUpgrade(
+			"codex", "codex-acp",
 			allPlatforms(
 				agentinstall.CommandStep("codex", "update"),
 				agentinstall.NPMStep("@agentclientprotocol/codex-acp"),
@@ -360,8 +362,12 @@ func npmInstallSpec(packages ...string) agentinstall.InstallSpec {
 	}
 }
 
-func npmInstallSpecWithUpgrade(upgradeSteps agentinstall.PlatformSteps, packages ...string) agentinstall.InstallSpec {
-	spec := npmInstallSpec(packages...)
+func npmInstallSpecWithUpgrade(bin, acpProgram string, upgradeSteps agentinstall.PlatformSteps, cliPackage, acpPackage string) agentinstall.InstallSpec {
+	spec := npmInstallSpec(cliPackage, acpPackage)
+	spec.InstallSteps = allPlatforms(
+		agentinstall.NPMStep(cliPackage).WhenMissing(bin),
+		agentinstall.NPMStep(acpPackage).WhenMissing(acpProgram),
+	)
 	spec.UpgradeSteps = upgradeSteps
 	return spec
 }

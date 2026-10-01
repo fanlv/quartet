@@ -77,6 +77,13 @@ func runStep(ctx context.Context, step InstallStep, timeout time.Duration, env m
 	started := time.Now()
 	stepCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	if step.IfMissingExecutable != "" {
+		if path, err := executil.LookPath(step.IfMissingExecutable); err == nil {
+			result.ExitCode = 0
+			result.Stdout = fmt.Sprintf("Already installed; preserved existing executable: %s", path)
+			return result
+		}
+	}
 	if strings.HasPrefix(step.Program, "quartet-internal:") {
 		return runInternalStep(stepCtx, step, started, timeout, env)
 	}

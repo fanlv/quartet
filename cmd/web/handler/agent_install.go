@@ -58,6 +58,12 @@ func (h *Handler) AgentInstall(ctx context.Context, c *app.RequestContext) {
 		httputil.BadRequest(c, "agent_id is required")
 		return
 	}
+	if h.agentAuthentication != nil {
+		if err := h.agentAuthentication.CancelAgent(ctx, req.AgentID); err != nil {
+			httputil.Conflict(c, err.Error())
+			return
+		}
+	}
 
 	result, err := h.acpProbeCache.InstallBuiltinAgent(ctx, req.AgentID)
 	if err != nil {
@@ -87,6 +93,12 @@ func (h *Handler) AgentUninstall(ctx context.Context, c *app.RequestContext) {
 	if agentID == "" {
 		httputil.BadRequest(c, "agentId is required")
 		return
+	}
+	if h.agentAuthentication != nil {
+		if err := h.agentAuthentication.CancelAgent(ctx, agentID); err != nil {
+			httputil.Conflict(c, err.Error())
+			return
+		}
 	}
 
 	result, err := h.acpProbeCache.UninstallBuiltinAgent(ctx, agentID)

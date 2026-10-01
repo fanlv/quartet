@@ -40,11 +40,20 @@ func CurrentPlatform() Platform {
 // and Args are executed verbatim (no shell word-splitting); Display is the
 // human-readable rendering shown in the UI and results.
 type InstallStep struct {
-	Program       string
-	Args          []string
-	Dir           string
-	Display       string
-	SkipIfMissing bool
+	Program             string
+	Args                []string
+	Dir                 string
+	Display             string
+	SkipIfMissing       bool
+	IfMissingExecutable string
+}
+
+// WhenMissing associates an install step with the executable it provides.
+// Ordinary installs preserve existing components; upgrades deliberately ignore
+// this condition and re-run the publisher's upgrade commands.
+func (s InstallStep) WhenMissing(executable string) InstallStep {
+	s.IfMissingExecutable = executable
+	return s
 }
 
 // PlatformSteps declares host-specific lifecycle commands. Shared applies to
@@ -123,10 +132,13 @@ func (s InstallSpec) StepsForInstall(platform Platform) []InstallStep {
 // install command also upgrades.
 func (s InstallSpec) StepsForUpgrade(platform Platform) []InstallStep {
 	steps := s.UpgradeSteps.For(platform)
-	if len(steps) > 0 {
-		return steps
+	if len(steps) == 0 {
+		steps = s.StepsForInstall(platform)
 	}
-	return s.StepsForInstall(platform)
+	for index := range steps {
+		steps[index].IfMissingExecutable = ""
+	}
+	return steps
 }
 
 // StepsForUpgradePath returns the upgrade flow of the channel the resolved

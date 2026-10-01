@@ -177,6 +177,7 @@ Go tests: `go test ./...`
 
 - `services/agent/acp` — 通过 ACP 协议接入的外部 Agent 进程（含 eino-cli）的会话、运行与回放管理；是 quartet 唯一的 agent 接入路径。
 - `services/agent/catalog` — 内置与自定义 Agent 目录、稳定 AgentID、运行定义修订及历史引用解析。
+- `services/agent/authentication` — 统一 Agent 按需认证：发现 ACP 登录方式、复用已有凭据、主动协议登录、终端/环境变量认证引导、取消与登录后重新验证；不维护独立凭据库。
 - `services/agent/install`、`services/agent/versioncheck` — Agent 安装状态检查、受控安装/升级/卸载和版本检查。
 - `services/agent/chatctx` — Agent 聊天上下文的组装与维护。
 - `services/agent/round` — 单轮 Agent 交互的构建、刷新与生命周期管理。

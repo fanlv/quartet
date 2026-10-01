@@ -33,7 +33,7 @@ export function AgentManagement() {
         ))}
       </div>
       <div className="agent-management-content">
-        {activeTab === 'catalog' && <AgentInstallSettings />}
+        {activeTab === 'catalog' && <AgentInstallSettings onConfigureEnvironment={() => setActiveTab('env')} />}
         {activeTab === 'env' && <ACPSettings />}
         {activeTab === 'defaults' && <AgentDefaultsSettings />}
         {activeTab === 'roles' && <AgentRoleSettings />}

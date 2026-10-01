@@ -91,6 +91,10 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	agent.PUT("/custom/:agentId", permit(auth.PermissionAgentManage), h.UpdateCustomAgent)
 	agent.POST("/custom/:agentId/restore", permit(auth.PermissionAgentManage), h.RestoreCustomAgent)
 	agent.POST("/:agentId/revalidate", permit(auth.PermissionAgentManage), h.RevalidateAgent)
+	agent.GET("/:agentId/authentication", permit(auth.PermissionAgentManage), h.AgentAuthenticationInfo)
+	agent.POST("/:agentId/authentication", permit(auth.PermissionAgentManage), h.StartAgentAuthentication)
+	agent.GET("/:agentId/authentication/:attemptId", permit(auth.PermissionAgentManage), h.AgentAuthenticationAttempt)
+	agent.POST("/:agentId/authentication/:attemptId/cancel", permit(auth.PermissionAgentManage), h.CancelAgentAuthentication)
 	agent.GET("/custom/:agentId/delete-impact", permit(auth.PermissionAgentManage), h.CustomAgentDeleteImpact)
 	agent.POST("/custom/:agentId/delete", permit(auth.PermissionAgentManage), h.DeleteCustomAgent)
 

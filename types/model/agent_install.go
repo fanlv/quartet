@@ -43,8 +43,9 @@ type AgentInstallStepResult struct {
 // AgentValidationResult is the outcome of the full ACP validation run after a
 // successful install recheck.
 type AgentValidationResult struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
+	OK                     bool   `json:"ok"`
+	Error                  string `json:"error,omitempty"`
+	AuthenticationRequired bool   `json:"authentication_required,omitempty"`
 }
 
 // AgentInstallResult carries the full install attempt: every executed step's

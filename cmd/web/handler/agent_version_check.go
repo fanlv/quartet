@@ -38,6 +38,12 @@ func (h *Handler) AgentUpgrade(ctx context.Context, c *app.RequestContext) {
 		httputil.BadRequest(c, "agentId is required")
 		return
 	}
+	if h.agentAuthentication != nil {
+		if err := h.agentAuthentication.CancelAgent(ctx, agentID); err != nil {
+			httputil.Conflict(c, err.Error())
+			return
+		}
+	}
 
 	result, err := h.acpProbeCache.UpgradeBuiltinAgent(ctx, agentID)
 	if err != nil {

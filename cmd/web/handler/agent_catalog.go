@@ -45,7 +45,7 @@ func (h *Handler) AgentCatalog(ctx context.Context, c *app.RequestContext) {
 			if validation.Success {
 				item.LastValidationStatus = "available"
 			} else {
-				item.LastValidationStatus = "unavailable"
+				item.LastValidationStatus = validation.Availability()
 				item.LastValidationError = validation.Error
 			}
 			item.LastValidationAt = validation.RefreshedAt
@@ -74,7 +74,7 @@ func (h *Handler) AgentCatalog(ctx context.Context, c *app.RequestContext) {
 			case validation.Success:
 				item.Availability = "available"
 			default:
-				item.Availability = "unavailable"
+				item.Availability = validation.Availability()
 				item.AvailabilityError = validation.Error
 			}
 			item.Refreshing = validation.Refreshing

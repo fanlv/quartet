@@ -3,8 +3,11 @@ package acp
 import (
 	"context"
 	stdjson "encoding/json"
+	"fmt"
+	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	acp "github.com/eino-contrib/acp"
@@ -32,8 +35,10 @@ type registeredHandler struct {
 type sdkClient struct {
 	acp.BaseClient
 
-	autoApprove bool
-	onActivity  func()
+	autoApprove   bool
+	onActivity    func()
+	onAuthLink    func(string, string)
+	loginRequired atomic.Bool
 
 	mu       sync.Mutex
 	handlers map[acp.SessionID]*registeredHandler
@@ -47,6 +52,34 @@ func newSDKClient() *sdkClient {
 		autoApprove: true,
 		handlers:    make(map[acp.SessionID]*registeredHandler),
 	}
+}
+
+func (c *sdkClient) UnstableCreateElicitation(ctx context.Context, params acp.CreateElicitationRequest) (acp.CreateElicitationResponse, error) {
+	if request, ok := params.AsURL(); ok && c.onAuthLink != nil {
+		var authURL string
+		if scope, ok := request.ElicitationURLMode.AsElicitationRequestScope(); ok && scope.URL != nil {
+			authURL = *scope.URL
+		}
+		if scope, ok := request.ElicitationURLMode.AsElicitationSessionScope(); ok && scope.URL != nil {
+			authURL = *scope.URL
+		}
+		message := ""
+		if request.Message != nil {
+			message = *request.Message
+		}
+		parsed, err := url.Parse(authURL)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+			return acp.CreateElicitationResponse{}, fmt.Errorf("ACP authentication returned an invalid authorization URL: %q", authURL)
+		}
+		c.onAuthLink(authURL, message)
+		return acp.NewCreateElicitationResponseAccept(acp.CreateElicitationResponseAccept{}), nil
+	}
+	c.loginRequired.Store(true)
+	return acp.NewCreateElicitationResponseDecline(acp.CreateElicitationResponseDecline{}), nil
+}
+
+func (c *sdkClient) UnstableElicitationComplete(context.Context, acp.CompleteElicitationNotification) error {
+	return nil
 }
 
 // HandleExtNotification accepts vendor-specific push notifications outside

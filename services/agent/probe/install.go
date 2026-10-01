@@ -81,7 +81,7 @@ func (s *CacheService) runBuiltinAgentInstall(ctx context.Context, agentID strin
 
 	checker := agentinstall.Checker{}
 	definition := agentinstall.Definition{Bin: def.Bin, ACPProgram: def.ACPProgram}
-	result := &model.AgentInstallResult{AgentID: agentID}
+	result := &model.AgentInstallResult{AgentID: agentID, Steps: []model.AgentInstallStepResult{}}
 	precheck := checker.Check(definition)
 	if upgrade && !precheck.Installed {
 		return nil, fmt.Errorf("%w: %q (%s): %s", ErrAgentNotInstalled, agentID, def.DisplayName, precheck.Error)
@@ -136,7 +136,9 @@ func (s *CacheService) runBuiltinAgentInstall(ctx context.Context, agentID strin
 
 	validation := &model.AgentValidationResult{}
 	binding := catalog.BindingForBuiltin(def)
-	if err := ValidateAgent(ctx, binding, agentEnvVersion(def.AgentID)); err != nil {
+	entry, validateErr := ValidateBinding(ctx, binding, agentEnvVersion(def.AgentID), nil)
+	validation.AuthenticationRequired = entry.AuthenticationRequired
+	if err := validateErr; err != nil {
 		validation.Error = err.Error()
 	} else {
 		validation.OK = true
@@ -167,7 +169,7 @@ func (s *CacheService) UninstallBuiltinAgent(ctx context.Context, agentID string
 
 	checker := agentinstall.Checker{}
 	definition := agentinstall.Definition{Bin: def.Bin, ACPProgram: def.ACPProgram}
-	result := &model.AgentInstallResult{AgentID: agentID}
+	result := &model.AgentInstallResult{AgentID: agentID, Steps: []model.AgentInstallStepResult{}}
 
 	steps, err := agentinstall.RunSteps(ctx, def.Install.StepsForUninstall(platform), installStepTimeout, s.installEnv(def))
 	if err != nil {

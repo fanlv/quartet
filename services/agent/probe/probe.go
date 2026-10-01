@@ -6,6 +6,7 @@ package probe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -390,6 +391,8 @@ func validateBindingWithEnvironment(
 	}
 	if err != nil {
 		entry.Error = err.Error()
+		var authErr *pkgacp.AuthenticationRequiredError
+		entry.AuthenticationRequired = errors.As(err, &authErr)
 	} else {
 		entry.Models = cloneSessionModelState(fresh.models)
 		entry.Modes = cloneSessionModeState(fresh.modes)
@@ -876,7 +879,7 @@ func fetchACPSessionInfoForAgent(ctx context.Context, command, preferredModelID 
 
 	// Probe sessions are cheap; create a fresh session each time to avoid
 	// persisting/maintaining probe-session IDs across refresh cycles.
-	sessResp, err := acpConn.NewSession(ctx, cwd)
+	sessResp, err := acpConn.ProbeSession(ctx, cwd)
 	if err != nil {
 		err = fmt.Errorf("create ACP session failed: cmd=%s: %w", command, err)
 		recordProbeFailure(ctx, command, err)

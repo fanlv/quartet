@@ -142,7 +142,7 @@ func (h *Handler) CreateCustomAgent(ctx context.Context, c *app.RequestContext) 
 
 	envVersion := int64(1)
 	validation, err := probe.ValidateBindingCandidate(ctx, candidateBinding, envVersion, toACPEnv(req.Environment))
-	if err != nil {
+	if err != nil && !validation.AuthenticationRequired {
 		httputil.BadRequest(c, fmt.Sprintf(
 			"validate custom Agent candidate failed: revision=%q: %v",
 			revision,
@@ -302,7 +302,7 @@ func (h *Handler) upsertExistingCustomAgent(ctx context.Context, c *app.RequestC
 		proposedEnvVersion++
 	}
 	validation, err := probe.ValidateBindingCandidate(ctx, binding, proposedEnvVersion, validationEnv)
-	if err != nil {
+	if err != nil && !validation.AuthenticationRequired {
 		httputil.BadRequest(c, fmt.Sprintf(
 			"validate custom Agent failed: AgentID=%q revision=%q: %v",
 			agentID,
@@ -330,7 +330,7 @@ func (h *Handler) upsertExistingCustomAgent(ctx context.Context, c *app.RequestC
 		stagedEnvVersion = envVersion
 		if envVersion != proposedEnvVersion {
 			validation, err = probe.ValidateBindingCandidate(ctx, binding, envVersion, nil)
-			if err != nil {
+			if err != nil && !validation.AuthenticationRequired {
 				if rollbackErr := h.settingsService.RestoreACPEnvState(
 					agentID,
 					stagedEnvVersion,
@@ -471,7 +471,7 @@ func (h *Handler) RevalidateAgent(ctx context.Context, c *app.RequestContext) {
 		nil,
 	)
 	persistErr := h.acpProbeCache.PersistNow(ctx)
-	if validateErr != nil {
+	if validateErr != nil && !result.AuthenticationRequired {
 		if persistErr != nil {
 			validateErr = fmt.Errorf("%w; persist ACP validation result failed: %v", validateErr, persistErr)
 		}
@@ -489,6 +489,9 @@ func (h *Handler) RevalidateAgent(ctx context.Context, c *app.RequestContext) {
 			"Agent validation succeeded, but persisting the result failed: %v",
 			persistErr,
 		)
+		if result.AuthenticationRequired {
+			response["warning"] = fmt.Sprintf("Agent requires authentication; persisting the validation result failed: %v", persistErr)
+		}
 	}
 	c.JSON(http.StatusOK, response)
 }
@@ -640,6 +643,12 @@ func (h *Handler) DeleteCustomAgent(ctx context.Context, c *app.RequestContext) 
 			strings.Join(blocking, ", "),
 		))
 		return
+	}
+	if h.agentAuthentication != nil {
+		if err := h.agentAuthentication.CancelAgent(ctx, agentID); err != nil {
+			httputil.Conflict(c, err.Error())
+			return
+		}
 	}
 	h.agentExecutions.waitForExecutions(agentID)
 	// A GraphRun snapshot holds an Agent execution lease until the run is

@@ -17,6 +17,7 @@ import (
 	"github.com/fanlv/quartet/pkg/executil"
 	"github.com/fanlv/quartet/pkg/json"
 	"github.com/fanlv/quartet/pkg/logger"
+	"github.com/fanlv/quartet/types/consts"
 )
 
 const (
@@ -95,6 +96,13 @@ type Conn struct {
 	// the duplicate-message bug where load-time replay events are treated
 	// as freshly generated output and re-persisted / re-pushed.
 	supportsResume bool
+	authMethods    []acp.AuthMethod
+}
+
+type connOptions struct {
+	noBrowser  bool
+	onOutput   func(string)
+	onAuthLink func(string, string)
 }
 
 // Pid returns the subprocess PID, or 0 if the process is not running.
@@ -354,13 +362,17 @@ func NewProbeConn(ctx context.Context, agentType, workdir string) (*Conn, error)
 		ctx, cancel = context.WithTimeout(ctx, connCreateTimeout)
 		defer cancel()
 	}
-	return NewConn(ctx, agentType, workdir)
+	return newConn(ctx, agentType, workdir, connOptions{noBrowser: true})
 }
 
 // NewConn starts an ACP agent subprocess and completes the initialize
 // handshake. Caller is responsible for tracking the returned Conn for idle
 // reaping if desired; most callers should use NewTrackedConn instead.
 func NewConn(ctx context.Context, agentType, workdir string) (*Conn, error) {
+	return newConn(ctx, agentType, workdir, connOptions{})
+}
+
+func newConn(ctx context.Context, agentType, workdir string, options connOptions) (*Conn, error) {
 	if strings.TrimSpace(agentType) == "" {
 		return nil, fmt.Errorf("agentType is empty")
 	}
@@ -412,6 +424,9 @@ func NewConn(ctx context.Context, agentType, workdir string) (*Conn, error) {
 	if workdir != "" {
 		cmd.Dir = workdir
 	}
+	if options.noBrowser {
+		cmd.Env = append(cmd.Env, consts.EnvKeyNoBrowser+"=1", consts.EnvKeyBrowser+"="+nonInteractiveBrowser())
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -422,7 +437,7 @@ func NewConn(ctx context.Context, agentType, workdir string) (*Conn, error) {
 		stdin.Close()
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
-	var stderrBuf syncBuffer
+	stderrBuf := syncBuffer{onWrite: options.onOutput}
 	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {
@@ -432,6 +447,7 @@ func NewConn(ctx context.Context, agentType, workdir string) (*Conn, error) {
 	}
 
 	client := newSDKClient()
+	client.onAuthLink = options.onAuthLink
 
 	// stdio.NewTransport takes (reader, writer): reader = subprocess stdout,
 	// writer = subprocess stdin. Wrap with fixLineTypeTransport to repair
@@ -469,23 +485,28 @@ func NewConn(ctx context.Context, agentType, workdir string) (*Conn, error) {
 	// happen inside a lifetime context; we use Background so the loop
 	// is torn down only by c.conn.Close() in Conn.Close().
 	if err := sdkConn.Start(context.Background()); err != nil {
-		_ = sdkConn.Close()
-		_ = cmd.Process.Kill()
-		c.waitForProcessExit(gracefulShutdownTimeout)
+		c.Close()
 		return nil, fmt.Errorf("acp start failed: %w, stderr: %s", err, stderrBuf.String())
 	}
 
+	var capabilities *acp.ClientCapabilities
+	if options.noBrowser || options.onAuthLink != nil {
+		capabilities = &acp.ClientCapabilities{
+			Auth:        &acp.AuthCapabilities{Terminal: true},
+			Elicitation: &acp.ElicitationCapabilities{URL: &acp.ElicitationURLCapabilities{}},
+		}
+	}
 	initResp, err := sdkConn.Initialize(ctx, acp.InitializeRequest{
-		ProtocolVersion: acp.ProtocolVersion(acp.CurrentProtocolVersion),
-		ClientInfo:      &acp.Implementation{Name: "quartet", Version: "0.1.0"},
+		ProtocolVersion:    acp.ProtocolVersion(acp.CurrentProtocolVersion),
+		ClientInfo:         &acp.Implementation{Name: "quartet", Version: "0.1.0"},
+		ClientCapabilities: capabilities,
 	})
 	if err != nil {
-		_ = sdkConn.Close()
-		_ = cmd.Process.Kill()
-		c.waitForProcessExit(gracefulShutdownTimeout)
+		c.Close()
 		return nil, fmt.Errorf("acp initialize failed: %w, stderr: %s", err, stderrBuf.String())
 	}
 	logger.Debugf(ctx, "[ACP] connected to agentType=%s initResp=%s", agentType, json.String(initResp))
+	c.authMethods = initResp.AuthMethods
 
 	// Record resume support so the reconnect path can prefer session/resume
 	// (no history replay) over session/load (replays history via

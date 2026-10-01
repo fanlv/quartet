@@ -18,10 +18,11 @@ const (
 
 // syncBuffer is a thread-safe, size-limited buffer for capturing subprocess stderr.
 type syncBuffer struct {
-	mu    sync.Mutex
-	head  bytes.Buffer
-	tail  []byte
-	total int64
+	mu      sync.Mutex
+	head    bytes.Buffer
+	tail    []byte
+	total   int64
+	onWrite func(string)
 }
 
 func (b *syncBuffer) Write(p []byte) (int, error) {
@@ -30,6 +31,9 @@ func (b *syncBuffer) Write(p []byte) (int, error) {
 		return 0, nil
 	}
 
+	if b.onWrite != nil {
+		b.onWrite(string(p))
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

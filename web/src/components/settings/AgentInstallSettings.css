@@ -1157,6 +1157,7 @@
 }
 
 .agent-status.agent-status-pending_validation,
+.agent-status.agent-status-needs_authentication,
 .agent-status.agent-status-validating,
 .agent-status.agent-status-deleting {
   background: var(--warn-soft);

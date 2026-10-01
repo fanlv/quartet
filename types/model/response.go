@@ -169,6 +169,21 @@ type AgentInfo struct {
 	ThoughtLevels *SessionThoughtLevelState `json:"thoughtLevels,omitempty"`
 }
 
+// Availability separates an installed runtime needing credentials from a
+// broken runtime. Callers still gate execution on Success, never on installation.
+func (e ACPProbeCacheEntry) Availability() string {
+	if e.Refreshing && e.RefreshedAt == 0 {
+		return "validating"
+	}
+	if e.Success {
+		return "available"
+	}
+	if e.AuthenticationRequired {
+		return "needs_authentication"
+	}
+	return "unavailable"
+}
+
 type SessionModelState struct {
 	AvailableModels []ModelInfoACP `json:"availableModels"`
 	CurrentModelId  string         `json:"currentModelId"`
@@ -212,17 +227,18 @@ const ACPProbeCacheVersion = 2
 // stable AgentID. Revision and EnvVersion make stale results unusable without
 // deleting the diagnostic record.
 type ACPProbeCacheEntry struct {
-	AgentID       string                    `json:"agent_id"`
-	Revision      string                    `json:"revision"`
-	RuntimeKey    string                    `json:"runtime_key"`
-	EnvVersion    int64                     `json:"env_version"`
-	Success       bool                      `json:"success"`
-	Error         string                    `json:"error,omitempty"`
-	Refreshing    bool                      `json:"refreshing,omitempty"`
-	RefreshedAt   int64                     `json:"refreshed_at,omitempty"`
-	Models        *SessionModelState        `json:"models,omitempty"`
-	Modes         *SessionModeState         `json:"modes,omitempty"`
-	ThoughtLevels *SessionThoughtLevelState `json:"thoughtLevels,omitempty"`
+	AgentID                string                    `json:"agent_id"`
+	Revision               string                    `json:"revision"`
+	RuntimeKey             string                    `json:"runtime_key"`
+	EnvVersion             int64                     `json:"env_version"`
+	Success                bool                      `json:"success"`
+	Error                  string                    `json:"error,omitempty"`
+	AuthenticationRequired bool                      `json:"authentication_required,omitempty"`
+	Refreshing             bool                      `json:"refreshing,omitempty"`
+	RefreshedAt            int64                     `json:"refreshed_at,omitempty"`
+	Models                 *SessionModelState        `json:"models,omitempty"`
+	Modes                  *SessionModeState         `json:"modes,omitempty"`
+	ThoughtLevels          *SessionThoughtLevelState `json:"thoughtLevels,omitempty"`
 }
 
 // ACPProbeCacheSnapshot is the last complete in-memory ACP cache written to

@@ -32,6 +32,10 @@ const (
 	EnvKeyCertsDir             = "QUARTET_CERTS_DIR"       // dir holding cert.pem/key.pem; presence enables HTTPS; default "certs" (relative to cwd)
 	EnvKeyCodexPath            = "CODEX_PATH"              // Codex executable selected by codex-acp
 	EnvKeyClaudeCodeExecutable = "CLAUDE_CODE_EXECUTABLE"  // Claude Code executable selected by claude-agent-acp
+	EnvKeyNoBrowser            = "NO_BROWSER"              // disable automatic browser login in ACP probes and web authentication
+	EnvKeyBrowser              = "BROWSER"                 // browser command used by agents; probes replace it with a no-op
+	EnvKeyGeminiAPIKey         = "GEMINI_API_KEY"          // Gemini API-key authentication
+	EnvKeyOpenAIAPIKey         = "OPENAI_API_KEY"          // OpenAI API-key authentication
 )
 
 // Error codes

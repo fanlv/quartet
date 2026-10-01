@@ -14,6 +14,7 @@ import (
 	wechatlisten "github.com/fanlv/quartet/pkg/messaging/wechat"
 	"github.com/fanlv/quartet/pkg/messaging/wechat/ilink"
 	"github.com/fanlv/quartet/services/agent/acp"
+	"github.com/fanlv/quartet/services/agent/authentication"
 	"github.com/fanlv/quartet/services/agent/catalog"
 	"github.com/fanlv/quartet/services/agent/probe"
 	"github.com/fanlv/quartet/services/agent/usage"
@@ -111,6 +112,7 @@ type Handler struct {
 	acpAgentService      acp.ACPService
 	agentCatalog         *catalog.Service
 	agentExecutions      *agentExecutionGate
+	agentAuthentication  *authentication.Service
 	settingsService      config.SettingsService
 	promptService        prompt.Service
 	graphService         graph.Service
@@ -324,6 +326,7 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 		skillsService:        skillsSvc,
 		authService:          authSvc,
 	}
+	h.agentAuthentication = authentication.NewService(ctx, agentCatalog, ss, acpProbeCache, h.agentExecutions.acquireExecution)
 	if !startupCheck {
 		if err := h.initializeEinoUsageModels(ctx); err != nil {
 			// Eino is optional, so a missing/broken local eino-cli must not make the

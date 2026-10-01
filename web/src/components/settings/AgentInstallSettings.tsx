@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { isImageUrl, resolveIconSrc } from '../../utils/url';
 import { clearDeletedAgentLocalPreferences } from '../../utils/workspace';
+import { AgentAuthenticationPanel } from './AgentAuthenticationPanel';
 import './AgentInstallSettings.css';
 
 interface InstallStepResult {
@@ -20,7 +21,7 @@ interface InstallResult {
   steps: InstallStepResult[];
   installed: boolean;
   install_error?: string;
-  validation?: { ok: boolean; error?: string };
+  validation?: { ok: boolean; error?: string; authentication_required?: boolean };
 }
 
 type InstallAction = 'install' | 'upgrade' | 'uninstall';
@@ -442,7 +443,7 @@ function readUpgradeResult(
 // component versions and runs catalog-controlled install/upgrade flows. The
 // backend only accepts an agent_id; complete step output, recheck and
 // validation results remain visible in the UI.
-export function AgentInstallSettings() {
+export function AgentInstallSettings({ onConfigureEnvironment }: { onConfigureEnvironment?: () => void } = {}) {
   const { t } = useTranslation();
   const [catalog, setCatalog] = useState<CatalogAgent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -460,6 +461,8 @@ export function AgentInstallSettings() {
   const [form, setForm] = useState<CustomFormState | null>(null);
   const [managementPending, setManagementPending] = useState('');
   const [managementMessage, setManagementMessage] = useState('');
+  const [authenticationAgent, setAuthenticationAgent] = useState<CatalogAgent | null>(null);
+  const authRequest = useCallback((url: string, init?: RequestInit) => requestJSON(t, url, init), [t]);
   const [deleteResult, setDeleteResult] = useState<DeleteResult | null>(null);
   const [revisionMap, setRevisionMap] = useState<Record<string, Array<{ revision: string; definition: RuntimeDefinition }>>>({});
   const [validationFeedback, setValidationFeedback] = useState<Record<string, ValidationFeedback>>({});
@@ -626,11 +629,13 @@ export function AgentInstallSettings() {
       });
       await loadData(false);
       const warning = typeof data.warning === 'string' ? data.warning : '';
+      const validation = data.validation as { authentication_required?: boolean; error?: string } | undefined;
+      const requiresAuthentication = validation?.authentication_required === true;
       setValidationFeedback((current) => ({
         ...current,
         [agent.agent_id]: {
-          status: warning ? 'warning' : 'success',
-          message: warning || t('settings.agents.checkSucceeded'),
+          status: warning || requiresAuthentication ? 'warning' : 'success',
+          message: [requiresAuthentication ? t('settings.agents.auth.required') : t('settings.agents.checkSucceeded'), warning, requiresAuthentication ? validation?.error : ''].filter(Boolean).join('\n\n'),
         },
       }));
     } catch (err) {
@@ -947,7 +952,9 @@ export function AgentInstallSettings() {
             : 'settings.agents.result.upgradeFailed'
       : ok
         ? 'settings.agents.result.success'
-        : result.installed
+        : result.validation?.authentication_required
+          ? 'settings.agents.result.authenticationRequired'
+          : result.installed
           ? 'settings.agents.result.validationFailed'
           : 'settings.agents.result.failed';
     return (
@@ -1126,6 +1133,18 @@ export function AgentInstallSettings() {
       {managementMessage && (
         <pre className="agent-install-request-error">{managementMessage}</pre>
       )}
+      {authenticationAgent && <AgentAuthenticationPanel
+        key={authenticationAgent.agent_id}
+        agentId={authenticationAgent.agent_id}
+        name={authenticationAgent.display_name}
+        request={authRequest}
+        onClose={() => setAuthenticationAgent(null)}
+        onConfigureEnvironment={onConfigureEnvironment}
+        onChanged={() => {
+          window.dispatchEvent(new CustomEvent('quartet:agent-catalog-changed', { detail: { agentId: authenticationAgent.agent_id } }));
+          void loadData(false);
+        }}
+      />}
       {deleteResult && (
         <details className="agent-install-result-details" open>
           <summary>{t('settings.agents.deleteResult')}</summary>
@@ -1203,6 +1222,13 @@ export function AgentInstallSettings() {
                   </span>
                 </div>
                 <div className="agent-install-card-actions">
+                  {agent.installed && !agent.deprecated && agent.lifecycle === 'active' && (
+                    <button type="button" className="settings-btn settings-btn-secondary agent-auth-btn"
+                      disabled={installBusy !== null || managementPending !== '' || form !== null}
+                      onClick={() => setAuthenticationAgent(agent)} data-testid="agent-auth-button">
+                      {t(agent.availability === 'needs_authentication' ? 'settings.agents.auth.login' : 'settings.agents.auth.manage')}
+                    </button>
+                  )}
                   {agent.source === 'builtin' && !agent.deprecated && !agent.installed && agent.auto_installable && (
                     <button
                       type="button"

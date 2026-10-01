@@ -39,7 +39,7 @@ func (h *Handler) AgentList(ctx context.Context, c *app.RequestContext) {
 				availability = "available"
 				available = true
 			} else {
-				availability = "unavailable"
+				availability = validation.Availability()
 			}
 		}
 		capabilities := []string{"acp"}
@@ -98,7 +98,7 @@ func (h *Handler) AgentList(ctx context.Context, c *app.RequestContext) {
 				availability = "available"
 				available = true
 			} else {
-				availability = "unavailable"
+				availability = validation.Availability()
 			}
 		}
 		if !matched {
