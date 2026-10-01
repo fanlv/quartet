@@ -259,10 +259,12 @@ var builtinAgents = []BuiltinAgent{
 		Install: agentinstall.InstallSpec{
 			Method:       agentinstall.InstallMethodNPM,
 			InstallSteps: agentinstall.NPMInstallFlow("@tencent-ai/codebuddy-code"),
-			// `codebuddy update` follows the install channel: npm installs update from
-			// the npm registry, native installs update from the publisher's release
-			// endpoint. Those two channels are not always the same version.
-			UpgradeSteps: allPlatforms(agentinstall.CommandStep("codebuddy", "update")),
+			// `codebuddy update` reads an npm global install under Homebrew's node
+			// prefix as a Homebrew install and then reports "up to date" without
+			// upgrading. npm installs upgrade through the npm registry instead,
+			// matching the version they are compared against; only native installs
+			// use `codebuddy update`, which follows the publisher's release endpoint.
+			NativeUpgradeSteps: allPlatforms(agentinstall.CommandStep("codebuddy", "update")),
 			UninstallSteps: agentinstall.NPMOrNativeUninstallFlow(
 				[]string{"@tencent-ai/codebuddy-code"},
 				".local/bin/codebuddy", ".local/share/codebuddy",

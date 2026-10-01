@@ -90,6 +90,11 @@ type InstallSpec struct {
 	InstallSteps   PlatformSteps
 	UpgradeSteps   PlatformSteps
 	UninstallSteps PlatformSteps
+	// NativeUpgradeSteps is the upgrade flow of the native installer. It is
+	// used instead of UpgradeSteps when the resolved executable lives under
+	// NativeInstallDirs, so the upgrade command follows the same channel as
+	// the version comparison.
+	NativeUpgradeSteps PlatformSteps
 	// VersionPackage is the npm package whose published version is the latest
 	// release for an npm installation of this agent.
 	VersionPackage string
@@ -122,6 +127,20 @@ func (s InstallSpec) StepsForUpgrade(platform Platform) []InstallStep {
 		return steps
 	}
 	return s.StepsForInstall(platform)
+}
+
+// StepsForUpgradePath returns the upgrade flow of the channel the resolved
+// executable belongs to: the native updater when resolvedPath is a native
+// install, otherwise the regular upgrade or install flow. A CLI that picks its
+// update channel on its own may not agree with the version comparison, so
+// callers that know the installed executable must use this variant.
+func (s InstallSpec) StepsForUpgradePath(platform Platform, resolvedPath string) []InstallStep {
+	if s.UsesNativeRelease(resolvedPath) {
+		if steps := s.NativeUpgradeSteps.For(platform); len(steps) > 0 {
+			return steps
+		}
+	}
+	return s.StepsForUpgrade(platform)
 }
 
 func (s InstallSpec) StepsForUninstall(platform Platform) []InstallStep {
@@ -192,6 +211,7 @@ func (s InstallSpec) HasNonNPMSteps(platform Platform) bool {
 func (s InstallSpec) Clone() InstallSpec {
 	s.InstallSteps = s.InstallSteps.clone()
 	s.UpgradeSteps = s.UpgradeSteps.clone()
+	s.NativeUpgradeSteps = s.NativeUpgradeSteps.clone()
 	s.UninstallSteps = s.UninstallSteps.clone()
 	s.NativeInstallDirs = append([]string(nil), s.NativeInstallDirs...)
 	return s

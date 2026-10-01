@@ -93,7 +93,7 @@ func (s *CacheService) runBuiltinAgentInstall(ctx context.Context, agentID strin
 	if upgrade || !precheck.Installed {
 		stepsToRun := def.Install.StepsForInstall(platform)
 		if upgrade {
-			stepsToRun = def.Install.StepsForUpgrade(platform)
+			stepsToRun = def.Install.StepsForUpgradePath(platform, precheck.Bin.ResolvedPath)
 		}
 		steps, err := agentinstall.RunSteps(ctx, stepsToRun, installStepTimeout, s.installEnv(def))
 		if err != nil {
