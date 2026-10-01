@@ -20,8 +20,9 @@ import (
 const processTreeWaitDelay = 2 * time.Second
 
 const (
-	InternalProgramRemovePaths  = "quartet-internal:remove-user-paths"
-	InternalProgramBuildEinoCLI = "quartet-internal:build-eino-cli"
+	InternalProgramRemovePaths           = "quartet-internal:remove-user-paths"
+	InternalProgramBuildEinoCLI          = "quartet-internal:build-eino-cli"
+	InternalProgramInstallAntigravityACP = "quartet-internal:install-antigravity-acp"
 )
 
 // installMu serializes all automatic installs process-wide. quartet is a
@@ -196,6 +197,8 @@ func runInternalStep(ctx context.Context, step InstallStep, started time.Time, t
 		err = removeUserPaths(ctx, step.Args, &result)
 	case InternalProgramBuildEinoCLI:
 		err = buildEinoCLI(ctx, &result)
+	case InternalProgramInstallAntigravityACP:
+		err = installOfficialAntigravityACP(ctx, &result)
 	default:
 		err = fmt.Errorf("unknown internal install program %q", step.Program)
 	}

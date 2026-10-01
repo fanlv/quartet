@@ -61,6 +61,7 @@ func fallbackDirs() []string {
 			dirs = append(dirs, filepath.Join(programFiles, "Kiro-Cli"))
 		}
 	}
+	dirs = append(dirs, extraFallbackDirs()...)
 	return uniqueDirs(dirs)
 }
 

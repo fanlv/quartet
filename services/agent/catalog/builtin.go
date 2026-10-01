@@ -141,49 +141,49 @@ var builtinAgents = []BuiltinAgent{
 		),
 	},
 	{
-		AgentID: "agy", Bin: "agy", ACPProgram: "antigravity-acp", Command: "antigravity-acp", EnvKey: "agy",
+		AgentID: "agy", Bin: "agy", ACPProgram: agentinstall.AntigravityACPProgram, Command: agentinstall.AntigravityACPProgram, EnvKey: "agy",
+		HistoricalIdentifiers: []HistoricalIdentifier{
+			{Kind: IdentifierKindACPCommand, Value: "antigravity-acp"},
+		},
 		DisplayName: "Antigravity", IconURL: "https://avatars.githubusercontent.com/u/242056456", SupportsHeadlessPrint: false,
 		Install: agentinstall.InstallSpec{
 			Method: agentinstall.InstallMethodScript,
 			InstallSteps: agentinstall.PlatformSteps{
 				Darwin: []agentinstall.InstallStep{
 					agentinstall.UnixScriptStep("https://antigravity.google/cli/install.sh", "bash"),
-					agentinstall.NPMStep("bun"),
-					agentinstall.NPMStep("antigravity-acp"),
+					agentinstall.OfficialAntigravityACPStep(),
 				},
 				Linux: []agentinstall.InstallStep{
 					agentinstall.UnixScriptStep("https://antigravity.google/cli/install.sh", "bash"),
-					agentinstall.NPMStep("bun"),
-					agentinstall.NPMStep("antigravity-acp"),
+					agentinstall.OfficialAntigravityACPStep(),
 				},
 				Windows: []agentinstall.InstallStep{
 					agentinstall.PowerShellScriptStep("https://antigravity.google/cli/install.ps1"),
-					agentinstall.NPMStep("bun"),
-					agentinstall.NPMStep("antigravity-acp"),
+					agentinstall.OfficialAntigravityACPStep(),
 				},
 			},
 			UpgradeSteps: agentinstall.PlatformSteps{
 				Shared: []agentinstall.InstallStep{
 					agentinstall.CommandStep("agy", "update"),
-					agentinstall.NPMStep("bun"),
-					agentinstall.NPMStep("antigravity-acp"),
+					agentinstall.OfficialAntigravityACPStep(),
 				},
 			},
 			UninstallSteps: agentinstall.PlatformSteps{
 				Darwin: []agentinstall.InstallStep{
 					agentinstall.OptionalNPMUninstallStep("antigravity-acp"),
-					agentinstall.RemovePathsStep(".local/bin/agy"),
+					agentinstall.RemovePathsStep(agentinstall.AntigravityUninstallPaths(agentinstall.PlatformDarwin)...),
 				},
 				Linux: []agentinstall.InstallStep{
 					agentinstall.OptionalNPMUninstallStep("antigravity-acp"),
-					agentinstall.RemovePathsStep(".local/bin/agy"),
+					agentinstall.RemovePathsStep(agentinstall.AntigravityUninstallPaths(agentinstall.PlatformLinux)...),
 				},
 				Windows: []agentinstall.InstallStep{
 					agentinstall.OptionalNPMUninstallStep("antigravity-acp"),
-					agentinstall.RemovePathsStep("AppData/Local/agy/bin"),
+					agentinstall.RemovePathsStep(agentinstall.AntigravityUninstallPaths(agentinstall.PlatformWindows)...),
 				},
 			},
-			Instructions: "安装会同时安装 Bun 运行时和 antigravity-acp；卸载时保留可能被其他工具共用的 Bun。",
+			ACPRegistryID: agentinstall.AntigravityACPRegistryID,
+			Instructions:  "安装 agy 命令行，并从 ACP Registry 下载 Google 官方 ACP server。卸载会移除这两份程序，并清掉已安装的第三方 antigravity-acp；登录凭据保留。官方 server 使用自己的 Google 登录，不沿用 agy 命令行的登录。",
 		},
 	},
 	{

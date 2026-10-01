@@ -73,6 +73,7 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 	publishedVersionRefs := make(map[string][]componentRef)
 	publishedURLRefs := make(map[string][]componentRef)
 	binaryTasks := make([]binaryTask, 0)
+	var registryRefs []componentRef
 	checker := agentinstall.Checker{}
 	platform := agentinstall.CurrentPlatform()
 
@@ -159,6 +160,14 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 				)
 			}
 		}
+		if entry.Source == model.AgentCatalogSourceBuiltin && entry.Builtin.Install.ACPRegistryID != "" {
+			componentIndex := len(infos[infoIndex].Components)
+			infos[infoIndex].Components = append(infos[infoIndex].Components, model.AgentVersionComponent{
+				Name: agentinstall.AntigravityACPProgram,
+				Kind: "binary",
+			})
+			registryRefs = append(registryRefs, componentRef{infoIndex: infoIndex, componentIndex: componentIndex})
+		}
 	}
 
 	if len(npmRefs) > 0 {
@@ -177,6 +186,18 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 	}
 
 	applyBinaryVersions(ctx, infos, binaryTasks)
+	if len(registryRefs) > 0 {
+		current, latest, versionErr := agentinstall.OfficialAntigravityACPVersions(ctx)
+		for _, ref := range registryRefs {
+			component := &infos[ref.infoIndex].Components[ref.componentIndex]
+			component.CurrentVersion = current
+			component.LatestVersion = latest
+			if versionErr != nil {
+				component.Error = versionErr.Error()
+			}
+			component.UpdateAvailable = semanticVersionLess(current, latest)
+		}
+	}
 	for pkg, refs := range publishedVersionRefs {
 		latest, latestErr := inspectNPMLatest(ctx, pkg)
 		for _, ref := range refs {

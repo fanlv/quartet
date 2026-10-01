@@ -103,7 +103,10 @@ type InstallSpec struct {
 	// NativeInstallDirs are home-relative directories or files that identify a
 	// native installer layout, such as ".local/share/codebuddy".
 	NativeInstallDirs []string
-	Instructions      string
+	// ACPRegistryID is the ACP Registry agent installed by an internal step.
+	// Version checks compare its local marker with the registry release.
+	ACPRegistryID string
+	Instructions  string
 }
 
 func (s InstallSpec) StepsForInstall(platform Platform) []InstallStep {

@@ -116,7 +116,7 @@ export function agentUsageProvider(
   _displayName?: string,
 ): AgentUsageProvider | null {
   const command = (agentType || '').trim().replace(/\s+/g, ' ').toLowerCase();
-  if (['antigravity', 'agy', 'antigravity-acp'].includes(command)) return 'antigravity';
+  if (['antigravity', 'agy', 'antigravity-acp', 'agy_acp_server'].includes(command)) return 'antigravity';
   if (['codex', 'codex-acp', 'npx @agentclientprotocol/codex-acp', 'npx @zed-industries/codex-acp'].includes(command)) return 'codex';
   if (['claude', 'claude-agent-acp', 'npx @agentclientprotocol/claude-agent-acp'].includes(command)) return 'claude';
   if (['qoderclicn', 'qoderclicn --acp', 'qwen', 'qwen --acp'].includes(command)) return 'qoder';
