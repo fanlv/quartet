@@ -38,7 +38,16 @@
   "app": {
     "jobMissingNotice": "Job {{jobId}} 不存在或已被删除。已清理失效 URL，并返回工作空间首页。"
   },
+  "fileBrowser": {
+    "files": "文件",
+    "copyRelativePath": "复制相对路径",
+    "copiedRelativePath": "已复制相对路径"
+  },
   "filePreview": {
+    "browseWorkspace": "浏览工作空间目录",
+    "browseDisabledOnShare": "分享页面不支持浏览工作空间目录",
+    "loadingWorkspace": "正在读取工作空间目录…",
+    "workspaceDirectoryMissing": "工作空间 {{id}} 未配置工作目录。",
     "outline": "目录",
     "download": "下载",
     "edit": "编辑",

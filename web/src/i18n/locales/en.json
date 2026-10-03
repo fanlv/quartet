@@ -38,7 +38,16 @@
   "app": {
     "jobMissingNotice": "Job {{jobId}} does not exist or has been deleted. Cleared the stale URL and returned to the workspace home."
   },
+  "fileBrowser": {
+    "files": "Files",
+    "copyRelativePath": "Copy relative path",
+    "copiedRelativePath": "Relative path copied"
+  },
   "filePreview": {
+    "browseWorkspace": "Browse workspace files",
+    "browseDisabledOnShare": "Workspace browsing is unavailable on shared pages",
+    "loadingWorkspace": "Loading workspace directory…",
+    "workspaceDirectoryMissing": "Workspace {{id}} has no working directory configured.",
     "outline": "Contents",
     "download": "Download",
     "edit": "Edit",

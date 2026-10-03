@@ -10,6 +10,9 @@ import { copyToClipboard } from '../utils/clipboard';
 import { writeFile } from '../utils/file';
 import { detectLanguage, getLanguageLabel } from '../utils/syntaxHighlight';
 import { useAuthPrincipal } from '../auth';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { DEFAULT_WORKSPACE_ID, getLastUsedWorkspaceId } from '../utils/workspace';
+import { FileBrowser } from './FileBrowser';
 import { MermaidDiagram } from './MermaidDiagram';
 import { SourceCode } from './FileViewer/SourceCode';
 import './FilePreviewPage.css';
@@ -82,6 +85,7 @@ function buildPreviewUrl(path: string): string {
   const url = new URL(window.location.href);
   url.searchParams.set('view', 'file-preview');
   url.searchParams.set('path', path);
+  url.hash = '';
   return url.toString();
 }
 
@@ -99,6 +103,20 @@ function buildDownloadUrl(path: string, fileShareToken: string): string {
     return `/api/v1/public/file-preview/serve-file?${query.toString()}`;
   }
   return `/api/v1/serve-file?${query.toString()}`;
+}
+
+async function readPreviewContext(endpoint: string, signal: AbortSignal): Promise<{ workspaceId?: string; workdir?: string }> {
+  const response = await fetch(endpoint, { signal });
+  const rawBody = await response.text();
+  if (!response.ok) {
+    const status = `${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
+    throw new Error(`GET ${endpoint} returned HTTP ${status}${rawBody ? `\n${rawBody}` : ''}`);
+  }
+  try {
+    return JSON.parse(rawBody);
+  } catch (reason) {
+    throw new Error(`GET ${endpoint} returned invalid JSON\n${rawBody}`, { cause: reason });
+  }
 }
 
 // Public share links read through a token-scoped endpoint; everything else
@@ -304,15 +322,22 @@ function MarkdownPreviewImage({ basePath, src, alt }: { basePath: string; src: s
 export function FilePreviewPage() {
   const { t } = useTranslation();
   const principal = useAuthPrincipal();
-  const [{ path, jobId, fileShareToken }] = useState(() => {
+  const isMobile = useIsMobile();
+  const [{ initialPath, jobId, workspaceId, fileShareToken, jobShareToken }] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return {
-      path: params.get('path')?.trim() || '',
+      initialPath: params.get('path')?.trim() || '',
       jobId: params.get('jobId')?.trim() || '',
+      workspaceId: params.get('workspaceId')?.trim() || '',
       fileShareToken: params.get('fileShareToken') || '',
+      jobShareToken: params.get('shareToken') || '',
     };
   });
+  const [path, setPath] = useState(initialPath);
   const isPublic = !!fileShareToken;
+  const isSharedLink = isPublic || !!jobShareToken;
+  const canBrowseFiles = !isSharedLink && (principal?.permissions.includes('file.read') ?? false)
+    && (principal?.permissions.includes('workspace.read') ?? false);
   const canShareFiles = !isPublic && (principal?.permissions.includes('file.share') ?? false);
   const canWriteFiles = !isPublic && (principal?.permissions.includes('file.write') ?? false);
   const markdown = isMarkdownPath(path);
@@ -334,6 +359,10 @@ export function FilePreviewPage() {
   const [shareToken, setShareToken] = useState('');
   const [shareLoading, setShareLoading] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
+  const [browserRootPath, setBrowserRootPath] = useState('');
+  const [browserLoading, setBrowserLoading] = useState(false);
+  const [browserError, setBrowserError] = useState('');
   const [markdownOutline, setMarkdownOutline] = useState<MarkdownOutlineItem[]>([]);
   const [activeHeadingId, setActiveHeadingId] = useState('');
   const stageRef = useRef<HTMLElement>(null);
@@ -341,6 +370,68 @@ export function FilePreviewPage() {
   const dirty = editing && draft !== data?.content;
   const previewContent = editing ? draft : data?.content ?? '';
   const canEdit = canWriteFiles && !!data && !loading && !error && !data.binary && !data.truncated;
+
+  useEffect(() => {
+    if (!canBrowseFiles || !fileBrowserOpen || browserRootPath) return;
+    const controller = new AbortController();
+    setBrowserLoading(true);
+    setBrowserError('');
+    const loadWorkspace = async () => {
+      let id = workspaceId;
+      if (!id && jobId && principal?.permissions.includes('job.read')) {
+        const job = await readPreviewContext(`/api/v1/job/${encodeURIComponent(jobId)}`, controller.signal);
+        id = job.workspaceId || '';
+      }
+      id ||= getLastUsedWorkspaceId() || DEFAULT_WORKSPACE_ID;
+      const endpoint = `/api/v1/workspace/${encodeURIComponent(id)}`;
+      const workspace = await readPreviewContext(endpoint, controller.signal);
+      if (!workspace.workdir?.trim()) throw new Error(t('filePreview.workspaceDirectoryMissing', { id }));
+      if (!controller.signal.aborted) setBrowserRootPath(workspace.workdir);
+    };
+    void loadWorkspace().catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      setBrowserError(reason instanceof Error ? reason.stack || reason.message : String(reason));
+    }).finally(() => {
+      if (!controller.signal.aborted) setBrowserLoading(false);
+    });
+    return () => controller.abort();
+  }, [canBrowseFiles, fileBrowserOpen, browserRootPath, workspaceId, jobId, principal, t]);
+
+  const handleFileSelect = useCallback((nextPath: string, updateHistory = true): boolean => {
+    if (nextPath === path) return true;
+    if (savingRef.current || shareLoading || (dirty && !window.confirm(t('filePreview.discardChanges')))) return false;
+    if (updateHistory) window.history.pushState(window.history.state, '', buildPreviewUrl(nextPath));
+    setPath(nextPath);
+    setData(null);
+    setLoading(!!nextPath);
+    setError('');
+    setShowSource(!isMarkdownPath(nextPath) && !isHtmlPath(nextPath));
+    setEditing(false);
+    setDraft('');
+    setSaveError('');
+    setSaved(false);
+    setCopied(false);
+    setPathCopied(false);
+    setShareToken('');
+    setShareCopied(false);
+    setMarkdownOutline([]);
+    setActiveHeadingId('');
+    stageRef.current?.scrollTo({ top: 0, left: 0 });
+    if (isMobile) setFileBrowserOpen(false);
+    return true;
+  }, [path, shareLoading, dirty, isMobile, t]);
+
+  useEffect(() => {
+    if (isSharedLink) return;
+    const handlePopState = () => {
+      const nextPath = new URLSearchParams(window.location.search).get('path')?.trim() || '';
+      if (!handleFileSelect(nextPath, false)) {
+        window.history.pushState(window.history.state, '', buildPreviewUrl(path));
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [handleFileSelect, isSharedLink, path]);
 
   useEffect(() => {
     if (!dirty && !saving) return;
@@ -410,10 +501,12 @@ export function FilePreviewPage() {
 
   useEffect(() => {
     if (!canShareFiles || !path) return;
-    void fetch(`/api/v1/file-share/get?path=${encodeURIComponent(path)}`)
+    const controller = new AbortController();
+    void fetch(`/api/v1/file-share/get?path=${encodeURIComponent(path)}`, { signal: controller.signal })
       .then((res) => res.json())
-      .then((data) => { if (data.shared) setShareToken(data.token); })
+      .then((data) => { if (!controller.signal.aborted) setShareToken(data.shared ? data.token : ''); })
       .catch(() => {});
+    return () => controller.abort();
   }, [canShareFiles, path]);
 
   useEffect(() => {
@@ -431,9 +524,9 @@ export function FilePreviewPage() {
     setLoading(true);
     setError('');
     void readPreviewFile(path, jobId, controller.signal)
-      .then((result) => setData(result))
+      .then((result) => { if (!controller.signal.aborted) setData(result); })
       .catch((reason: unknown) => {
-        if (reason instanceof DOMException && reason.name === 'AbortError') return;
+        if (controller.signal.aborted) return;
         setError(reason instanceof Error ? reason.stack || reason.message : String(reason));
       })
       .finally(() => {
@@ -624,10 +717,22 @@ export function FilePreviewPage() {
     <div className="file-preview-page">
       <header className="file-preview-toolbar">
         <div className="file-preview-identity">
-          <span className="file-preview-icon"><PreviewIcon /></span>
+          <button
+            type="button"
+            className={`file-preview-icon${fileBrowserOpen ? ' active' : ''}`}
+            title={t(isSharedLink ? 'filePreview.browseDisabledOnShare' : 'filePreview.browseWorkspace')}
+            aria-label={t('filePreview.browseWorkspace')}
+            aria-expanded={fileBrowserOpen}
+            aria-controls="file-preview-browser"
+            disabled={!canBrowseFiles}
+            onClick={() => setFileBrowserOpen((open) => !open)}
+          >
+            <PreviewIcon />
+          </button>
           <div className="file-preview-title-group">
-            <strong title={path}>{fileNameFromPath(path)}</strong>
-            <span title={path}>{path || '未指定文件'}</span>
+            <strong aria-describedby="file-preview-path-tooltip">{fileNameFromPath(path)}</strong>
+            <span className="file-preview-path" aria-describedby="file-preview-path-tooltip">{path || '未指定文件'}</span>
+            {path && <span id="file-preview-path-tooltip" className="file-preview-path-tooltip" role="tooltip">{path}</span>}
           </div>
           <span className="file-preview-type">{typeLabel}</span>
           {data && <span className="file-preview-meta">{formatSize(data.size)} · {lineCount} 行</span>}
@@ -703,6 +808,19 @@ export function FilePreviewPage() {
       </header>
 
       {saveError && <pre className="file-preview-save-error" role="alert">{saveError}</pre>}
+      {browserLoading && fileBrowserOpen && <div className="file-preview-notice" role="status">{t('filePreview.loadingWorkspace')}</div>}
+      {browserError && fileBrowserOpen && <pre className="file-preview-save-error" role="alert">{browserError}</pre>}
+      {canBrowseFiles && fileBrowserOpen && browserRootPath && (
+        <div id="file-preview-browser">
+          <FileBrowser
+            rootPath={browserRootPath}
+            jobId={jobId}
+            selectedPath={path}
+            onFileSelect={handleFileSelect}
+            onClose={() => setFileBrowserOpen(false)}
+          />
+        </div>
+      )}
 
       {data?.truncated && (
         <div className="file-preview-notice" role="status">

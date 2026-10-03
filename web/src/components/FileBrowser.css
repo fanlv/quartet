@@ -42,10 +42,14 @@
 }
 
 .filebrowser-header h3 {
+  min-width: 0;
+  overflow: hidden;
   margin: 0;
   font-size: 14px;
   font-weight: 600;
   color: #142019;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .filebrowser-close-btn {
@@ -54,6 +58,7 @@
   justify-content: center;
   width: 28px;
   height: 28px;
+  flex-shrink: 0;
   padding: 0;
   background: transparent;
   border: none;
@@ -178,6 +183,16 @@
   padding: 6px 10px 6px 40px;
   font-size: 12px;
   color: #87958b;
+}
+
+.fb-tree-error {
+  margin: 8px 10px;
+  padding: 10px;
+  color: #7f1d1d;
+  background: #fff1f2;
+  font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* Desktop modal viewer */

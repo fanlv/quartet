@@ -41,9 +41,27 @@
   width: 34px;
   height: 34px;
   flex: 0 0 34px;
+  padding: 0;
+  border: 1px solid transparent;
   border-radius: 9px;
   color: var(--preview-accent);
   background: #edf9f0;
+  cursor: pointer;
+}
+
+.file-preview-icon:hover:not(:disabled),
+.file-preview-icon.active {
+  border-color: #9bd3aa;
+  background: #dff4e6;
+}
+
+.file-preview-icon:focus-visible {
+  outline: 3px solid rgba(22, 163, 74, 0.2);
+  outline-offset: 2px;
+}
+
+.file-preview-icon:disabled {
+  cursor: default;
 }
 
 .file-preview-icon svg {
@@ -57,6 +75,7 @@
 }
 
 .file-preview-title-group {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -73,7 +92,7 @@
   white-space: nowrap;
 }
 
-.file-preview-title-group span {
+.file-preview-path {
   max-width: min(42vw, 620px);
   margin-top: 3px;
   overflow: hidden;
@@ -82,6 +101,32 @@
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-preview-path-tooltip {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  z-index: 3;
+  width: max-content;
+  max-width: min(720px, calc(100vw - 90px));
+  padding: 10px 12px;
+  border: 1px solid var(--preview-rule);
+  border-radius: 7px;
+  color: var(--preview-ink);
+  background: var(--preview-paper);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.14);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.file-preview-title-group:hover .file-preview-path-tooltip {
+  visibility: visible;
+  opacity: 1;
 }
 
 .file-preview-type {
@@ -716,7 +761,7 @@
 
   .file-preview-title-group { flex: 1; }
   .file-preview-title-group strong,
-  .file-preview-title-group span { max-width: none; }
+  .file-preview-path { max-width: none; }
   .file-preview-meta { display: none; }
   /* Wrap rather than scroll: iOS draws no scrollbar here, so the last action
      ("back") sat off-screen with nothing hinting it could be swiped to. */
