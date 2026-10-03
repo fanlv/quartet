@@ -23,6 +23,23 @@ interface DirNode {
   expanded: boolean;
 }
 
+interface DirContents {
+  dirs: string[];
+  files: FileEntry[];
+  current: string;
+}
+
+function directoryNode(path: string, contents?: DirContents): DirNode {
+  return {
+    name: path.split('/').filter(Boolean).pop() || '/',
+    path,
+    dirs: (contents?.dirs || []).map((name) => directoryNode(path === '/' ? '/' + name : path + '/' + name)),
+    files: contents?.files || [],
+    loaded: !!contents,
+    expanded: !!contents,
+  };
+}
+
 // Deep-update a node in the tree by path, returning a new root (immutable
 // update). Module-scoped so the recursive self-reference is statically
 // resolvable and React hook deps don't churn on every render.
@@ -46,7 +63,7 @@ interface FileBrowserProps {
   selectedPath?: string;
 }
 
-async function fetchDirContents(path: string, signal?: AbortSignal): Promise<{ dirs: string[]; files: FileEntry[]; current: string }> {
+async function fetchDirContents(path: string, signal?: AbortSignal): Promise<DirContents> {
   const params = path ? `?path=${encodeURIComponent(path)}&showFiles=true` : '?showFiles=true';
   const endpoint = `/api/v1/list-dir${params}`;
   const res = await fetch(endpoint, { signal });
@@ -68,6 +85,9 @@ export function FileBrowser({ rootPath, jobId, onClose, onFileSelect, selectedPa
   const { t } = useTranslation();
   const [root, setRoot] = useState<DirNode | null>(null);
   const [error, setError] = useState('');
+  const [locatingPath, setLocatingPath] = useState(selectedPath);
+  const selectedFileRef = useRef<HTMLDivElement>(null);
+  const loadedRootPath = root?.path;
   const { file: viewingFile, open: openViewer, close: closeViewer } = useFileViewer(jobId);
   const [panelWidth, setPanelWidth] = useState(420);
   const resizing = useRef(false);
@@ -88,21 +108,7 @@ export function FileBrowser({ rootPath, jobId, onClose, onFileSelect, selectedPa
     const loadRoot = async () => {
       const data = await fetchDirContents(rootPath || '', controller.signal);
       if (!controller.signal.aborted) {
-        setRoot({
-          name: data.current.split('/').filter(Boolean).pop() || '/',
-          path: data.current,
-          dirs: data.dirs.map((d) => ({
-            name: d,
-            path: data.current === '/' ? '/' + d : data.current + '/' + d,
-            dirs: [],
-            files: [],
-            loaded: false,
-            expanded: false,
-          })),
-          files: data.files,
-          loaded: true,
-          expanded: true,
-        });
+        setRoot(directoryNode(data.current, data));
       }
     };
     void loadRoot().catch((reason: unknown) => {
@@ -110,6 +116,53 @@ export function FileBrowser({ rootPath, jobId, onClose, onFileSelect, selectedPa
     });
     return () => controller.abort();
   }, [rootPath]);
+
+  // Locate once per selection or root load, so manually collapsing a folder
+  // after locating the file does not immediately reopen it.
+  useEffect(() => {
+    setLocatingPath(selectedPath);
+  }, [selectedPath, loadedRootPath]);
+
+  useEffect(() => {
+    if (!root || !locatingPath || locatingPath !== selectedPath) return;
+    const prefix = root.path === '/' ? '/' : root.path.replace(/\/+$/, '') + '/';
+    if (!locatingPath.startsWith(prefix)) {
+      setLocatingPath(undefined);
+      return;
+    }
+
+    let node = root;
+    const parents = locatingPath.slice(prefix.length).split('/').slice(0, -1);
+    for (const name of parents) {
+      const dir = node.dirs.find((child) => child.name === name);
+      if (!dir) {
+        setLocatingPath(undefined);
+        return;
+      }
+      if (!dir.loaded) {
+        const controller = new AbortController();
+        void fetchDirContents(dir.path, controller.signal).then((data) => {
+          if (controller.signal.aborted) return;
+          setRoot((current) => current ? updateNode(current, dir.path, (child) => (
+            child.loaded ? { ...child, expanded: true } : directoryNode(dir.path, data)
+          )) : current);
+        }).catch((reason: unknown) => {
+          if (controller.signal.aborted) return;
+          setError(reason instanceof Error ? reason.stack || reason.message : String(reason));
+          setLocatingPath(undefined);
+        });
+        return () => controller.abort();
+      }
+      if (!dir.expanded) {
+        setRoot((current) => current ? updateNode(current, dir.path, (child) => ({ ...child, expanded: true })) : current);
+        return;
+      }
+      node = dir;
+    }
+
+    selectedFileRef.current?.scrollIntoView({ block: 'center', inline: 'nearest' });
+    setLocatingPath(undefined);
+  }, [root, locatingPath, selectedPath]);
 
   const toggleDir = useCallback(async (node: DirNode) => {
     if (node.expanded) {
@@ -121,20 +174,9 @@ export function FileBrowser({ rootPath, jobId, onClose, onFileSelect, selectedPa
       setError('');
       try {
         const data = await fetchDirContents(node.path);
-        setRoot((r) => r ? updateNode(r, node.path, (n) => ({
-          ...n,
-          dirs: data.dirs.map((d) => ({
-            name: d,
-            path: node.path === '/' ? '/' + d : node.path + '/' + d,
-            dirs: [],
-            files: [],
-            loaded: false,
-            expanded: false,
-          })),
-          files: data.files,
-          loaded: true,
-          expanded: true,
-        })) : r);
+        setRoot((r) => r ? updateNode(r, node.path, (n) => (
+          n.loaded ? { ...n, expanded: true } : directoryNode(node.path, data)
+        )) : r);
         return;
       } catch (reason) {
         setError(reason instanceof Error ? reason.stack || reason.message : String(reason));
@@ -242,6 +284,7 @@ export function FileBrowser({ rootPath, jobId, onClose, onFileSelect, selectedPa
           return (
             <div
               key={filePath}
+              ref={selectedPath === filePath ? selectedFileRef : undefined}
               className={`fb-tree-item ${(selectedPath ?? viewingFile?.path) === filePath ? 'active' : ''}`}
               style={{ paddingLeft: indent + 10 }}
               onClick={() => openFile(node.path, file)}
