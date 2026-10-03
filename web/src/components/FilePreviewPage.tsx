@@ -777,7 +777,7 @@ export function FilePreviewPage() {
               {pathCopied ? '已复制' : '复制路径'}
             </button>
           )}
-          {data && path && (
+          {data && path && !isSharedLink && (
             <a
               className="file-preview-button"
               href={buildDownloadUrl(path, fileShareToken)}
