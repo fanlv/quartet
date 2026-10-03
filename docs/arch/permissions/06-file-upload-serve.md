@@ -23,9 +23,10 @@
 
 `serveFileContentType`：
 
-- 内联放行的 MIME（在 `serveFileInlineMIMEs` 集合里）：常见图片（PNG/JPG/GIF/WebP/BMP/AVIF/HEIC/HEIF）、音频（MP3/WAV/OGG/WebM/FLAC/AAC）、视频（MP4 等）、PDF。这些可以直接 `Content-Type: <真实类型>` 返回，让浏览器内联渲染。
-- **强制阻挡内联**：SVG（可嵌 `<script>`）、HTML / XHTML / XML、JS、未知 MIME。这些一律降级为 `application/octet-stream` 并加 `Content-Disposition: attachment`，强制浏览器下载，不在应用 origin 里执行。
+- 内联放行的 MIME（在 `serveFileInlineMIMEs` 集合里）：常见图片（PNG/JPG/GIF/WebP/BMP/AVIF/HEIC/HEIF/SVG）、音频（MP3/WAV/OGG/WebM/FLAC/AAC）、视频（MP4 等）、PDF。这些可以直接 `Content-Type: <真实类型>` 返回，让浏览器内联渲染。
+- **强制阻挡内联**：HTML / XHTML / XML、JS、未知 MIME。这些一律降级为 `application/octet-stream` 并加 `Content-Disposition: attachment`，强制浏览器下载，不在应用 origin 里执行。
 - 加 `X-Content-Type-Options: nosniff` 防止浏览器嗅探回 HTML。
+- SVG 是唯一可内嵌 `<script>` 的内联格式，单独附加 CSP（`inlineSVGCSP`：`default-src 'none'; style-src 'unsafe-inline'; sandbox`）。被当作文档打开时（直接导航、iframe/embed）脚本被禁用且处于 opaque origin，无法触达应用会话；`<img>` 上下文本身不执行 SVG 内脚本，因此预览图正常渲染。
 
 ### 2.3 文件名安全
 
@@ -40,4 +41,4 @@
 
 ## 4. 设计意图
 
-quartet 的工作目录里可能存着 LLM / Agent 写出来的 HTML、SVG、JS（思考过程、调试产物、用户上传等）。如果浏览器把它们当成应用 origin 下的脚本执行，就可以借用户会话发起同源操作。这一层 MIME 白名单、nosniff 与强制下载用于阻断该链路。
+quartet 的工作目录里可能存着 LLM / Agent 写出来的 HTML、SVG、JS（思考过程、调试产物、用户上传等）。如果浏览器把它们当成应用 origin 下的脚本执行，就可以借用户会话发起同源操作。这一层 MIME 白名单、nosniff 与强制下载用于阻断该链路：HTML / JS 等直接降级为下载；SVG 因为需要作为图片预览而放行内联，但其脚本能力被 CSP 沙箱屏蔽。

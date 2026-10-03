@@ -130,7 +130,7 @@ func TestServeFileContentType(t *testing.T) {
 		{"pdf is inline", "/a/b.pdf", true, "application/pdf"},
 		{"mp4 is inline", "/a/b.mp4", true, "video/mp4"},
 
-		{"svg is blocked (can embed script)", "/a/b.svg", false, ""},
+		{"svg is inline (script neutralized by sandboxing CSP)", "/a/b.svg", true, "image/svg+xml"},
 		{"html is blocked", "/a/b.html", false, ""},
 		{"htm is blocked", "/a/b.htm", false, ""},
 		{"xhtml is blocked", "/a/b.xhtml", false, ""},

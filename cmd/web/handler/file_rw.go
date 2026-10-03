@@ -283,18 +283,26 @@ func (h *Handler) ServeFile(ctx context.Context, c *app.RequestContext) {
 	}
 
 	// Browser-native requests such as <img src> carry the same-origin session
-	// cookie. If we let the browser interpret the response as HTML, SVG
-	// or other active content, an attacker-controlled file under LOCAL_MEMORY
+	// cookie. If we let the browser interpret the response as HTML or other
+	// active content, an attacker-controlled file under LOCAL_MEMORY
 	// (workspace checkouts, uploads) could execute script in our origin and
-	// issue authenticated requests. Two defenses:
+	// issue authenticated requests. Three defenses:
 	//   1. nosniff: refuse MIME type sniffing so the browser cannot upgrade
 	//      octet-stream to HTML based on content.
 	//   2. inline whitelist: only declare a renderable Content-Type for a
-	//      small set of opaque preview formats (images minus SVG, audio,
-	//      video, PDF). Everything else is forced to an attachment download
-	//      with application/octet-stream.
+	//      small set of preview formats (images, audio, video, PDF).
+	//      Everything else is forced to an attachment download with
+	//      application/octet-stream.
+	//   3. SVG — the one inline format that can embed script — additionally
+	//      gets a sandboxing CSP so that rendering it as a document (direct
+	//      navigation, iframe/embed) can neither run script nor reach the
+	//      app origin. <img> contexts ignore response CSP but never run
+	//      scripts inside SVG anyway.
 	contentType, inline := serveFileContentType(filePath)
 	c.Response.Header.Set("X-Content-Type-Options", "nosniff")
+	if inline && strings.HasPrefix(strings.ToLower(contentType), "image/svg+xml") {
+		c.Response.Header.Set("Content-Security-Policy", inlineSVGCSP)
+	}
 	if !inline {
 		downloadName := strings.TrimSpace(string(c.Query("name")))
 		if downloadName == "" {
@@ -335,14 +343,25 @@ func (h *Handler) ServeFile(ctx context.Context, c *app.RequestContext) {
 	c.Response.SetBodyStream(reader, int(stat.Size))
 }
 
+// inlineSVGCSP is attached to inline SVG responses. `sandbox` drops the
+// document into an opaque origin and disables script execution entirely;
+// `default-src 'none'` blocks external subresources; `style-src
+// 'unsafe-inline'` keeps the SVG's own styles working. Same value GitHub's
+// camo proxy uses for untrusted SVG.
+const inlineSVGCSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+
 // serveFileInlineMIMEs is the allow-list of MIME types we'll declare verbatim
 // on /api/v1/serve-file responses. Everything not in this set is downgraded
 // to application/octet-stream + attachment.
 //
-// Notably excluded: image/svg+xml (SVG can embed <script>), text/html,
-// application/xhtml+xml, application/xml, text/xml, application/javascript,
-// text/javascript — any of these would let an attacker-controlled file under
-// LOCAL_MEMORY run script in the app's origin.
+// SVG is included because workspace diagrams are a first-class preview
+// format; its scriptability is neutralized by inlineSVGCSP instead of by
+// refusing the type.
+//
+// Still excluded: text/html, application/xhtml+xml, application/xml,
+// text/xml, application/javascript, text/javascript — any of these would let
+// an attacker-controlled file under LOCAL_MEMORY run script in the app's
+// origin.
 var serveFileInlineMIMEs = map[string]struct{}{
 	"image/png":       {},
 	"image/jpeg":      {},
@@ -352,6 +371,7 @@ var serveFileInlineMIMEs = map[string]struct{}{
 	"image/avif":      {},
 	"image/heic":      {},
 	"image/heif":      {},
+	"image/svg+xml":   {},
 	"audio/mpeg":      {},
 	"audio/wav":       {},
 	"audio/x-wav":     {},
