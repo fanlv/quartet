@@ -524,6 +524,10 @@
   overflow: hidden;
 }
 
+.file-preview-source[hidden] {
+  display: none;
+}
+
 .file-preview-stage.source-mode {
   overflow: hidden;
 }

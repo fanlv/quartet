@@ -339,6 +339,7 @@ export function FilePreviewPage() {
   const stageRef = useRef<HTMLElement>(null);
   const markdownArticleRef = useRef<HTMLElement>(null);
   const dirty = editing && draft !== data?.content;
+  const previewContent = editing ? draft : data?.content ?? '';
   const canEdit = canWriteFiles && !!data && !loading && !error && !data.binary && !data.truncated;
 
   useEffect(() => {
@@ -505,7 +506,7 @@ export function FilePreviewPage() {
       window.removeEventListener('resize', scheduleActiveHeadingUpdate);
       if (animationFrame !== 0) window.cancelAnimationFrame(animationFrame);
     };
-  }, [data, markdown, showSource]);
+  }, [data, markdown, showSource, previewContent]);
 
   const sourceLines = useMemo(() => data ? data.content.split('\n') : [], [data]);
   const lineCount = sourceLines.length;
@@ -635,8 +636,8 @@ export function FilePreviewPage() {
         <div className="file-preview-actions">
           {renderedDocument && data && !data.binary && (
             <div className="file-preview-segmented" role="group" aria-label="预览模式">
-              <button type="button" className={!showSource ? 'active' : ''} disabled={editing || saving} onClick={() => setShowSource(false)}>{html ? '预览' : '阅读'}</button>
-              <button type="button" className={showSource ? 'active' : ''} disabled={editing || saving} onClick={() => setShowSource(true)}>源文</button>
+              <button type="button" className={!showSource ? 'active' : ''} disabled={saving} onClick={() => setShowSource(false)}>{html ? '预览' : '阅读'}</button>
+              <button type="button" className={showSource ? 'active' : ''} disabled={saving} onClick={() => setShowSource(true)}>源文</button>
             </div>
           )}
           {canEdit && showSource && !editing && (
@@ -767,18 +768,18 @@ export function FilePreviewPage() {
                 rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]}
                 components={markdownComponents}
               >
-                {data.content}
+                {previewContent}
               </ReactMarkdown>
             </article>
           </div>
         )}
 
         {!loading && data && !data.binary && !showSource && html && (
-          <HtmlPreviewDocument content={data.content} title={fileNameFromPath(path)} />
+          <HtmlPreviewDocument content={previewContent} title={fileNameFromPath(path)} />
         )}
 
-        {!loading && data && !data.binary && showSource && (
-          <section className="file-preview-source" aria-label="文件源文">
+        {!loading && data && !data.binary && (showSource || editing) && (
+          <section className="file-preview-source" aria-label="文件源文" hidden={!showSource}>
             {editing ? (
               <textarea
                 className="file-preview-editor"
