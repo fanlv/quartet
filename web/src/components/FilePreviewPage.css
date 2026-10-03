@@ -148,6 +148,31 @@
   outline-offset: 1px;
 }
 
+.file-preview-button:disabled,
+.file-preview-segmented button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.file-preview-edit-status {
+  color: var(--preview-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.file-preview-save-error {
+  flex-shrink: 0;
+  max-height: 28vh;
+  margin: 0;
+  padding: 12px 20px;
+  overflow: auto;
+  color: #7f1d1d;
+  background: #fff1f2;
+  font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .file-preview-return {
   border-color: #1b2920;
   color: #ffffff;
@@ -486,14 +511,50 @@
 }
 
 .file-preview-source {
+  display: flex;
+  flex-direction: column;
   width: min(1440px, calc(100% - 48px));
-  min-height: calc(100% - 64px);
+  height: calc(100% - 64px);
+  min-height: 0;
   margin: 32px auto;
   border-top: 4px solid var(--preview-accent);
   border-radius: 2px 2px 9px 9px;
   background: var(--surface);
   box-shadow: 0 16px 44px rgba(30, 41, 59, 0.1);
+  overflow: hidden;
+}
+
+.file-preview-stage.source-mode {
+  overflow: hidden;
+}
+
+.file-preview-source-scroll {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.file-preview-editor {
+  display: block;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 24px;
+  resize: none;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  color: #253047;
+  background: var(--surface);
+  font: 13px/1.72 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  tab-size: 2;
+  overscroll-behavior: contain;
+}
+
+.file-preview-editor:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--preview-accent);
 }
 
 .file-preview-source-code {
@@ -523,7 +584,7 @@
   position: sticky;
   left: 0;
   z-index: 1;
-  width: 1px;
+  flex: 0 0 calc(var(--source-line-digits, 4) * 1ch + 37px);
   padding: 0 18px;
   border-right: 1px solid #e8edf3;
   color: #a2acba;
@@ -671,9 +732,9 @@
   .file-preview-document pre { margin-right: -12px; margin-left: -12px; border-radius: 6px; }
   .file-preview-document .mermaid-diagram { margin-right: -12px; margin-left: -12px; }
   .file-preview-document .mermaid-diagram-canvas { padding: 20px; }
-  .file-preview-source { width: calc(100% - 20px); min-height: calc(100% - 24px); margin: 12px auto; }
+  .file-preview-source { width: calc(100% - 20px); height: calc(100% - 24px); margin: 12px auto; }
   .file-preview-source-code { padding: 22px 0 48px; font-size: 12px; }
-  .file-preview-source-line-number { padding: 0 12px; }
+  .file-preview-source-line-number { flex-basis: calc(var(--source-line-digits, 4) * 1ch + 25px); padding: 0 12px; }
   .file-preview-source-line-content { padding: 0 14px; }
 }
 

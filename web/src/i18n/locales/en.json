@@ -40,7 +40,18 @@
   },
   "filePreview": {
     "outline": "Contents",
-    "download": "Download"
+    "download": "Download",
+    "edit": "Edit",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "editing": "Editing",
+    "unsaved": "Unsaved changes",
+    "saved": "Saved",
+    "editor": "Edit file source",
+    "discardChanges": "Discard unsaved changes?",
+    "saveFailed": "Could not save the file. Your changes are still in the editor.",
+    "refreshFailed": "The file was saved, but could not be reloaded."
   },
   "auth": {
     "initializeTitle": "Initialize administrator",
@@ -923,6 +934,7 @@
     }
   },
   "fileViewer": {
+    "content": "File source",
     "lines": "{{count}} lines"
   },
   "stats": {

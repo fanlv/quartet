@@ -70,6 +70,29 @@ export async function readFile(path: string, jobId?: string, signal?: AbortSigna
   };
 }
 
+export async function writeFile(path: string, content: string, jobId?: string): Promise<void> {
+  const endpoint = '/api/v1/write-file';
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, content, job_id: jobId || '' }),
+  });
+  const rawBody = await response.text();
+  if (!response.ok) {
+    const status = `${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
+    throw new Error(`POST ${endpoint} returned HTTP ${status}${rawBody ? `\n${rawBody}` : ''}`);
+  }
+  let data: { code?: number };
+  try {
+    data = JSON.parse(rawBody);
+  } catch (error) {
+    throw new Error(`POST ${endpoint} returned invalid JSON\n${rawBody}`, { cause: error });
+  }
+  if (data.code !== 0) {
+    throw new Error(`POST ${endpoint} returned code ${String(data.code)}${rawBody ? `\n${rawBody}` : ''}`);
+  }
+}
+
 // Images are fetched as a blob so the authenticated cookie path is identical
 // to the JSON API; the caller owns revoking the returned object URL.
 export async function fetchFileAsBlobUrl(path: string, signal?: AbortSignal): Promise<string> {

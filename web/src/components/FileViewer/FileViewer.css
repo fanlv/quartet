@@ -253,7 +253,7 @@
 }
 
 .file-viewer-line-number {
-  width: 1px;
+  flex: 0 0 calc(var(--source-line-digits, 4) * 1ch + 33px);
   white-space: nowrap;
   padding: 0 16px 0 16px;
   text-align: right;
@@ -375,6 +375,7 @@
   }
 
   .file-viewer-line-number {
+    flex-basis: calc(var(--source-line-digits, 4) * 1ch + 17px);
     padding: 0 8px;
     font-size: 11px;
   }

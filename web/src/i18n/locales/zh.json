@@ -40,7 +40,18 @@
   },
   "filePreview": {
     "outline": "目录",
-    "download": "下载"
+    "download": "下载",
+    "edit": "编辑",
+    "save": "保存",
+    "saving": "保存中…",
+    "cancel": "取消",
+    "editing": "编辑中",
+    "unsaved": "有未保存的修改",
+    "saved": "已保存",
+    "editor": "编辑文件源文",
+    "discardChanges": "放弃未保存的修改？",
+    "saveFailed": "文件保存失败，修改仍保留在编辑器中。",
+    "refreshFailed": "文件已保存，但重新读取失败。"
   },
   "auth": {
     "initializeTitle": "初始化管理员",
@@ -919,6 +930,7 @@
     }
   },
   "fileViewer": {
+    "content": "文件源文",
     "lines": "{{count}} 行"
   },
   "stats": {

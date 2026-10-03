@@ -7,9 +7,11 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
 import { copyToClipboard } from '../utils/clipboard';
-import { detectLanguage, getLanguageLabel, tokenizeLine } from '../utils/syntaxHighlight';
+import { writeFile } from '../utils/file';
+import { detectLanguage, getLanguageLabel } from '../utils/syntaxHighlight';
 import { useAuthPrincipal } from '../auth';
 import { MermaidDiagram } from './MermaidDiagram';
+import { SourceCode } from './FileViewer/SourceCode';
 import './FilePreviewPage.css';
 
 interface FilePreviewData {
@@ -58,36 +60,6 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function SyntaxHighlightedSource({ content, path, wrapText }: { content: string; path: string; wrapText: boolean }) {
-  const language = useMemo(() => detectLanguage(path), [path]);
-  const lines = useMemo(() => (content || '').split('\n').map((line) => ({
-    source: line,
-    tokens: tokenizeLine(line, language),
-  })), [content, language]);
-
-  return (
-    <div
-      className={`file-preview-source-code${wrapText ? ' is-wrapped' : ''}`}
-      role="table"
-      aria-label={language ? `${getLanguageLabel(path)} 源代码` : '文件源文'}
-    >
-      {lines.map(({ source, tokens }, lineIndex) => (
-        <div className="file-preview-source-line" role="row" key={lineIndex}>
-          <span className="file-preview-source-line-number" role="cell" aria-hidden="true">
-            {lineIndex + 1}
-          </span>
-          <span className="file-preview-source-line-content" role="cell">
-            {tokens.map((token, tokenIndex) => token.type
-              ? <span className={`hl-${token.type}`} key={tokenIndex}>{token.value}</span>
-              : token.value)}
-            {source === '' && '\u00a0'}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function normalizeLocalPath(baseFilePath: string, target: string): string {
@@ -342,6 +314,7 @@ export function FilePreviewPage() {
   });
   const isPublic = !!fileShareToken;
   const canShareFiles = !isPublic && (principal?.permissions.includes('file.share') ?? false);
+  const canWriteFiles = !isPublic && (principal?.permissions.includes('file.write') ?? false);
   const markdown = isMarkdownPath(path);
   const html = isHtmlPath(path);
   const renderedDocument = markdown || html;
@@ -349,6 +322,12 @@ export function FilePreviewPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(!!path);
   const [showSource, setShowSource] = useState(!renderedDocument);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saved, setSaved] = useState(false);
+  const savingRef = useRef(false);
   const [wrapText, setWrapText] = useState(true);
   const [copied, setCopied] = useState(false);
   const [pathCopied, setPathCopied] = useState(false);
@@ -359,6 +338,74 @@ export function FilePreviewPage() {
   const [activeHeadingId, setActiveHeadingId] = useState('');
   const stageRef = useRef<HTMLElement>(null);
   const markdownArticleRef = useRef<HTMLElement>(null);
+  const dirty = editing && draft !== data?.content;
+  const canEdit = canWriteFiles && !!data && !loading && !error && !data.binary && !data.truncated;
+
+  useEffect(() => {
+    if (!dirty && !saving) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [dirty, saving]);
+
+  const handleEdit = useCallback(() => {
+    if (!canEdit || !data) return;
+    setDraft(data.content);
+    setSaveError('');
+    setSaved(false);
+    setShowSource(true);
+    setEditing(true);
+  }, [canEdit, data]);
+
+  const handleCancelEdit = useCallback(() => {
+    if (savingRef.current || (dirty && !window.confirm(t('filePreview.discardChanges')))) return;
+    setEditing(false);
+    setSaveError('');
+  }, [dirty, t]);
+
+  const handleSave = useCallback(async () => {
+    if (!canEdit || !editing || !dirty || savingRef.current || !data) return;
+    savingRef.current = true;
+    setSaving(true);
+    setSaveError('');
+    setSaved(false);
+    try {
+      await writeFile(path, draft, jobId);
+      // Commit the successful write before refreshing, so a read failure cannot
+      // leave the user believing their changes were not saved.
+      setData({ content: draft, size: new TextEncoder().encode(draft).length, binary: false, truncated: false });
+      setEditing(false);
+      setSaved(true);
+      try {
+        const latest = await readPreviewFile(path, jobId, new AbortController().signal);
+        setData(latest);
+      } catch (reason: unknown) {
+        const detail = reason instanceof Error ? reason.stack || reason.message : String(reason);
+        setSaveError(`${t('filePreview.refreshFailed')}\n${detail}`);
+      }
+    } catch (reason: unknown) {
+      const detail = reason instanceof Error ? reason.stack || reason.message : String(reason);
+      setSaveError(`${t('filePreview.saveFailed')}\n${detail}`);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }, [canEdit, editing, dirty, data, path, draft, jobId, t]);
+
+  useEffect(() => {
+    if (!editing) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        void handleSave();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [editing, handleSave]);
 
   useEffect(() => {
     if (!canShareFiles || !path) return;
@@ -460,7 +507,8 @@ export function FilePreviewPage() {
     };
   }, [data, markdown, showSource]);
 
-  const lineCount = data?.content ? data.content.split('\n').length : 0;
+  const sourceLines = useMemo(() => data ? data.content.split('\n') : [], [data]);
+  const lineCount = sourceLines.length;
   const sourceLanguage = detectLanguage(path);
   const typeLabel = sourceLanguage
     ? getLanguageLabel(path)
@@ -468,13 +516,13 @@ export function FilePreviewPage() {
 
   const handleCopy = useCallback(() => {
     if (!data) return;
-    void copyToClipboard(data.content).then(() => {
+    void copyToClipboard(editing ? draft : data.content).then(() => {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     }).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.stack || reason.message : String(reason));
     });
-  }, [data]);
+  }, [data, draft, editing]);
 
   const handleCopyPath = useCallback(() => {
     if (!path) return;
@@ -587,10 +635,27 @@ export function FilePreviewPage() {
         <div className="file-preview-actions">
           {renderedDocument && data && !data.binary && (
             <div className="file-preview-segmented" role="group" aria-label="预览模式">
-              <button type="button" className={!showSource ? 'active' : ''} onClick={() => setShowSource(false)}>{html ? '预览' : '阅读'}</button>
-              <button type="button" className={showSource ? 'active' : ''} onClick={() => setShowSource(true)}>源文</button>
+              <button type="button" className={!showSource ? 'active' : ''} disabled={editing || saving} onClick={() => setShowSource(false)}>{html ? '预览' : '阅读'}</button>
+              <button type="button" className={showSource ? 'active' : ''} disabled={editing || saving} onClick={() => setShowSource(true)}>源文</button>
             </div>
           )}
+          {canEdit && showSource && !editing && (
+            <button type="button" className="file-preview-button" onClick={handleEdit} disabled={saving}>
+              {t('filePreview.edit')}
+            </button>
+          )}
+          {editing && (
+            <>
+              <span className="file-preview-edit-status" role="status">{t(dirty ? 'filePreview.unsaved' : 'filePreview.editing')}</span>
+              <button type="button" className="file-preview-button active" onClick={() => void handleSave()} disabled={!dirty || saving}>
+                {t(saving ? 'filePreview.saving' : 'filePreview.save')}
+              </button>
+              <button type="button" className="file-preview-button" onClick={handleCancelEdit} disabled={saving}>
+                {t('filePreview.cancel')}
+              </button>
+            </>
+          )}
+          {saved && !saveError && <span className="file-preview-edit-status" role="status">{t('filePreview.saved')}</span>}
           {data && showSource && !data.binary && (
             <button type="button" className={`file-preview-button ${wrapText ? 'active' : ''}`} onClick={() => setWrapText((value) => !value)}>
               自动换行
@@ -635,6 +700,8 @@ export function FilePreviewPage() {
           )}
         </div>
       </header>
+
+      {saveError && <pre className="file-preview-save-error" role="alert">{saveError}</pre>}
 
       {data?.truncated && (
         <div className="file-preview-notice" role="status">
@@ -712,7 +779,33 @@ export function FilePreviewPage() {
 
         {!loading && data && !data.binary && showSource && (
           <section className="file-preview-source" aria-label="文件源文">
-            <SyntaxHighlightedSource content={data.content} path={path} wrapText={wrapText} />
+            {editing ? (
+              <textarea
+                className="file-preview-editor"
+                aria-label={t('filePreview.editor')}
+                value={draft}
+                onChange={(event) => {
+                  // Browsers normalize textarea newlines to LF. Preserve files
+                  // that consistently use CRLF when editing their source.
+                  const value = event.target.value;
+                  const crlf = data.content.includes('\r\n') && !/(?<!\r)\n/.test(data.content);
+                  setDraft(crlf ? value.replace(/\r?\n/g, '\r\n') : value);
+                  setSaved(false);
+                }}
+                readOnly={saving}
+                wrap={wrapText ? 'soft' : 'off'}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                autoFocus
+              />
+            ) : <SourceCode
+              lines={sourceLines}
+              path={path}
+              classPrefix="file-preview-source"
+              scrollClassName="file-preview-source-scroll"
+              wrapText={wrapText}
+            />}
           </section>
         )}
       </main>

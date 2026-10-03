@@ -310,6 +310,14 @@ const languages: Record<string, LanguageDef> = {
   },
 };
 
+// The tokenizer only accepts matches at the current position. Anchoring once
+// prevents every failed rule from searching the rest of the line again.
+for (const definition of Object.values(languages)) {
+  for (const rule of definition.rules) {
+    rule.pattern = new RegExp(`^(?:${rule.pattern.source})`, rule.pattern.flags);
+  }
+}
+
 // Aliases
 languages.js = languages.javascript;
 languages.jsx = languages.javascript;
@@ -433,7 +441,10 @@ export function getLanguageLabel(filePath: string): string {
  * Tokenize a single line of code.
  */
 export function tokenizeLine(line: string, lang: string | null): Token[] {
-  if (!lang || !languages[lang]) {
+  // Embedded assets and minified code can contain tens of thousands of
+  // characters on one line. Keep their complete text without running regexes
+  // at every character or creating thousands of colored spans.
+  if (!lang || !languages[lang] || line.length > 4096) {
     return [{ type: null, value: line }];
   }
 
