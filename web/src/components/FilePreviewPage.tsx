@@ -767,12 +767,12 @@ export function FilePreviewPage() {
               自动换行
             </button>
           )}
-          {data && !data.binary && (
+          {data && !data.binary && !isSharedLink && (
             <button type="button" className="file-preview-button" onClick={handleCopy}>
               {copied ? '已复制' : '复制内容'}
             </button>
           )}
-          {data && path && (
+          {data && path && !isSharedLink && (
             <button type="button" className="file-preview-button" onClick={handleCopyPath}>
               {pathCopied ? '已复制' : '复制路径'}
             </button>
