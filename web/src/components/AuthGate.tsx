@@ -16,12 +16,18 @@ class HTTPResponseError extends Error {
   }
 }
 
-function hasPublicShareToken(): boolean {
+function hasPublicJobShare(): boolean {
   if (typeof window === 'undefined') return false;
   const params = new URLSearchParams(window.location.search);
-  const publicJob = !!params.get('shareToken') && !!params.get('jobId');
-  const publicFile = params.get('view') === 'file-preview' && !!params.get('fileShareToken');
-  return publicJob || publicFile;
+  return !!params.get('shareToken') && !!params.get('jobId');
+}
+
+// A file share link stays readable without a session. When a cookie is
+// present, probe still runs so the preview can use that identity.
+function hasPublicFileShare(): boolean {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get('view') === 'file-preview' && !!params.get('fileShareToken');
 }
 
 function errorDetail(error: unknown): string {
@@ -49,7 +55,8 @@ interface AuthGateProps { children: React.ReactNode }
 export function AuthGate({ children }: AuthGateProps) {
   const { t } = useTranslation();
   const gateRef = useRef<HTMLDivElement>(null);
-  const skipGate = useMemo(() => hasPublicShareToken(), []);
+  const skipGate = useMemo(() => hasPublicJobShare(), []);
+  const guestFileShare = useMemo(() => hasPublicFileShare(), []);
   const [stage, setStage] = useState<GateStage>(skipGate ? 'ready' : 'probing');
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -59,6 +66,7 @@ export function AuthGate({ children }: AuthGateProps) {
   const [submitting, setSubmitting] = useState(false);
   const [detail, setDetail] = useState('');
   const [canReportLogs, setCanReportLogs] = useState(false);
+  const hadSession = useRef(false);
 
   useEffect(() => {
     setAuthForwarderEnabled(stage === 'ready' && canReportLogs);
@@ -81,13 +89,14 @@ export function AuthGate({ children }: AuthGateProps) {
         // Apply the instance language before the app paints, so a fresh
         // browser origin does not flash the fallback language first.
         await syncLanguageFromServer();
+        hadSession.current = true;
         setStage(principal.user.mustChangePassword ? 'changePassword' : 'ready');
       } catch (error) {
         setAuthPrincipal(null);
         setCanReportLogs(false);
         if (error instanceof HTTPResponseError && error.status === 401) {
           setDetail('');
-          setStage('login');
+          setStage(guestFileShare && !hadSession.current ? 'ready' : 'login');
         } else {
           setDetail(errorDetail(error));
           setStage('probeFailed');
@@ -97,15 +106,19 @@ export function AuthGate({ children }: AuthGateProps) {
       setDetail(errorDetail(error));
       setStage('probeFailed');
     }
-  }, []);
+  }, [guestFileShare]);
 
   useEffect(() => { if (!skipGate) void probe(); }, [skipGate, probe]);
   useEffect(() => {
     if (skipGate) return;
-    const expired = () => { setCanReportLogs(false); setDetail(''); setStage('login'); };
+    const expired = () => {
+      setCanReportLogs(false);
+      setDetail('');
+      setStage(guestFileShare && !hadSession.current ? 'ready' : 'login');
+    };
     window.addEventListener(AUTH_EXPIRED_EVENT, expired);
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, expired);
-  }, [skipGate]);
+  }, [guestFileShare, skipGate]);
 
   useEffect(() => {
     const gate = gateRef.current;
@@ -148,6 +161,7 @@ export function AuthGate({ children }: AuthGateProps) {
       if (!response.ok) throw new Error(await readResponseError(`${kind === 'password' ? 'PUT' : 'POST'} ${endpoint}`, response));
       const principal = await response.json() as AuthPrincipal;
       setAuthPrincipal(principal);
+      hadSession.current = true;
       setCanReportLogs(principal.permissions.includes('logs.report'));
       await syncLanguageFromServer();
       setPassword(''); setConfirmPassword(''); setCurrentPassword('');
@@ -162,14 +176,15 @@ export function AuthGate({ children }: AuthGateProps) {
       const response = await fetch('/api/v1/auth/logout', { method: 'POST' });
       if (!response.ok) throw new Error(await readResponseError('POST /api/v1/auth/logout', response));
       setAuthPrincipal(null);
+      hadSession.current = false;
       setCanReportLogs(false);
-      setStage('login');
+      setStage(guestFileShare ? 'ready' : 'login');
     } catch (error) {
       setDetail(errorDetail(error));
     } finally {
       setSubmitting(false);
     }
-  }, []);
+  }, [guestFileShare]);
 
   if (stage === 'ready') return <>{children}</>;
 

@@ -119,13 +119,14 @@ async function readPreviewContext(endpoint: string, signal: AbortSignal): Promis
   }
 }
 
-// Public share links read through a token-scoped endpoint; everything else
-// goes through the shared authenticated reader.
-async function readPreviewFile(path: string, jobId: string, signal: AbortSignal): Promise<FilePreviewData> {
+// A share token reads through the public endpoint only when the viewer has
+// no session. A logged-in viewer uses the authenticated reader, so owner
+// actions stay available on the same URL.
+async function readPreviewFile(path: string, jobId: string, authenticated: boolean, signal: AbortSignal): Promise<FilePreviewData> {
   const params = new URLSearchParams(window.location.search);
   const fileShareToken = params.get('fileShareToken');
 
-  if (fileShareToken) {
+  if (!authenticated && fileShareToken) {
     const endpoint = `/api/v1/public/file-preview/read-file?fileShareToken=${encodeURIComponent(fileShareToken)}`;
     const response = await fetch(endpoint, { signal });
     const rawBody = await response.text();
@@ -261,7 +262,7 @@ function MarkdownPre({ children }: { children?: ReactNode }) {
   return <pre>{children}</pre>;
 }
 
-function MarkdownPreviewImage({ basePath, src, alt }: { basePath: string; src: string; alt: string }) {
+function MarkdownPreviewImage({ basePath, src, alt, authenticated }: { basePath: string; src: string; alt: string; authenticated: boolean }) {
   const external = externalResourceUrlPattern.test(src);
   const [blobUrl, setBlobUrl] = useState('');
   const [failed, setFailed] = useState(false);
@@ -274,8 +275,7 @@ function MarkdownPreviewImage({ basePath, src, alt }: { basePath: string; src: s
     const controller = new AbortController();
     let objectUrl = '';
     const localPath = normalizeLocalPath(basePath, src);
-    const params = new URLSearchParams(window.location.search);
-    const fileShareToken = params.get('fileShareToken');
+    const fileShareToken = authenticated ? '' : (new URLSearchParams(window.location.search).get('fileShareToken') || '');
     const serveUrl = fileShareToken
       ? `/api/v1/public/file-preview/serve-file?fileShareToken=${encodeURIComponent(fileShareToken)}&path=${encodeURIComponent(localPath)}`
       : `/api/v1/serve-file?path=${encodeURIComponent(localPath)}`;
@@ -302,7 +302,7 @@ function MarkdownPreviewImage({ basePath, src, alt }: { basePath: string; src: s
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [basePath, external, src]);
+  }, [authenticated, basePath, external, src]);
 
   if (!src) return null;
   if (failed) return <span className="file-preview-image-error">图片加载失败：{alt || src}</span>;
@@ -334,7 +334,8 @@ export function FilePreviewPage() {
     };
   });
   const [path, setPath] = useState(initialPath);
-  const isPublic = !!fileShareToken;
+  const authenticated = !!principal;
+  const isPublic = !!fileShareToken && !authenticated;
   const isSharedLink = isPublic || !!jobShareToken;
   const canBrowseFiles = !isSharedLink && (principal?.permissions.includes('file.read') ?? false)
     && (principal?.permissions.includes('workspace.read') ?? false);
@@ -356,7 +357,7 @@ export function FilePreviewPage() {
   const [wrapText, setWrapText] = useState(true);
   const [copied, setCopied] = useState(false);
   const [pathCopied, setPathCopied] = useState(false);
-  const [shareToken, setShareToken] = useState('');
+  const [shareToken, setShareToken] = useState(fileShareToken);
   const [shareLoading, setShareLoading] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
@@ -472,7 +473,7 @@ export function FilePreviewPage() {
       setEditing(false);
       setSaved(true);
       try {
-        const latest = await readPreviewFile(path, jobId, new AbortController().signal);
+        const latest = await readPreviewFile(path, jobId, authenticated, new AbortController().signal);
         setData(latest);
       } catch (reason: unknown) {
         const detail = reason instanceof Error ? reason.stack || reason.message : String(reason);
@@ -485,7 +486,7 @@ export function FilePreviewPage() {
       savingRef.current = false;
       setSaving(false);
     }
-  }, [canEdit, editing, dirty, data, path, draft, jobId, t]);
+  }, [authenticated, canEdit, editing, dirty, data, path, draft, jobId, t]);
 
   useEffect(() => {
     if (!editing) return;
@@ -503,8 +504,11 @@ export function FilePreviewPage() {
     if (!canShareFiles || !path) return;
     const controller = new AbortController();
     void fetch(`/api/v1/file-share/get?path=${encodeURIComponent(path)}`, { signal: controller.signal })
-      .then((res) => res.json())
-      .then((data) => { if (!controller.signal.aborted) setShareToken(data.shared ? data.token : ''); })
+      .then(async (res) => {
+        const data = await res.json() as { shared?: boolean; token?: string };
+        if (!res.ok || controller.signal.aborted) return;
+        setShareToken(data.shared ? data.token || '' : '');
+      })
       .catch(() => {});
     return () => controller.abort();
   }, [canShareFiles, path]);
@@ -523,7 +527,7 @@ export function FilePreviewPage() {
     const controller = new AbortController();
     setLoading(true);
     setError('');
-    void readPreviewFile(path, jobId, controller.signal)
+    void readPreviewFile(path, jobId, authenticated, controller.signal)
       .then((result) => { if (!controller.signal.aborted) setData(result); })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
@@ -533,7 +537,7 @@ export function FilePreviewPage() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [jobId, path]);
+  }, [authenticated, jobId, path]);
 
   useEffect(() => {
     if (!markdown || showSource || !data || data.binary) {
@@ -706,12 +710,12 @@ export function FilePreviewPage() {
     },
     img: ({ src, alt }) => {
       const target = typeof src === 'string' ? src : '';
-      return <MarkdownPreviewImage basePath={path} src={target} alt={alt || ''} />;
+      return <MarkdownPreviewImage basePath={path} src={target} alt={alt || ''} authenticated={authenticated} />;
     },
     table: ({ children }) => <div className="file-preview-table-wrap"><table>{children}</table></div>,
     code: ({ className, children }) => <code className={className}>{children}</code>,
     pre: ({ children }) => <MarkdownPre>{children}</MarkdownPre>,
-  }), [path]);
+  }), [authenticated, path]);
 
   return (
     <div className="file-preview-page">
@@ -780,7 +784,7 @@ export function FilePreviewPage() {
           {data && path && !isSharedLink && (
             <a
               className="file-preview-button"
-              href={buildDownloadUrl(path, fileShareToken)}
+              href={buildDownloadUrl(path, isPublic ? fileShareToken : '')}
               download={fileNameFromPath(path)}
             >
               {t('filePreview.download')}
