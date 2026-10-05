@@ -239,6 +239,139 @@ function assignMarkdownHeadingIds(article: HTMLElement): MarkdownOutlineItem[] {
   });
 }
 
+const headingScrollKeys = new Set(['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' ']);
+
+function headingAlignmentDelta(stage: HTMLElement, heading: HTMLElement): number {
+  const margin = Number.parseFloat(getComputedStyle(heading).scrollMarginTop) || 0;
+  return heading.getBoundingClientRect().top - stage.getBoundingClientRect().top - margin;
+}
+
+// Images and diagrams above a heading often have no height until their bytes
+// arrive. A one-shot smooth scroll records the destination before that growth
+// and then stops, leaving the viewport a few sections short of the heading.
+function layoutPendingAbove(article: HTMLElement, heading: HTMLElement): boolean {
+  const limit = heading.getBoundingClientRect().top + 4;
+  const pending = article.querySelectorAll<HTMLElement>('img, .file-preview-image-loading, .mermaid-diagram.is-loading');
+  for (const node of pending) {
+    if (node.getBoundingClientRect().top > limit) continue;
+    if (node instanceof HTMLImageElement && node.complete) continue;
+    return true;
+  }
+  return false;
+}
+
+function scrollStageToHeading(
+  stage: HTMLElement,
+  article: HTMLElement,
+  headingId: string,
+  behavior: ScrollBehavior,
+): () => void {
+  const findHeading = () => article.querySelector<HTMLElement>(`#${CSS.escape(headingId)}`);
+  const initial = findHeading();
+  if (!initial) return () => {};
+
+  const deadline = performance.now() + 8000;
+  const previousAnchor = stage.style.overflowAnchor;
+  let stopped = false;
+  let raf = 0;
+  let settleTimer = 0;
+
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    if (raf) window.cancelAnimationFrame(raf);
+    window.clearTimeout(settleTimer);
+    observer.disconnect();
+    article.removeEventListener('load', wake, true);
+    article.removeEventListener('error', wake, true);
+    stage.removeEventListener('wheel', onUser);
+    stage.removeEventListener('touchmove', onUser);
+    stage.removeEventListener('pointerdown', onUser);
+    window.removeEventListener('keydown', onKey);
+    stage.style.overflowAnchor = previousAnchor;
+  };
+
+  const wake = () => {
+    if (stopped || raf !== 0) return;
+    window.clearTimeout(settleTimer);
+    settleTimer = 0;
+    raf = window.requestAnimationFrame(tick);
+  };
+
+  const onUser = () => stop();
+  const onKey = (event: KeyboardEvent) => {
+    if (headingScrollKeys.has(event.key)) stop();
+  };
+
+  const observer = new ResizeObserver(wake);
+  stage.style.overflowAnchor = 'none';
+  observer.observe(article);
+  article.addEventListener('load', wake, true);
+  article.addEventListener('error', wake, true);
+  stage.addEventListener('wheel', onUser, { passive: true });
+  stage.addEventListener('touchmove', onUser, { passive: true });
+  stage.addEventListener('pointerdown', onUser);
+  window.addEventListener('keydown', onKey);
+
+  const tick = () => {
+    raf = 0;
+    if (stopped) return;
+    const heading = findHeading();
+    if (!heading) {
+      stop();
+      return;
+    }
+
+    const delta = headingAlignmentDelta(stage, heading);
+    const pending = layoutPendingAbove(article, heading);
+    const timedOut = performance.now() > deadline;
+
+    if (Math.abs(delta) > 2) {
+      const distance = Math.abs(delta);
+      // Keep chasing the heading's live position. A fixed ease toward the
+      // distance measured at click time ends early once diagrams above it load.
+      const cap = behavior === 'smooth' ? Math.max(distance * 0.2, 72) : distance;
+      const before = stage.scrollTop;
+      stage.scrollTop += Math.sign(delta) * Math.min(distance, cap);
+      if (stage.scrollTop !== before) {
+        raf = window.requestAnimationFrame(tick);
+        return;
+      }
+      if (!pending || timedOut) {
+        stop();
+        return;
+      }
+    }
+
+    if ((pending && !timedOut) || Math.abs(delta) > 2) {
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(wake, 120);
+      return;
+    }
+
+    window.clearTimeout(settleTimer);
+    settleTimer = window.setTimeout(() => {
+      settleTimer = 0;
+      if (stopped) return;
+      const node = findHeading();
+      if (!node) {
+        stop();
+        return;
+      }
+      const stillOff = Math.abs(headingAlignmentDelta(stage, node)) > 2;
+      const stillPending = layoutPendingAbove(article, node) && performance.now() <= deadline;
+      if (stillOff || stillPending) {
+        wake();
+        return;
+      }
+      stop();
+    }, 200);
+  };
+
+  raf = window.requestAnimationFrame(tick);
+  return stop;
+}
+
 function HtmlPreviewDocument({ content, title }: { content: string; title: string }) {
   return (
     <iframe
@@ -312,7 +445,6 @@ function MarkdownPreviewImage({ basePath, src, alt, authenticated }: { basePath:
     <img
       src={external ? src : blobUrl}
       alt={alt}
-      loading="lazy"
       referrerPolicy="no-referrer"
       onError={() => setFailed(true)}
     />
@@ -368,6 +500,7 @@ export function FilePreviewPage() {
   const [activeHeadingId, setActiveHeadingId] = useState('');
   const stageRef = useRef<HTMLElement>(null);
   const markdownArticleRef = useRef<HTMLElement>(null);
+  const cancelHeadingScrollRef = useRef<(() => void) | null>(null);
   const dirty = editing && draft !== data?.content;
   const previewContent = editing ? draft : data?.content ?? '';
   const canEdit = canWriteFiles && !!data && !loading && !error && !data.binary && !data.truncated;
@@ -417,6 +550,8 @@ export function FilePreviewPage() {
     setShareCopied(false);
     setMarkdownOutline([]);
     setActiveHeadingId('');
+    cancelHeadingScrollRef.current?.();
+    cancelHeadingScrollRef.current = null;
     stageRef.current?.scrollTo({ top: 0, left: 0 });
     if (isMobile) setFileBrowserOpen(false);
     return true;
@@ -595,13 +730,16 @@ export function FilePreviewPage() {
     }
     const hashTarget = headings.find((heading) => heading.id === hash);
     if (hashTarget) {
-      window.requestAnimationFrame(() => hashTarget.scrollIntoView({ block: 'start' }));
+      cancelHeadingScrollRef.current?.();
+      cancelHeadingScrollRef.current = scrollStageToHeading(stage, article, hashTarget.id, 'auto');
     }
 
     return () => {
       stage.removeEventListener('scroll', scheduleActiveHeadingUpdate);
       window.removeEventListener('resize', scheduleActiveHeadingUpdate);
       if (animationFrame !== 0) window.cancelAnimationFrame(animationFrame);
+      cancelHeadingScrollRef.current?.();
+      cancelHeadingScrollRef.current = null;
     };
   }, [data, markdown, showSource, previewContent]);
 
@@ -690,8 +828,12 @@ export function FilePreviewPage() {
       .find((candidate) => candidate.id === id);
     if (!heading) return;
 
+    const stage = stageRef.current;
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    heading.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    if (stage) {
+      cancelHeadingScrollRef.current?.();
+      cancelHeadingScrollRef.current = scrollStageToHeading(stage, article, id, reduceMotion ? 'auto' : 'smooth');
+    }
     setActiveHeadingId(id);
     const url = new URL(window.location.href);
     url.hash = id;
