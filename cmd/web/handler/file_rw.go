@@ -277,7 +277,11 @@ func (h *Handler) ServeFile(ctx context.Context, c *app.RequestContext) {
 		httputil.BadRequest(c, "path is a directory")
 		return
 	}
-	if stat.Size > maxServeFileSize {
+	// Inline preview stays capped. download=1 streams the file as an
+	// attachment with no size cap. Public handlers strip the flag so a
+	// share link cannot lift the cap.
+	forceDownload := strings.TrimSpace(string(c.Query("download"))) == "1"
+	if !forceDownload && stat.Size > maxServeFileSize {
 		httputil.BadRequest(c, "file too large")
 		return
 	}
@@ -299,8 +303,11 @@ func (h *Handler) ServeFile(ctx context.Context, c *app.RequestContext) {
 	//      app origin. <img> contexts ignore response CSP but never run
 	//      scripts inside SVG anyway.
 	contentType, inline := serveFileContentType(filePath)
+	if forceDownload {
+		inline = false
+	}
 	c.Response.Header.Set("X-Content-Type-Options", "nosniff")
-	if inline && strings.HasPrefix(strings.ToLower(contentType), "image/svg+xml") {
+	if strings.HasPrefix(strings.ToLower(contentType), "image/svg+xml") {
 		c.Response.Header.Set("Content-Security-Policy", inlineSVGCSP)
 	}
 	if !inline {
@@ -332,15 +339,20 @@ func (h *Handler) ServeFile(ctx context.Context, c *app.RequestContext) {
 	// lazily after this handler returns and calls Close() itself via
 	// Response.CloseBodyStream(). Closing early would truncate the
 	// response body.
-	if stat.Size > math.MaxInt32 {
-		_ = reader.Close()
-		httputil.BadRequest(c, "file too large")
-		return
-	}
-
 	c.SetContentType(contentType)
 	c.SetStatusCode(http.StatusOK)
-	c.Response.SetBodyStream(reader, int(stat.Size))
+	// Explicit downloads are not size-capped. Content-Length is only set
+	// when the file size fits in an int; anything larger is chunked until EOF.
+	c.Response.SetBodyStream(reader, serveBodySize(stat.Size))
+}
+
+// serveBodySize is the SetBodyStream size argument. A negative value tells
+// Hertz to read the reader until EOF instead of requiring an exact length.
+func serveBodySize(size int64) int {
+	if size < 0 || size > int64(math.MaxInt) {
+		return -1
+	}
+	return int(size)
 }
 
 // inlineSVGCSP is attached to inline SVG responses. `sandbox` drops the

@@ -110,6 +110,7 @@ func (h *Handler) PublicServeFile(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	// Delegate to the normal handler
+	// Share links stay on the preview size cap.
+	c.Request.URI().QueryArgs().Del("download")
 	h.ServeFile(ctx, c)
 }

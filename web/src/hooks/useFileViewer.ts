@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FileViewerFile } from '../types';
-import { fetchFileAsBlobUrl, fileNameFromPath, isImageFile, readFile } from '../utils/file';
+import { buildServeFileUrl, fetchFileAsBlobUrl, fileNameFromPath, isImageFile, isPdfFile, readFile } from '../utils/file';
 
 export interface OpenFileOptions {
   /** Display name; derived from the path when omitted. */
@@ -39,6 +39,7 @@ export function useFileViewer(jobId?: string) {
   const open = useCallback(async (path: string, options: OpenFileOptions = {}) => {
     const { name = fileNameFromPath(path), size = 0, line, endLine } = options;
     const isImage = isImageFile(name);
+    const isPdf = isPdfFile(name);
     requestedPathRef.current = path;
     revokeImageUrl();
     setFile({
@@ -50,7 +51,9 @@ export function useFileViewer(jobId?: string) {
       binary: false,
       loading: !isImage,
       isImage,
+      isPdf,
       imageUrl: null,
+      pdfUrl: null,
       line,
       endLine,
     });
@@ -84,6 +87,9 @@ export function useFileViewer(jobId?: string) {
         truncated: data.truncated,
         binary: data.binary,
         loading: false,
+        // read-file only validates existence/size for PDFs (it reports them
+        // as binary); the bytes come from serve-file for the inline viewer.
+        pdfUrl: isPdf ? buildServeFileUrl(path) : null,
       });
     } catch (error) {
       commit({ loading: false, error: error instanceof Error ? error.message : String(error) });

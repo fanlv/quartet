@@ -1198,6 +1198,79 @@ struct APIClient: @unchecked Sendable {
         }
     }
 
+    /// Streams an authenticated workspace file to a temporary directory and
+    /// returns the local file URL. The caller deletes the parent directory
+    /// after the user finishes saving it.
+    func downloadWorkspaceFile(path: String, fileName: String) async throws -> URL {
+        let endpoint = endpointURL(
+            path: "api/v1/serve-file",
+            query: [
+                URLQueryItem(name: "path", value: path),
+                URLQueryItem(name: "download", value: "1"),
+                URLQueryItem(name: "name", value: fileName)
+            ]
+        )
+        var request = URLRequest(url: endpoint)
+        request.setValue("ios", forHTTPHeaderField: "X-Quartet-Client")
+
+        let temporary: URL
+        let response: URLResponse
+        do {
+            (temporary, response) = try await session.download(for: request)
+        } catch {
+            throw APIError(
+                summary: "文件下载失败",
+                detail: "GET \(endpoint.absoluteString)\n\n\(String(describing: error))"
+            )
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            try? FileManager.default.removeItem(at: temporary)
+            throw APIError(
+                summary: "响应无效",
+                detail: "GET \(endpoint.absoluteString)\n\n服务未返回 HTTP 响应。"
+            )
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let data = (try? Data(contentsOf: temporary)) ?? Data()
+            try? FileManager.default.removeItem(at: temporary)
+            let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes of non-UTF-8 data>"
+            let error = APIError(
+                summary: http.statusCode == 401 ? "登录状态已失效" : http.statusCode == 403 ? "权限不足" : "文件下载失败",
+                detail: "GET \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n\(body)",
+                requestWasRejected: true,
+                httpStatusCode: http.statusCode
+            )
+            await notifyUnauthorizedIfNeeded(status: http.statusCode, error: error)
+            throw error
+        }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quartet-download-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let destination = directory.appendingPathComponent(Self.sanitizedDownloadFileName(fileName))
+            try FileManager.default.moveItem(at: temporary, to: destination)
+            return destination
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            try? FileManager.default.removeItem(at: directory)
+            throw APIError(
+                summary: "文件下载失败",
+                detail: "GET \(endpoint.absoluteString)\nHTTP \(http.statusCode)\n\n无法保存临时文件：\n\(String(describing: error))"
+            )
+        }
+    }
+
+    private static func sanitizedDownloadFileName(_ name: String) -> String {
+        let base = URL(fileURLWithPath: name).lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty || base == "." || base == ".." {
+            return "download"
+        }
+        return base
+    }
+
     private func request<Response: Decodable & Sendable>(
         path: String,
         method: String = "GET",

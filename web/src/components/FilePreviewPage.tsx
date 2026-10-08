@@ -7,7 +7,7 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
 import { copyToClipboard } from '../utils/clipboard';
-import { writeFile } from '../utils/file';
+import { isPdfFile, maxEmbeddedFileSize, writeFile } from '../utils/file';
 import { detectLanguage, getLanguageLabel } from '../utils/syntaxHighlight';
 import { useAuthPrincipal } from '../auth';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -65,12 +65,25 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Markdown destinations arrive percent-encoded (both the escape sequences
+// written by the author, like "image%201.png", and the re-encoding applied by
+// the markdown-to-HTML pipeline to non-ASCII characters). The file APIs take
+// literal filesystem paths, so decode first; malformed escapes stay as-is.
+function decodePathTarget(target: string): string {
+  try {
+    return decodeURIComponent(target);
+  } catch {
+    return target;
+  }
+}
+
 function normalizeLocalPath(baseFilePath: string, target: string): string {
   const targetWithoutFragment = target.split('#', 1)[0].split('?', 1)[0];
-  if (targetWithoutFragment.startsWith('/')) return targetWithoutFragment;
+  const decodedTarget = decodePathTarget(targetWithoutFragment);
+  if (decodedTarget.startsWith('/')) return decodedTarget;
 
   const baseParts = baseFilePath.split('/').slice(0, -1);
-  for (const part of targetWithoutFragment.split('/')) {
+  for (const part of decodedTarget.split('/')) {
     if (!part || part === '.') continue;
     if (part === '..') {
       if (baseParts.length > 1) baseParts.pop();
@@ -96,7 +109,9 @@ function buildReturnUrl(): string {
   return url.toString();
 }
 
-function buildDownloadUrl(path: string, fileShareToken: string): string {
+// Raw-bytes URL for downloads and inline embedding (PDF). Uses the public
+// share endpoint when a fileShareToken is present.
+function buildServeFileUrl(path: string, fileShareToken: string): string {
   const query = new URLSearchParams({ path });
   if (fileShareToken) {
     query.set('fileShareToken', fileShareToken);
@@ -475,6 +490,7 @@ export function FilePreviewPage() {
   const canWriteFiles = !isPublic && (principal?.permissions.includes('file.write') ?? false);
   const markdown = isMarkdownPath(path);
   const html = isHtmlPath(path);
+  const pdf = isPdfFile(fileNameFromPath(path));
   const renderedDocument = markdown || html;
   const [data, setData] = useState<FilePreviewData | null>(null);
   const [error, setError] = useState('');
@@ -503,7 +519,7 @@ export function FilePreviewPage() {
   const cancelHeadingScrollRef = useRef<(() => void) | null>(null);
   const dirty = editing && draft !== data?.content;
   const previewContent = editing ? draft : data?.content ?? '';
-  const canEdit = canWriteFiles && !!data && !loading && !error && !data.binary && !data.truncated;
+  const canEdit = canWriteFiles && !!data && !loading && !error && !pdf && !data.binary && !data.truncated;
 
   useEffect(() => {
     if (!canBrowseFiles || !fileBrowserOpen || browserRootPath) return;
@@ -881,7 +897,7 @@ export function FilePreviewPage() {
             {path && <span id="file-preview-path-tooltip" className="file-preview-path-tooltip" role="tooltip">{path}</span>}
           </div>
           <span className="file-preview-type">{typeLabel}</span>
-          {data && <span className="file-preview-meta">{formatSize(data.size)} · {lineCount} 行</span>}
+          {data && <span className="file-preview-meta">{formatSize(data.size)}{!pdf && ` · ${lineCount} 行`}</span>}
         </div>
 
         <div className="file-preview-actions">
@@ -908,12 +924,12 @@ export function FilePreviewPage() {
             </>
           )}
           {saved && !saveError && <span className="file-preview-edit-status" role="status">{t('filePreview.saved')}</span>}
-          {data && showSource && !data.binary && (
+          {data && showSource && !data.binary && !pdf && (
             <button type="button" className={`file-preview-button ${wrapText ? 'active' : ''}`} onClick={() => setWrapText((value) => !value)}>
               自动换行
             </button>
           )}
-          {data && !data.binary && !isSharedLink && (
+          {data && !data.binary && !isSharedLink && !pdf && (
             <button type="button" className="file-preview-button" onClick={handleCopy}>
               {copied ? '已复制' : '复制内容'}
             </button>
@@ -926,7 +942,7 @@ export function FilePreviewPage() {
           {data && path && !isSharedLink && (
             <a
               className="file-preview-button"
-              href={buildDownloadUrl(path, isPublic ? fileShareToken : '')}
+              href={`${buildServeFileUrl(path, isPublic ? fileShareToken : '')}${isPublic ? '' : '&download=1'}`}
               download={fileNameFromPath(path)}
             >
               {t('filePreview.download')}
@@ -968,13 +984,13 @@ export function FilePreviewPage() {
         </div>
       )}
 
-      {data?.truncated && (
+      {data?.truncated && !pdf && (
         <div className="file-preview-notice" role="status">
           文件超过 1 MB，接口未返回完整内容。当前页面显示的是服务端返回的提示信息。
         </div>
       )}
 
-      <main ref={stageRef} className={`file-preview-stage ${showSource ? 'source-mode' : html ? 'html-mode' : 'reading-mode'}`}>
+      <main ref={stageRef} className={`file-preview-stage ${pdf ? 'pdf-mode' : showSource ? 'source-mode' : html ? 'html-mode' : 'reading-mode'}`}>
         {loading && (
           <div className="file-preview-state" role="status">
             <span className="file-preview-spinner" />
@@ -991,7 +1007,22 @@ export function FilePreviewPage() {
           </div>
         )}
 
-        {!loading && data?.binary && (
+        {!loading && data && pdf && (
+          data.size > maxEmbeddedFileSize ? (
+            <div className="file-preview-state" role="status">
+              <strong>{t('filePreview.pdfTooLarge')}</strong>
+              <span>{t('filePreview.pdfTooLargeHint')}</span>
+            </div>
+          ) : (
+            <iframe
+              className="file-preview-pdf-frame"
+              title={t('filePreview.pdfFrameTitle', { name: fileNameFromPath(path) })}
+              src={buildServeFileUrl(path, isPublic ? fileShareToken : '')}
+            />
+          )
+        )}
+
+        {!loading && data?.binary && !pdf && (
           <div className="file-preview-state" role="status">
             <strong>这是二进制文件</strong>
             <span>独立预览页目前支持 Markdown 和 UTF-8 文本文件。</span>
@@ -1042,7 +1073,7 @@ export function FilePreviewPage() {
           <HtmlPreviewDocument content={previewContent} title={fileNameFromPath(path)} />
         )}
 
-        {!loading && data && !data.binary && (showSource || editing) && (
+        {!loading && data && !data.binary && !pdf && (showSource || editing) && (
           <section className="file-preview-source" aria-label="文件源文" hidden={!showSource}>
             {editing ? (
               <textarea

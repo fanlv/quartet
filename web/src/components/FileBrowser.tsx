@@ -4,7 +4,7 @@ import './FileBrowser.css';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useFileViewer } from '../hooks/useFileViewer';
 import { copyToClipboard } from '../utils/clipboard';
-import { formatFileSize } from '../utils/file';
+import { downloadWorkspaceFile, formatFileSize } from '../utils/file';
 import { showToast } from '../utils/toast';
 import { FileViewer } from './FileViewer/FileViewer';
 
@@ -90,6 +90,7 @@ export function FileBrowser({ rootPath, jobId, onClose, onFileSelect, selectedPa
   const loadedRootPath = root?.path;
   const { file: viewingFile, open: openViewer, close: closeViewer } = useFileViewer(jobId);
   const [panelWidth, setPanelWidth] = useState(420);
+  const [downloadingPath, setDownloadingPath] = useState('');
   const resizing = useRef(false);
   const resizeCleanup = useRef<(() => void) | null>(null);
 
@@ -242,6 +243,18 @@ export function FileBrowser({ rootPath, jobId, onClose, onFileSelect, selectedPa
     });
   };
 
+  const handleDownload = (e: React.MouseEvent, filePath: string, fileName: string) => {
+    e.stopPropagation();
+    if (downloadingPath) return;
+    setDownloadingPath(filePath);
+    setError('');
+    void downloadWorkspaceFile(filePath, fileName).catch((reason: unknown) => {
+      setError(reason instanceof Error ? reason.stack || reason.message : String(reason));
+    }).finally(() => {
+      setDownloadingPath((current) => (current === filePath ? '' : current));
+    });
+  };
+
   const renderTree = (node: DirNode, depth: number) => {
     const indent = depth * 16;
     return (
@@ -261,16 +274,20 @@ export function FileBrowser({ rootPath, jobId, onClose, onFileSelect, selectedPa
                 <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
               </svg>
               <span className="fb-name" title={dir.path}>{dir.name}</span>
-              <button
-                className="fb-copy-path-btn"
-                title={t('fileBrowser.copyRelativePath')}
-                onClick={(e) => handleCopyRelativePath(e, dir.path)}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                </svg>
-              </button>
+              <span className="fb-row-actions">
+                <button
+                  type="button"
+                  className="fb-row-action is-hover-only"
+                  title={t('fileBrowser.copyRelativePath')}
+                  aria-label={t('fileBrowser.copyRelativePath')}
+                  onClick={(e) => handleCopyRelativePath(e, dir.path)}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                  </svg>
+                </button>
+              </span>
             </div>
             {dir.expanded && dir.loaded && renderTree(dir, depth + 1)}
             {dir.expanded && !dir.loaded && (
@@ -295,16 +312,35 @@ export function FileBrowser({ rootPath, jobId, onClose, onFileSelect, selectedPa
                 <polyline points="14 2 14 8 20 8" />
               </svg>
               <span className="fb-name" title={filePath}>{file.name}</span>
-              <button
-                className="fb-copy-path-btn"
-                title={t('fileBrowser.copyRelativePath')}
-                onClick={(e) => handleCopyRelativePath(e, filePath)}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                </svg>
-              </button>
+              <span className={`fb-row-actions${downloadingPath === filePath ? ' is-active' : ''}`}>
+                <button
+                  type="button"
+                  className="fb-row-action is-hover-only"
+                  title={t('fileBrowser.copyRelativePath')}
+                  aria-label={t('fileBrowser.copyRelativePath')}
+                  onClick={(e) => handleCopyRelativePath(e, filePath)}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="fb-row-action"
+                  title={downloadingPath === filePath ? t('fileBrowser.downloading') : t('fileBrowser.download')}
+                  aria-label={downloadingPath === filePath ? t('fileBrowser.downloading') : t('fileBrowser.download')}
+                  aria-busy={downloadingPath === filePath}
+                  disabled={downloadingPath !== ''}
+                  onClick={(e) => handleDownload(e, filePath, file.name)}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                </button>
+              </span>
               <span className="fb-size">{formatFileSize(file.size)}</span>
             </div>
           );

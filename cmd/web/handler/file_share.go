@@ -136,6 +136,8 @@ func (h *Handler) PublicServeSharedFile(_ context.Context, c *app.RequestContext
 
 	c.Request.SetRequestURI("/api/v1/public/file-preview/serve-file?path=" + requestedPath)
 	c.Request.URI().QueryArgs().Set("path", requestedPath)
+	// Share links stay on the preview size cap.
+	c.Request.URI().QueryArgs().Del("download")
 	h.ServeFile(context.Background(), c)
 }
 

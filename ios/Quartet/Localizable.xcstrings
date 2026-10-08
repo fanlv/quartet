@@ -6091,6 +6091,38 @@
         }
       }
     },
+    "下载文件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Download File"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下载文件"
+          }
+        }
+      }
+    },
+    "正在下载文件" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Downloading File"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在下载文件"
+          }
+        }
+      }
+    },
     "复制文件地址" : {
       "extractionState" : "stale",
       "localizations" : {

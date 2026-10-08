@@ -141,31 +141,50 @@
 }
 
 .fb-tree-item .fb-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.fb-tree-item .fb-copy-path-btn {
+.fb-tree-item .fb-row-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.fb-tree-item .fb-row-action.is-hover-only {
   display: none;
+}
+
+.fb-tree-item:hover .fb-row-action.is-hover-only,
+.fb-tree-item:focus-within .fb-row-action.is-hover-only,
+.fb-tree-item .fb-row-actions.is-active .fb-row-action.is-hover-only {
+  display: flex;
+}
+
+.fb-tree-item .fb-row-action {
+  display: flex;
   align-items: center;
   justify-content: center;
   background: none;
   border: none;
   padding: 2px;
-  margin-left: auto;
   cursor: pointer;
   color: #87958b;
   border-radius: 4px;
   flex-shrink: 0;
 }
 
-.fb-tree-item .fb-copy-path-btn:hover {
+.fb-tree-item .fb-row-action:hover:not(:disabled) {
   color: #29362d;
   background: #e0e0e0;
 }
 
-.fb-tree-item:hover .fb-copy-path-btn {
-  display: flex;
+.fb-tree-item .fb-row-action:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .fb-tree-item .fb-size {
@@ -311,9 +330,13 @@
     font-size: 12px;
   }
 
-  .fb-tree-item .fb-copy-path-btn {
+  .fb-tree-item .fb-row-action.is-hover-only {
     display: flex;
-    margin-left: auto;
+  }
+
+  .fb-tree-item .fb-row-action {
+    width: 44px;
+    height: 44px;
   }
 
   .fb-tree-loading {

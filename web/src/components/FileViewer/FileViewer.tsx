@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { copyToClipboard } from '../../utils/clipboard';
-import { buildFilePreviewUrl, formatFileSize } from '../../utils/file';
+import { buildFilePreviewUrl, formatFileSize, maxEmbeddedFileSize } from '../../utils/file';
 import { getLanguageLabel } from '../../utils/syntaxHighlight';
 import { showToast } from '../../utils/toast';
 import type { FileViewerFile } from '../../types';
@@ -26,8 +26,10 @@ export function FileViewer({ file, jobId, className, onClose, onBack }: FileView
   const [copiedPath, setCopiedPath] = useState(false);
   const [copiedContent, setCopiedContent] = useState(false);
 
-  // Text actions are meaningless for images/binaries/failed loads.
-  const hasText = !file.loading && !file.error && !file.isImage && !file.binary;
+  // Text actions are meaningless for images/PDFs/binaries/failed loads.
+  const hasText = !file.loading && !file.error && !file.isImage && !file.isPdf && !file.binary;
+  // PDFs render inline, but the standalone page also offers a download button.
+  const canOpenStandalone = hasText || (!file.loading && !file.error && file.isPdf);
 
   const handleCopyPath = () => {
     copyToClipboard(file.path).then(() => {
@@ -60,6 +62,15 @@ export function FileViewer({ file, jobId, className, onClose, onBack }: FileView
     }
     if (file.error) {
       return <div className="file-viewer-error">{file.error}</div>;
+    }
+    if (file.isPdf) {
+      // The browser's native PDF viewer handles the inline iframe; serve-file
+      // streams application/pdf without Content-Disposition. Files above its
+      // size cap cannot be embedded.
+      if (file.pdfUrl && file.size <= maxEmbeddedFileSize) {
+        return <iframe className="file-viewer-pdf" title={file.name} src={file.pdfUrl} />;
+      }
+      return <div className="file-viewer-binary">{t('fileViewer.pdfTooLarge')}</div>;
     }
     if (file.isImage) {
       return (
@@ -107,7 +118,7 @@ export function FileViewer({ file, jobId, className, onClose, onBack }: FileView
           {file.size > 0 && <span className="file-viewer-size">{formatFileSize(file.size)}</span>}
         </div>
         <div className="file-viewer-header-right">
-          {hasText && (
+          {canOpenStandalone && (
             <button className="file-viewer-header-btn" title="在新页面预览" aria-label="在新页面预览" onClick={handleOpenStandalonePreview}>
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
             </button>
@@ -135,7 +146,7 @@ export function FileViewer({ file, jobId, className, onClose, onBack }: FileView
           </button>
         </div>
       </div>
-      {file.truncated && (
+      {file.truncated && !file.isPdf && (
         <div className="file-viewer-notice">文件超过 1MB，仅展示前 1MB 内容</div>
       )}
       {renderBody()}

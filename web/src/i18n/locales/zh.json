@@ -41,7 +41,9 @@
   "fileBrowser": {
     "files": "文件",
     "copyRelativePath": "复制相对路径",
-    "copiedRelativePath": "已复制相对路径"
+    "copiedRelativePath": "已复制相对路径",
+    "download": "下载",
+    "downloading": "下载中…"
   },
   "filePreview": {
     "browseWorkspace": "浏览工作空间目录",
@@ -60,7 +62,10 @@
     "editor": "编辑文件源文",
     "discardChanges": "放弃未保存的修改？",
     "saveFailed": "文件保存失败，修改仍保留在编辑器中。",
-    "refreshFailed": "文件已保存，但重新读取失败。"
+    "refreshFailed": "文件已保存，但重新读取失败。",
+    "pdfTooLarge": "PDF 文件超过 10 MB，无法内嵌预览",
+    "pdfTooLargeHint": "请使用右上角的“下载”按钮下载后查看。",
+    "pdfFrameTitle": "{{name}} PDF 预览"
   },
   "auth": {
     "initializeTitle": "初始化管理员",
@@ -940,7 +945,8 @@
   },
   "fileViewer": {
     "content": "文件源文",
-    "lines": "{{count}} 行"
+    "lines": "{{count}} 行",
+    "pdfTooLarge": "PDF 文件超过 10 MB，无法内嵌预览。可点击右上角“在新页面预览”打开独立预览页下载。"
   },
   "stats": {
     "title": "使用统计",

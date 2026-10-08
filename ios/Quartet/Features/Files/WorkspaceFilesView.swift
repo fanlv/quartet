@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// 文件浏览 tab：导航栏按运行台的方式切换工作空间，逐级下钻工作空间目录，
 /// 点击文件打开全屏的文件浮层——默认是后端的 Web 预览页，可切换成 App 内的文本编辑器。
@@ -325,6 +326,9 @@ private struct WorkspaceDirectoryView: View {
     @State private var isLoading = true
     @State private var error: PresentedError?
     @State private var requestGeneration = 0
+    @State private var downloadingPath: String?
+    @State private var exportFile: WorkspaceDownloadTransfer?
+    @State private var exportPresented = false
 
     private var isEmptyDirectory: Bool {
         directories.isEmpty && files.isEmpty
@@ -355,6 +359,14 @@ private struct WorkspaceDirectoryView: View {
         .task(id: directory) { await load() }
         .onChange(of: reloadToken) { _, _ in
             Task { await load() }
+        }
+        .fileExporter(
+            isPresented: $exportPresented,
+            item: exportFile,
+            contentTypes: [.data],
+            defaultFilename: exportFile?.filename
+        ) { result in
+            finishExport(result)
         }
     }
 
@@ -427,6 +439,9 @@ private struct WorkspaceDirectoryView: View {
                 path: path,
                 pathKind: .file,
                 actionAccessibilityLabel: AppLanguage.localizedFormat("打开文件 %@", file.name),
+                isDownloading: downloadingPath == path,
+                downloadDisabled: downloadingPath != nil || exportFile != nil,
+                onDownload: { Task { await download(path: path, name: file.name) } },
                 onOpen: { onOpenFile(path) }
             )
             .accessibilityIdentifier("files-file-\(file.name)")
@@ -470,6 +485,33 @@ private struct WorkspaceDirectoryView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 22)
         .accessibilityIdentifier("files-empty")
+    }
+
+    private func download(path: String, name: String) async {
+        guard downloadingPath == nil, exportFile == nil else { return }
+        downloadingPath = path
+        defer { downloadingPath = nil }
+        do {
+            let url = try await model.apiClient().downloadWorkspaceFile(path: path, fileName: name)
+            exportFile = WorkspaceDownloadTransfer(url: url, filename: url.lastPathComponent)
+            exportPresented = true
+        } catch {
+            model.present(error)
+        }
+    }
+
+    private func finishExport(_ result: Result<URL, Error>) {
+        if let url = exportFile?.url {
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
+        exportFile = nil
+        guard case .failure(let error) = result else { return }
+        let nsError = error as NSError
+        let cancelled = error is CancellationError
+            || (nsError.domain == NSCocoaErrorDomain && nsError.code == NSUserCancelledError)
+        if !cancelled {
+            model.present(error)
+        }
     }
 
     private func load() async {
@@ -621,6 +663,9 @@ struct WorkspaceBrowserRow: View {
     var navigationRoute: WorkspaceDirectoryRoute? = nil
     var navigationDestination: (() -> AnyView)? = nil
     var onOpen: (() -> Void)? = nil
+    var isDownloading = false
+    var downloadDisabled = false
+    var onDownload: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 0) {
@@ -628,6 +673,29 @@ struct WorkspaceBrowserRow: View {
 
             WorkspacePathCopyButton(path: path, kind: pathKind)
                 .padding(.leading, 4)
+
+            if onDownload != nil {
+                Button(action: { onDownload?() }) {
+                    Group {
+                        if isDownloading {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(QuartetTheme.accent)
+                        } else {
+                            Image(systemName: "square.and.arrow.down")
+                                .font(.quartet(.detail, weight: .semibold))
+                                .foregroundStyle(QuartetTheme.accent)
+                        }
+                    }
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isDownloading || downloadDisabled)
+                .accessibilityLabel((isDownloading ? "正在下载文件" : "下载文件").localizedForApp)
+                .accessibilityHint(path)
+                .accessibilityIdentifier("files-download-\(title)")
+            }
 
             Image(systemName: "chevron.right")
                 .font(.quartet(.compact, weight: .bold))
@@ -749,6 +817,20 @@ enum WorkspaceBrowserPathKind {
         switch self {
         case .directory: "目录地址已复制".localizedForApp
         case .file: "文件地址已复制".localizedForApp
+        }
+    }
+}
+
+/// A downloaded workspace file handed to the system save dialog.
+private struct WorkspaceDownloadTransfer: Transferable, Sendable {
+    let url: URL
+    let filename: String
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(contentType: .data) { transfer in
+            SentTransferredFile(transfer.url)
+        } importing: { received in
+            WorkspaceDownloadTransfer(url: received.file, filename: received.file.lastPathComponent)
         }
     }
 }

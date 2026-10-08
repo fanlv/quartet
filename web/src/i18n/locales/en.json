@@ -41,7 +41,9 @@
   "fileBrowser": {
     "files": "Files",
     "copyRelativePath": "Copy relative path",
-    "copiedRelativePath": "Relative path copied"
+    "copiedRelativePath": "Relative path copied",
+    "download": "Download",
+    "downloading": "Downloading…"
   },
   "filePreview": {
     "browseWorkspace": "Browse workspace files",
@@ -60,7 +62,10 @@
     "editor": "Edit file source",
     "discardChanges": "Discard unsaved changes?",
     "saveFailed": "Could not save the file. Your changes are still in the editor.",
-    "refreshFailed": "The file was saved, but could not be reloaded."
+    "refreshFailed": "The file was saved, but could not be reloaded.",
+    "pdfTooLarge": "This PDF is larger than 10 MB and cannot be embedded",
+    "pdfTooLargeHint": "Use the Download button in the top-right corner to view it locally.",
+    "pdfFrameTitle": "{{name}} PDF preview"
   },
   "auth": {
     "initializeTitle": "Initialize administrator",
@@ -944,7 +949,8 @@
   },
   "fileViewer": {
     "content": "File source",
-    "lines": "{{count}} lines"
+    "lines": "{{count}} lines",
+    "pdfTooLarge": "This PDF is larger than 10 MB and cannot be embedded. Use “Open in new page” to preview or download it."
   },
   "stats": {
     "title": "Usage Statistics",
