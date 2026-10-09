@@ -1,7 +1,6 @@
 import Foundation
 import SwiftUI
 import UIKit
-import UniformTypeIdentifiers
 
 /// 文件浏览 tab：导航栏按运行台的方式切换工作空间，逐级下钻工作空间目录，
 /// 点击文件打开全屏的文件浮层——默认是后端的 Web 预览页，可切换成 App 内的文本编辑器。
@@ -327,8 +326,7 @@ private struct WorkspaceDirectoryView: View {
     @State private var error: PresentedError?
     @State private var requestGeneration = 0
     @State private var downloadingPath: String?
-    @State private var exportFile: WorkspaceDownloadTransfer?
-    @State private var exportPresented = false
+    @State private var exportRequest: WorkspaceFileExport?
 
     private var isEmptyDirectory: Bool {
         directories.isEmpty && files.isEmpty
@@ -360,13 +358,10 @@ private struct WorkspaceDirectoryView: View {
         .onChange(of: reloadToken) { _, _ in
             Task { await load() }
         }
-        .fileExporter(
-            isPresented: $exportPresented,
-            item: exportFile,
-            contentTypes: [.data],
-            defaultFilename: exportFile?.filename
-        ) { result in
-            finishExport(result)
+        .sheet(item: $exportRequest) { request in
+            WorkspaceFileExportPicker(url: request.url) {
+                finishExport()
+            }
         }
     }
 
@@ -439,10 +434,10 @@ private struct WorkspaceDirectoryView: View {
                 path: path,
                 pathKind: .file,
                 actionAccessibilityLabel: AppLanguage.localizedFormat("打开文件 %@", file.name),
+                onOpen: { onOpenFile(path) },
                 isDownloading: downloadingPath == path,
-                downloadDisabled: downloadingPath != nil || exportFile != nil,
-                onDownload: { Task { await download(path: path, name: file.name) } },
-                onOpen: { onOpenFile(path) }
+                downloadDisabled: downloadingPath != nil || exportRequest != nil,
+                onDownload: { Task { await download(path: path, name: file.name) } }
             )
             .accessibilityIdentifier("files-file-\(file.name)")
         }
@@ -488,30 +483,23 @@ private struct WorkspaceDirectoryView: View {
     }
 
     private func download(path: String, name: String) async {
-        guard downloadingPath == nil, exportFile == nil else { return }
+        guard downloadingPath == nil, exportRequest == nil else { return }
         downloadingPath = path
         defer { downloadingPath = nil }
         do {
             let url = try await model.apiClient().downloadWorkspaceFile(path: path, fileName: name)
-            exportFile = WorkspaceDownloadTransfer(url: url, filename: url.lastPathComponent)
-            exportPresented = true
+            exportRequest = WorkspaceFileExport(url: url)
         } catch {
             model.present(error)
         }
     }
 
-    private func finishExport(_ result: Result<URL, Error>) {
-        if let url = exportFile?.url {
+    /// 导出对话框关闭后清理下载到临时目录的文件。
+    private func finishExport() {
+        if let url = exportRequest?.url {
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
-        exportFile = nil
-        guard case .failure(let error) = result else { return }
-        let nsError = error as NSError
-        let cancelled = error is CancellationError
-            || (nsError.domain == NSCocoaErrorDomain && nsError.code == NSUserCancelledError)
-        if !cancelled {
-            model.present(error)
-        }
+        exportRequest = nil
     }
 
     private func load() async {
@@ -821,16 +809,47 @@ enum WorkspaceBrowserPathKind {
     }
 }
 
-/// A downloaded workspace file handed to the system save dialog.
-private struct WorkspaceDownloadTransfer: Transferable, Sendable {
+/// 一次待导出的工作区文件下载：临时文件 URL + 用于驱动 `.sheet(item:)` 的身份。
+private struct WorkspaceFileExport: Identifiable {
+    let id = UUID()
     let url: URL
-    let filename: String
+}
 
-    static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(contentType: .data) { transfer in
-            SentTransferredFile(transfer.url)
-        } importing: { received in
-            WorkspaceDownloadTransfer(url: received.file, filename: received.file.lastPathComponent)
+/// 把已下载到临时目录的文件交给系统「存储到文件」对话框保存。
+///
+/// 这里刻意不用 SwiftUI 的 `fileExporter(isPresented:item:...)`：它要求 `Transferable`
+/// 给出非空的 `suggestedFileName`，而 `FileRepresentation` 默认没有文件名，导出时会在
+/// `-[NSFileWrapper setPreferredFilename:]` 抛异常把 App 打崩。导出模式的
+/// `UIDocumentPickerViewController` 直接用文件自身的名字，不受这个约束。
+private struct WorkspaceFileExportPicker: UIViewControllerRepresentable {
+    let url: URL
+    let onFinish: @MainActor () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onFinish: onFinish)
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        private let onFinish: @MainActor () -> Void
+
+        init(onFinish: @escaping @MainActor () -> Void) {
+            self.onFinish = onFinish
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            Task { @MainActor in onFinish() }
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            Task { @MainActor in onFinish() }
         }
     }
 }
