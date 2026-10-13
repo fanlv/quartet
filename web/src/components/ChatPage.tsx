@@ -443,7 +443,11 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   const localDraftStorageKey = principal
     ? `quartet:composer_draft:home:${encodeURIComponent(principal.user.id)}:${encodeURIComponent(workspaceId || 'default')}`
     : null;
-  const [composerDraft, setComposerDraft, clearComposerDraft] = useLocalComposerDraft(localDraftStorageKey);
+  const [composerDraft, setComposerDraft, clearComposerDraft] = useLocalComposerDraft(localDraftStorageKey, {
+    // Each workspace still keeps its own draft. Switching onto a workspace with
+    // nothing stored must not blank text the user already typed.
+    keepDraftWhenStoredEmpty: true,
+  });
   const input = composerDraft.text;
   const pickedImageUrls = composerDraft.imageUrls;
   const pickedFileAttachments = composerDraft.fileAttachments;

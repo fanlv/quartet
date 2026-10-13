@@ -24,6 +24,15 @@ function emptyDraft(): LocalComposerDraft {
   return { text: '', imageUrls: [], fileAttachments: [] };
 }
 
+function isEmptyDraft(value: LocalComposerDraft): boolean {
+  return value.text.length === 0 && value.imageUrls.length === 0 && value.fileAttachments.length === 0;
+}
+
+export interface LocalComposerDraftOptions {
+  /** When the storage scope changes, keep the current draft if the new scope has nothing stored. */
+  keepDraftWhenStoredEmpty?: boolean;
+}
+
 function normalizeFileAttachment(value: unknown): FileAttachment | null {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Partial<FileAttachment>;
@@ -86,25 +95,42 @@ function writeLocalComposerDraft(storageKey: string | null, value: LocalComposer
 /** Keeps the complete unsubmitted composer state isolated by page scope. */
 export function useLocalComposerDraft(
   storageKey: string | null,
+  options?: LocalComposerDraftOptions,
 ): [LocalComposerDraft, (update: DraftUpdate) => void, () => void] {
+  const keepDraftWhenStoredEmpty = options?.keepDraftWhenStoredEmpty ?? false;
   const [state, setState] = useState<LocalComposerDraftState>(() => ({
     storageKey,
     value: readLocalComposerDraft(storageKey),
   }));
   const stateRef = useRef(state);
+  const pendingPersistRef = useRef<LocalComposerDraft | null>(null);
 
-  const value = state.storageKey === storageKey
-    ? state.value
-    : readLocalComposerDraft(storageKey);
+  if (state.storageKey !== storageKey) {
+    const incoming = readLocalComposerDraft(storageKey);
+    const keep = keepDraftWhenStoredEmpty
+      && storageKey !== null
+      && !isEmptyDraft(state.value)
+      && isEmptyDraft(incoming);
+    const nextState = { storageKey, value: keep ? state.value : incoming };
+    stateRef.current = nextState;
+    pendingPersistRef.current = keep ? nextState.value : null;
+    setState(nextState);
+  } else {
+    stateRef.current = state;
+  }
 
   useEffect(() => {
-    if (stateRef.current.storageKey === storageKey) return;
-    const nextState = { storageKey, value: readLocalComposerDraft(storageKey) };
-    stateRef.current = nextState;
-    setState(nextState);
-  }, [storageKey]);
+    const pending = pendingPersistRef.current;
+    if (!pending || !storageKey) return;
+    if (stateRef.current.storageKey !== storageKey || stateRef.current.value !== pending) return;
+    pendingPersistRef.current = null;
+    writeLocalComposerDraft(storageKey, pending);
+  }, [storageKey, state]);
+
+  const value = stateRef.current.storageKey === storageKey ? stateRef.current.value : state.value;
 
   const setValue = useCallback((update: DraftUpdate) => {
+    pendingPersistRef.current = null;
     const current = stateRef.current.storageKey === storageKey
       ? stateRef.current.value
       : readLocalComposerDraft(storageKey);
@@ -116,6 +142,7 @@ export function useLocalComposerDraft(
   }, [storageKey]);
 
   const clearValue = useCallback(() => {
+    pendingPersistRef.current = null;
     const nextState = { storageKey, value: emptyDraft() };
     writeLocalComposerDraft(storageKey, nextState.value);
     stateRef.current = nextState;
