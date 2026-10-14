@@ -211,8 +211,25 @@ function isTransient(message: Message): boolean {
  *
  * Pinned round heads are held aside and restored at the very front, since they
  * stand in for a message the page cannot place (see extractPinnedRoundHeads).
+ *
+ * A tagged page only covers its own session. Graph session loads can place
+ * another session's messages after it in the shared list; those messages must
+ * stay intact when this session's newest page is reconciled.
  */
 export function mergeLatestHistoryPage(existing: Message[], latest: Message[]): Message[] {
+  const sessionId = latest[0]?.sessionId;
+  if (sessionId && latest.every((message) => message.sessionId === sessionId)
+    && existing.some((message) => message.sessionId !== sessionId)) {
+    const sessionStart = existing.findIndex((message) => message.sessionId === sessionId);
+    const sessionMessages = existing.filter((message) => message.sessionId === sessionId);
+    const mergedSession = mergeLatestHistoryPage(sessionMessages, latest);
+    if (sessionStart < 0) return dedupeById([...existing, ...mergedSession], 'latest-page');
+    return dedupeById([
+      ...existing.slice(0, sessionStart),
+      ...mergedSession,
+      ...existing.slice(sessionStart).filter((message) => message.sessionId !== sessionId),
+    ], 'latest-page');
+  }
   const { pinned, rest } = extractPinnedRoundHeads(existing, latest);
   const spliced = spliceLatestHistoryPage(rest, latest);
   return pinned.length > 0 ? dedupeById([...pinned, ...spliced], 'latest-page') : spliced;
