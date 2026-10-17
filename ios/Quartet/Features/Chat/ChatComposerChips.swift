@@ -692,8 +692,13 @@ final class AgentUsageSummaryStore: ObservableObject {
         case .antigravity:
             guard let value = usage.antigravity else { return [] }
             // agy 的窗口不带 limit_window_seconds，5h / 7d 由 bucket 本身的语义写死。
+            // 只有一组额度时归属 Gemini，即使数据放在 Claude 字段里。
             return [
-                groupBadge(id: "agy.claude", name: "Claude", windows: [("5h", value.claude5h), ("7d", value.claudeWeekly)]),
+                groupBadge(
+                    id: "agy.claude",
+                    name: value.gemini5h != nil || value.geminiWeekly != nil ? "Claude" : "Gemini",
+                    windows: [("5h", value.claude5h), ("7d", value.claudeWeekly)]
+                ),
                 groupBadge(id: "agy.gemini", name: "Gemini", windows: [("5h", value.gemini5h), ("7d", value.geminiWeekly)])
             ].compactMap { $0 }
         case .kimi:
@@ -955,7 +960,7 @@ struct AgentUsageStrip: View {
             HStack(spacing: 3) {
                 if value.claude5h != nil || value.claudeWeekly != nil {
                     antigravityQuotaGroup(
-                        name: "Claude",
+                        name: value.gemini5h != nil || value.geminiWeekly != nil ? "Claude" : "Gemini",
                         windows: [("5h", value.claude5h), ("7d", value.claudeWeekly)]
                     )
                 }

@@ -960,7 +960,7 @@ private struct StatsAgentUsageRow: View {
     private func antigravityUsage(_ value: AntigravityAgentUsage) -> some View {
         if value.claude5h != nil || value.claudeWeekly != nil {
             StatsAgentQuotaGroup(
-                title: "Claude / GPT",
+                title: value.gemini5h != nil || value.geminiWeekly != nil ? "Claude / GPT" : "Gemini",
                 windows: [("5h", value.claude5h), ("7d", value.claudeWeekly)],
                 locale: locale
             )

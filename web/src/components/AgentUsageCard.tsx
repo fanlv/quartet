@@ -624,9 +624,10 @@ function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; c
         <span className="usage-antigravity">
           {antigravity.version && <span className="usage-inline-ver">{antigravity.version}</span>}
           <span className="usage-antigravity-groups">
+            {/* A single quota group belongs to Gemini, even in the Claude fields. */}
             {(antigravity.claude_5h || antigravity.claude_weekly) && (
               <AntigravityQuotaGroup
-                name="Claude"
+                name={antigravity.gemini_5h || antigravity.gemini_weekly ? 'Claude' : 'Gemini'}
                 windows={[
                   ...(antigravity.claude_5h
                     ? [{ label: '5h', value: antigravity.claude_5h }]
