@@ -332,6 +332,7 @@ private struct StatsSystemResourcesCard: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.locale) private var locale
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let parentRefreshRevision: Int
 
@@ -342,6 +343,7 @@ private struct StatsSystemResourcesCard: View {
     @State private var requestSequence: UInt64 = 0
     @State private var namespace = ""
     @State private var presentedError: PresentedError?
+    @State private var isDetailsExpanded = false
 
     private var refreshKey: String {
         "\(model.connectionRevision)|\(scenePhase)|\(parentRefreshRevision)|\(refreshRevision)"
@@ -353,10 +355,10 @@ private struct StatsSystemResourcesCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Label("机器资源", systemImage: "desktopcomputer")
-                    .font(.quartet(.headline, weight: .semibold))
+                    .font(.quartet(.control, weight: .semibold))
                     .foregroundStyle(QuartetTheme.primaryText)
                 Spacer(minLength: 8)
                 if isLoading {
@@ -364,6 +366,19 @@ private struct StatsSystemResourcesCard: View {
                         .controlSize(.small)
                         .tint(QuartetTheme.accent)
                 }
+                Button { isDetailsExpanded.toggle() } label: {
+                    HStack(spacing: 4) {
+                        Text("详情")
+                        Image(systemName: isDetailsExpanded ? "chevron.up" : "chevron.down")
+                    }
+                    .font(.quartet(.compact))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue((isDetailsExpanded ? "已展开" : "已收起").localized(in: locale))
+                .accessibilityIdentifier("stats-system-details")
                 Button { refreshRevision &+= 1 } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.quartet(.control, weight: .semibold))
@@ -377,49 +392,29 @@ private struct StatsSystemResourcesCard: View {
                 .accessibilityIdentifier("stats-system-refresh")
             }
 
-            Text("后端所在机器 · 每 5 秒更新")
-                .font(.quartet(.detail))
-                .foregroundStyle(QuartetTheme.secondaryText)
-
-            resourceRow(
-                title: "CPU", icon: "cpu", usage: report?.cpu?.usagePercent,
-                detail: report?.cpu.map {
-                    String(format: "%d 个逻辑核心".localized(in: locale), $0.logicalCores)
-                },
-                hint: report?.cpu?.model
-            )
-            Divider().overlay(QuartetTheme.divider)
-            resourceRow(
-                title: "内存", icon: "memorychip", usage: report?.memory?.usagePercent,
-                detail: report?.memory.map { capacity(used: $0.usedBytes, total: $0.totalBytes) },
-                hint: report?.memory.map { available($0.availableBytes) }
-            )
-            Divider().overlay(QuartetTheme.divider)
-            resourceRow(
-                title: "磁盘", icon: "internaldrive", usage: report?.disk?.usagePercent,
-                detail: report?.disk.map { capacity(used: $0.usedBytes, total: $0.totalBytes) },
-                hint: report?.disk.map { available($0.availableBytes) }
-            )
-
-            Divider().overlay(QuartetTheme.divider)
-            VStack(alignment: .leading, spacing: 5) {
-                if let report, !report.hostname.isEmpty {
-                    Text(report.hostname)
-                }
-                Text("磁盘：Quartet 数据所在盘")
-                if let path = report?.disk?.path {
-                    Text(path)
-                        .font(.quartet(.compact, design: .monospaced))
-                        .textSelection(.enabled)
-                }
-                if let sampledAt = report?.sampledAt,
-                   let date = sampleDate(sampledAt) {
-                    Text(String(format: "更新于 %@".localized(in: locale), date.formatted(.dateTime.hour().minute().second().locale(locale))))
-                        .monospacedDigit()
-                }
+            metricsLayout {
+                resourceMetric(
+                    title: "CPU", icon: "cpu", usage: report?.cpu?.usagePercent,
+                    detail: report?.cpu.map {
+                        String(format: "%d 个逻辑核心".localized(in: locale), $0.logicalCores)
+                    }
+                )
+                resourceMetric(
+                    title: "内存", icon: "memorychip", usage: report?.memory?.usagePercent,
+                    detail: report?.memory.map { compactCapacity(used: $0.usedBytes, total: $0.totalBytes) },
+                    accessibilityDetail: report?.memory.map { capacity(used: $0.usedBytes, total: $0.totalBytes) }
+                )
+                resourceMetric(
+                    title: "磁盘", icon: "internaldrive", usage: report?.disk?.usagePercent,
+                    detail: report?.disk.map { compactCapacity(used: $0.usedBytes, total: $0.totalBytes) },
+                    accessibilityDetail: report?.disk.map { capacity(used: $0.usedBytes, total: $0.totalBytes) }
+                )
             }
-            .font(.quartet(.compact))
-            .foregroundStyle(QuartetTheme.secondaryText)
+
+            if isDetailsExpanded {
+                Divider().overlay(QuartetTheme.divider)
+                resourceDetails
+            }
 
             if let detail = collectionError {
                 Button {
@@ -434,7 +429,7 @@ private struct StatsSystemResourcesCard: View {
                 .accessibilityIdentifier("stats-system-error")
             }
         }
-        .statsCard()
+        .statsCard(contentPadding: 12)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("stats-system-resources")
         .sheet(item: $presentedError) { error in
@@ -458,41 +453,87 @@ private struct StatsSystemResourcesCard: View {
         }
     }
 
-    private func resourceRow(title: String, icon: String, usage: Double?, detail: String?, hint: String?) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Label(title.localized(in: locale), systemImage: icon)
-                    .font(.quartet(.control, weight: .semibold))
-                    .foregroundStyle(QuartetTheme.primaryText)
-                Spacer()
-                Text(usage.map { ($0 / 100).formatted(.percent.precision(.fractionLength(1)).locale(locale)) } ?? "—")
-                    .font(.quartet(.headline, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(QuartetTheme.primaryText)
-            }
+    private var metricsLayout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
+    }
+
+    private func resourceMetric(title: String, icon: String, usage: Double?, detail: String?, accessibilityDetail: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(title.localized(in: locale), systemImage: icon)
+                .font(.quartet(.compact, weight: .semibold))
+                .foregroundStyle(QuartetTheme.secondaryText)
+            Text(usage.map { ($0 / 100).formatted(.percent.precision(.fractionLength(1)).locale(locale)) } ?? "—")
+                .font(.quartet(.headline, weight: .semibold, design: .monospaced))
+                .foregroundStyle(QuartetTheme.primaryText)
             if let usage {
                 ProgressView(value: min(100, max(0, usage)), total: 100)
                     .tint(usage >= 90 ? QuartetTheme.failed : usage >= 75 ? QuartetTheme.warning : QuartetTheme.accent)
                     .accessibilityLabel(title.localized(in: locale))
             }
             Text(detail ?? (isLoading && report == nil ? "正在采集…" : "不可用").localized(in: locale))
-                .font(.quartet(.detail))
+                .font(.quartet(.compact))
                 .foregroundStyle(QuartetTheme.secondaryText)
                 .monospacedDigit()
-            if let hint, !hint.isEmpty {
-                Text(hint)
-                    .font(.quartet(.compact))
-                    .foregroundStyle(QuartetTheme.secondaryText)
-                    .monospacedDigit()
-            }
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(accessibilityDetail ?? detail ?? "不可用".localized(in: locale))
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 
-    private func bytes(_ value: UInt64) -> String {
+    private var resourceDetails: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("后端所在机器 · 每 5 秒更新")
+            if let report, !report.hostname.isEmpty {
+                Text(report.hostname)
+            }
+            if let cpu = report?.cpu {
+                Text(cpu.model)
+            }
+            if let memory = report?.memory {
+                Text("内存")
+                    .foregroundStyle(QuartetTheme.primaryText)
+                Text(capacity(used: memory.usedBytes, total: memory.totalBytes))
+                Text(available(memory.availableBytes))
+            }
+            if let disk = report?.disk {
+                Text("磁盘：Quartet 数据所在盘")
+                    .foregroundStyle(QuartetTheme.primaryText)
+                Text(capacity(used: disk.usedBytes, total: disk.totalBytes))
+                Text(available(disk.availableBytes))
+                Text(disk.path)
+                    .font(.quartet(.compact, design: .monospaced))
+            }
+            if let sampledAt = report?.sampledAt, let date = sampleDate(sampledAt) {
+                Text(String(format: "更新于 %@".localized(in: locale), date.formatted(.dateTime.hour().minute().second().locale(locale))))
+            }
+        }
+        .font(.quartet(.detail))
+        .foregroundStyle(QuartetTheme.secondaryText)
+        .monospacedDigit()
+        .textSelection(.enabled)
+    }
+
+    private func byteParts(_ value: UInt64) -> (value: String, unit: String) {
         let units = ["B", "KiB", "MiB", "GiB", "TiB"]
         let index = value > 0 ? min(Int(log(Double(value)) / log(1024)), units.count - 1) : 0
         let number = (Double(value) / pow(1024, Double(index))).formatted(.number.precision(.fractionLength(0...1)).locale(locale))
-        return "\(number) \(units[index])"
+        return (number, units[index])
+    }
+
+    private func bytes(_ value: UInt64) -> String {
+        let parts = byteParts(value)
+        return "\(parts.value) \(parts.unit)"
+    }
+
+    private func compactCapacity(used: UInt64, total: UInt64) -> String {
+        let usedParts = byteParts(used)
+        let totalParts = byteParts(total)
+        return usedParts.unit == totalParts.unit
+            ? "\(usedParts.value) / \(totalParts.value) \(totalParts.unit)"
+            : "\(usedParts.value) \(usedParts.unit) / \(totalParts.value) \(totalParts.unit)"
     }
 
     private func sampleDate(_ value: String) -> Date? {

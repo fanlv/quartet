@@ -956,6 +956,7 @@
     "title": "Usage Statistics",
     "system": {
       "title": "Machine resources",
+      "details": "Details",
       "description": "Backend machine · Updates every 5 seconds",
       "cpu": "CPU",
       "memory": "Memory",

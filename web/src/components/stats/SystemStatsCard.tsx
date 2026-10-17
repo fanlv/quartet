@@ -1,12 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SystemStats } from '../../types/systemStats';
 import './SystemStatsCard.css';
 
-function formatBytes(bytes: number, locale: string): string {
+function byteParts(bytes: number, locale: string): { value: string; unit: string } {
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
   const index = bytes > 0 ? Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1) : 0;
-  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(bytes / 1024 ** index)} ${units[index]}`;
+  return {
+    value: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(bytes / 1024 ** index),
+    unit: units[index],
+  };
+}
+
+function formatBytes(bytes: number, locale: string): string {
+  const { value, unit } = byteParts(bytes, locale);
+  return `${value} ${unit}`;
+}
+
+function compactCapacity(value: NonNullable<SystemStats['memory']>, locale: string): string {
+  const used = byteParts(value.usedBytes, locale);
+  const total = byteParts(value.totalBytes, locale);
+  return used.unit === total.unit
+    ? `${used.value} / ${total.value} ${total.unit}`
+    : `${used.value} ${used.unit} / ${total.value} ${total.unit}`;
 }
 
 export function SystemStatsCard() {
@@ -15,6 +31,8 @@ export function SystemStatsCard() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const detailsId = useId();
   const locale = i18n.resolvedLanguage || i18n.language;
 
   useEffect(() => {
@@ -71,16 +89,19 @@ export function SystemStatsCard() {
     {
       id: 'cpu', label: t('stats.system.cpu'), usage: data?.cpu?.usagePercent,
       detail: data?.cpu ? t('stats.system.cores', { count: data.cpu.logicalCores }) : t('stats.system.unavailable'),
+      compactDetail: data?.cpu ? t('stats.system.cores', { count: data.cpu.logicalCores }) : t('stats.system.unavailable'),
       hint: data?.cpu?.model,
     },
     {
       id: 'memory', label: t('stats.system.memory'), usage: data?.memory?.usagePercent,
       detail: capacity(data?.memory ?? null),
+      compactDetail: data?.memory ? compactCapacity(data.memory, locale) : t('stats.system.unavailable'),
       hint: data?.memory ? t('stats.system.available', { value: formatBytes(data.memory.availableBytes, locale) }) : '',
     },
     {
       id: 'disk', label: t('stats.system.disk'), usage: data?.disk?.usagePercent,
       detail: capacity(data?.disk ?? null),
+      compactDetail: data?.disk ? compactCapacity(data.disk, locale) : t('stats.system.unavailable'),
       hint: data?.disk ? t('stats.system.available', { value: formatBytes(data.disk.availableBytes, locale) }) : '',
     },
   ];
@@ -90,16 +111,23 @@ export function SystemStatsCard() {
   return (
     <section className="stats-card system-stats" aria-label={t('stats.system.title')} aria-busy={loading && !data}>
       <div className="system-stats-head">
-        <div>
-          <h3 className="stats-card-title">{t('stats.system.title')}</h3>
-          <p className="system-stats-description">{t('stats.system.description')}</p>
+        <div className="system-stats-heading">
+          <h3 className="stats-card-title" title={t('stats.system.description')}>{t('stats.system.title')}</h3>
+          {data?.hostname && <span className="system-stats-host" title={data.hostname}>{data.hostname}</span>}
         </div>
         <div className="system-stats-actions">
-          {sampledAt && !Number.isNaN(sampledAt.getTime()) && (
-            <span className="system-stats-updated">
-              {t('stats.system.updatedAt', { time: sampledAt.toLocaleTimeString(locale) })}
-            </span>
-          )}
+          <button
+            type="button"
+            className="system-stats-toggle"
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            {t('stats.system.details')}
+            <svg className={expanded ? 'expanded' : ''} width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <path d="m4 6 4 4 4-4" />
+            </svg>
+          </button>
           <button
             type="button"
             className="system-stats-refresh"
@@ -135,14 +163,32 @@ export function SystemStatsCard() {
                 <span style={{ transform: `scaleX(${Math.min(100, Math.max(0, metric.usage)) / 100})` }} />
               </div>
             )}
-            <div className="system-stats-detail">{loading && !data ? t('stats.system.loading') : metric.detail}</div>
-            {metric.hint && <div className="system-stats-hint">{metric.hint}</div>}
+            <div className="system-stats-detail" title={metric.detail}>
+              <span className="system-stats-accessible">{loading && !data ? t('stats.system.loading') : metric.detail}</span>
+              <span aria-hidden="true">{loading && !data ? t('stats.system.loading') : metric.compactDetail}</span>
+            </div>
           </div>
         ))}
       </div>
-      <div className="system-stats-footer">
-        {data?.hostname && <span>{data.hostname}</span>}
-        <span>{t('stats.system.diskScope')}{data?.disk?.path && <code>{data.disk.path}</code>}</span>
+      <div className="system-stats-details" id={detailsId} hidden={!expanded}>
+        <div className="system-stats-meta">
+          <span>{t('stats.system.description')}</span>
+          {data?.hostname && <span>{data.hostname}</span>}
+          {sampledAt && !Number.isNaN(sampledAt.getTime()) && (
+            <span>{t('stats.system.updatedAt', { time: sampledAt.toLocaleTimeString(locale) })}</span>
+          )}
+        </div>
+        <dl className="system-stats-detail-list">
+          {metrics.map((metric) => (
+            <div key={metric.id}>
+              <dt>{metric.label}</dt>
+              <dd>{metric.detail}{metric.hint && <span>{metric.hint}</span>}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="system-stats-path">
+          {t('stats.system.diskScope')}{data?.disk?.path && <code>{data.disk.path}</code>}
+        </div>
       </div>
       {errors.length > 0 && (
         <div className="system-stats-error" role="alert">

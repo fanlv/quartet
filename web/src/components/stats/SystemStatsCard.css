@@ -1,83 +1,89 @@
-.system-stats {
+.stats-card.system-stats {
   flex-shrink: 0;
+  padding: 10px 14px 12px;
   color: var(--fg);
 }
 
 .system-stats-head,
+.system-stats-heading,
 .system-stats-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
 }
 
-.system-stats-description {
-  margin: 5px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
+.system-stats-head { justify-content: space-between; }
+.system-stats-heading { min-width: 0; }
+.system-stats .stats-card-title { flex-shrink: 0; color: var(--fg); }
+.system-stats-actions { flex-shrink: 0; gap: 4px; }
 
-.system-stats-updated {
+.system-stats-host {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
   font-size: 11px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 }
 
-.system-stats-refresh {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
+.system-stats-refresh,
+.system-stats-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 28px;
+  padding: 0 5px;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--accent);
+  color: var(--muted);
+  font-size: 11px;
   cursor: pointer;
-  flex-shrink: 0;
   transition: background 160ms ease;
 }
 
-.system-stats-refresh:hover { background: var(--elevated); }
-.system-stats-refresh:active { transform: translateY(1px); }
-.system-stats-refresh:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.system-stats-refresh { width: 28px; padding: 0; color: var(--accent); }
+.system-stats-toggle svg { transition: transform 160ms ease; }
+.system-stats-toggle svg.expanded { transform: rotate(180deg); }
+:is(.system-stats-refresh, .system-stats-toggle):hover { background: var(--elevated); }
+:is(.system-stats-refresh, .system-stats-toggle):active { transform: translateY(1px); }
+:is(.system-stats-refresh, .system-stats-toggle):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .system-stats-refresh:disabled { cursor: default; opacity: 0.55; }
 
 .system-stats-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 20px 0 16px;
+  margin-top: 8px;
 }
 
 .system-stats-metric {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 7px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: start;
+  align-items: baseline;
+  gap: 6px 8px;
   min-width: 0;
-  padding: 0 24px;
+  padding: 0 16px;
   border-left: 1px solid var(--border);
 }
 
 .system-stats-metric:first-child { padding-left: 0; border-left: 0; }
 .system-stats-metric:last-child { padding-right: 0; }
-.system-stats .stats-card-title { color: var(--fg); }
 .system-stats-label { font-size: 12px; color: var(--muted); }
 
 .system-stats-value {
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.15;
   letter-spacing: -0.025em;
   font-variant-numeric: tabular-nums;
 }
 
 .system-stats-meter {
-  height: 5px;
+  grid-column: 1 / -1;
+  height: 4px;
   width: 100%;
-  margin: 3px 0 5px;
   border-radius: 3px;
   overflow: hidden;
   background: var(--elevated);
@@ -94,37 +100,44 @@
 
 .system-stats-meter.warning > span { background: var(--warn); }
 .system-stats-meter.critical > span { background: var(--danger); }
-.system-stats-detail { font-size: 12px; font-variant-numeric: tabular-nums; }
-.system-stats-hint { font-size: 11px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.system-stats-detail { grid-column: 1 / -1; font-size: 11px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.system-stats-accessible { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
-.system-stats-footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  border-top: 1px solid var(--border);
+.system-stats-details {
+  margin-top: 12px;
   padding-top: 10px;
+  border-top: 1px solid var(--border);
   color: var(--muted);
   font-size: 11px;
   line-height: 1.5;
 }
 
-.system-stats-footer code { margin-left: 6px; overflow-wrap: anywhere; }
-.system-stats-error { margin-top: 14px; color: var(--danger); font-size: 12px; }
+.system-stats-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.system-stats-detail-list { margin: 10px 0; }
+.system-stats-detail-list > div { display: grid; grid-template-columns: 50px minmax(0, 1fr); gap: 8px; margin-top: 5px; }
+.system-stats-detail-list dt { color: var(--fg); }
+.system-stats-detail-list dd { margin: 0; overflow-wrap: anywhere; }
+.system-stats-detail-list dd span { margin-left: 12px; }
+.system-stats-path { overflow-wrap: anywhere; }
+.system-stats-path code { margin-left: 6px; }
+.system-stats-error { margin-top: 12px; color: var(--danger); font-size: 12px; }
 .system-stats-error pre { margin: 8px 0 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .system-stats-placeholder { color: var(--muted); opacity: 0.35; }
 .system-stats-spinning { animation: system-stats-spin 1s linear infinite; }
 @keyframes system-stats-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 560px) {
-  .system-stats-head { align-items: flex-start; }
-  .system-stats-updated { display: none; }
-  .system-stats-grid { grid-template-columns: 1fr; margin-top: 12px; gap: 16px; }
-  .system-stats-metric { padding: 16px 0 0; border-left: 0; border-top: 1px solid var(--border); }
-  .system-stats-metric:first-child { padding-top: 0; border-top: 0; }
+  .stats-card.system-stats { padding: 4px 12px 12px; }
+  .system-stats-host { display: none; }
   .system-stats-refresh { width: 44px; height: 44px; }
+  .system-stats-toggle { min-width: 44px; height: 44px; }
+  .system-stats-grid { margin-top: 4px; }
+  .system-stats-metric { grid-template-columns: minmax(0, 1fr); padding: 0 10px; gap: 5px; }
+  .system-stats-value { font-size: 20px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .system-stats-spinning { animation: none; }
-  .system-stats-meter > span { transition: none; }
+  .system-stats-meter > span,
+  .system-stats-toggle svg { transition: none; }
 }

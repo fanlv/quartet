@@ -952,6 +952,7 @@
     "title": "使用统计",
     "system": {
       "title": "机器资源",
+      "details": "详情",
       "description": "后端所在机器 · 每 5 秒更新",
       "cpu": "CPU",
       "memory": "内存",
