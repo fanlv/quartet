@@ -161,7 +161,7 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general', w
       case 'skill':
         return <SkillSettings workspaceId={workspaceId} />;
       case 'agents':
-        return <AgentManagement />;
+        return <AgentManagement onChanged={onSettingsChanged} />;
       case 'im':
         return <IMSettings initialTab={initialTab === 'wechat' ? 'wechat' : 'lark'} />;
       case 'logs':

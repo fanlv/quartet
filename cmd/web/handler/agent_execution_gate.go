@@ -1,6 +1,9 @@
 package handler
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 type agentExecutionGate struct {
 	mu      sync.Mutex
@@ -8,9 +11,10 @@ type agentExecutionGate struct {
 }
 
 type agentExecutionEntry struct {
-	cond     *sync.Cond
-	readers  int
-	deleting bool
+	cond        *sync.Cond
+	readers     int
+	deleting    bool
+	maintenance bool
 }
 
 func newAgentExecutionGate() *agentExecutionGate {
@@ -33,7 +37,7 @@ func (g *agentExecutionGate) acquireExecution(agentID string) (func(), bool) {
 	}
 	g.mu.Lock()
 	entry := g.entry(agentID)
-	if entry.deleting {
+	if entry.deleting || entry.maintenance {
 		g.mu.Unlock()
 		return nil, false
 	}
@@ -50,6 +54,22 @@ func (g *agentExecutionGate) acquireExecution(agentID string) (func(), bool) {
 			g.mu.Unlock()
 		})
 	}, true
+}
+
+func (g *agentExecutionGate) beginMaintenance(agentID string) (func(), error) {
+	g.mu.Lock()
+	entry := g.entry(agentID)
+	if entry.deleting || entry.maintenance || entry.readers > 0 {
+		readers := entry.readers
+		g.mu.Unlock()
+		return nil, fmt.Errorf("Agent %q is busy (%d active execution, authentication or management operations); finish them before switching accounts", agentID, readers)
+	}
+	entry.maintenance = true
+	g.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() { g.mu.Lock(); entry.maintenance = false; entry.cond.Broadcast(); g.mu.Unlock() })
+	}, nil
 }
 
 func (g *agentExecutionGate) beginDelete(agentID string) (func(bool), bool) {

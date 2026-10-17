@@ -22,6 +22,7 @@ require (
 	github.com/hertz-contrib/http2 v0.1.8
 	github.com/kanrichan/resvg-go v0.0.1
 	github.com/larksuite/oapi-sdk-go/v3 v3.5.3
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/shirou/gopsutil/v4 v4.25.9
 	github.com/tiktoken-go/tokenizer v0.7.0
 	github.com/volcengine/volcengine-go-sdk v1.2.9
@@ -100,7 +101,6 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
 	github.com/ollama/ollama v0.6.5 // indirect
-	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect

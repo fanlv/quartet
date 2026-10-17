@@ -271,7 +271,7 @@ func loggerMiddleware() app.HandlerFunc {
 
 		reqBody := truncate(string(c.Request.Body()), 500)
 		responseRedacted := false
-		if strings.HasPrefix(reqPath, "/api/v1/auth/") || reqPath == "/api/v1/users" || strings.HasSuffix(reqPath, "/reset-password") {
+		if strings.HasPrefix(reqPath, "/api/v1/auth/") || strings.HasPrefix(reqPath, "/api/v1/agent/codex/accounts") || reqPath == "/api/v1/users" || strings.HasSuffix(reqPath, "/reset-password") {
 			reqBody = "[redacted authentication payload]"
 			responseRedacted = true
 		}

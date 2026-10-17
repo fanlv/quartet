@@ -5,6 +5,8 @@ import { copyToClipboard } from '../utils/clipboard';
 import { showToast } from '../utils/toast';
 import {
   agentUsageProvider,
+  CODEX_ACCOUNT_CHANGED_EVENT,
+  CODEX_ACCOUNT_STORAGE_KEY,
   fetchAgentUsage,
   fetchAgentVersion,
   getCachedUsage,
@@ -515,6 +517,18 @@ function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; c
     setFallbackVersion(getCachedVersion(command));
     return load(provider);
   }, [command, provider, load]);
+
+  useEffect(() => {
+    if (provider !== 'codex') return;
+    const refresh = () => { setCodex(null); load('codex'); };
+    const onStorage = (event: StorageEvent) => { if (event.key === CODEX_ACCOUNT_STORAGE_KEY) refresh(); };
+    window.addEventListener(CODEX_ACCOUNT_CHANGED_EVENT, refresh);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(CODEX_ACCOUNT_CHANGED_EVENT, refresh);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [provider, load]);
 
   // Tooltip for a usage ring, e.g. "5h 1% · 15:30 重置".
   const ringTitle = (label: string, w: UsageWindow, withDate?: boolean) => {

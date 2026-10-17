@@ -58,6 +58,11 @@ func (h *Handler) AgentInstall(ctx context.Context, c *app.RequestContext) {
 		httputil.BadRequest(c, "agent_id is required")
 		return
 	}
+	release, ok := h.acquireAgentSettingWrite(c, req.AgentID)
+	if !ok {
+		return
+	}
+	defer release()
 	if h.agentAuthentication != nil {
 		if err := h.agentAuthentication.CancelAgent(ctx, req.AgentID); err != nil {
 			httputil.Conflict(c, err.Error())
@@ -94,6 +99,11 @@ func (h *Handler) AgentUninstall(ctx context.Context, c *app.RequestContext) {
 		httputil.BadRequest(c, "agentId is required")
 		return
 	}
+	release, ok := h.acquireAgentSettingWrite(c, agentID)
+	if !ok {
+		return
+	}
+	defer release()
 	if h.agentAuthentication != nil {
 		if err := h.agentAuthentication.CancelAgent(ctx, agentID); err != nil {
 			httputil.Conflict(c, err.Error())

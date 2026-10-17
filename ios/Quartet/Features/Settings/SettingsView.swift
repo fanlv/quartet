@@ -59,6 +59,14 @@ struct SettingsView: View {
                                     icon: "arrow.down.circle",
                                     identifier: "settings-agent-catalog"
                                 ) { AgentCatalogSettingsView() }
+                                if model.can("agent.manage") {
+                                    settingsDivider
+                                    agentManagementLink(
+                                        title: "Codex 账号",
+                                        icon: "person.crop.circle.badge.checkmark",
+                                        identifier: "settings-codex-accounts"
+                                    ) { CodexAccountsSettingsView() }
+                                }
                                 if model.can("config.read") {
                                     settingsDivider
                                     agentManagementLink(

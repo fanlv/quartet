@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Agent 管理的共用页面壳。iOS 在设置页直接展示四个入口，不再增加一层横向标签。
+/// Agent 管理的共用页面壳。iOS 在设置页直接展示各项入口，不再增加一层横向标签。
 struct AgentSettingsDestination<Content: View>: View {
     @Environment(\.mainTabBarInset) private var mainTabBarInset
 

@@ -1,8 +1,8 @@
 package model
 
 // AgentAuthMethod is the authentication surface advertised by an ACP agent.
-// Credentials remain owned by the agent, or by the existing ACP environment
-// settings; Quartet does not maintain a second credential store.
+// The generic authentication flow leaves credentials with the agent or the
+// ACP environment settings. Codex account profiles use a separate opt-in API.
 type AgentAuthMethod struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`

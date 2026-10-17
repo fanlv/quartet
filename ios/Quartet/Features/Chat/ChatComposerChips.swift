@@ -113,6 +113,9 @@ extension AgentUsageResponse {
 }
 
 enum AgentUsageCache {
+    static func invalidateCodex(namespace: String) {
+        UserDefaults.standard.removeObject(forKey: key("agentUsage_codex", namespace: namespace))
+    }
     static func usage(provider: AgentUsageProvider, namespace: String) -> AgentUsageResponse? {
         guard let data = UserDefaults.standard.data(forKey: key("agentUsage_\(provider.rawValue)", namespace: namespace)) else { return nil }
         return try? JSONDecoder().decode(AgentUsageResponse.self, from: data)
@@ -265,6 +268,15 @@ final class AgentUsageSummaryStore: ObservableObject {
     private var inFlight: Set<String> = []
     private var namespace = ""
     private var generation: UInt64 = 0
+
+    func invalidateCodex(namespace: String) {
+        AgentUsageCache.invalidateCodex(namespace: namespace)
+        guard self.namespace == namespace else { return }
+        generation &+= 1
+        entries = [:]
+        lastProbedAt = [:]
+        inFlight = []
+    }
 
     /// 弹窗打开时调用：先把本地缓存补进内存，再刷新过期的命令。
     /// 请求失败不占用节流窗口，所以“重试”就是再调一次本方法。
@@ -828,7 +840,7 @@ struct AgentUsageStrip: View {
     }
 
     private var identity: String {
-        "\(appModel.serverAddress):\(provider?.rawValue ?? "version"):\(command)"
+        "\(appModel.serverAddress):\(provider?.rawValue ?? "version"):\(command):\(provider == .codex ? appModel.codexAccountGeneration : 0)"
     }
 
     var body: some View {
@@ -1285,14 +1297,16 @@ struct AgentUsageStrip: View {
     }
 
     private func refresh() async {
+        let requestIdentity = identity
         loading = true
         requestError = nil
-        defer { loading = false }
+        defer { if requestIdentity == identity { loading = false } }
 
         do {
             if let provider {
                 let response = try await appModel.apiClient().agentUsage(provider: provider.rawValue)
                 try Task.checkCancellation()
+                guard requestIdentity == identity else { return }
                 usage = response
                 AgentUsageCache.setUsage(response, provider: provider, namespace: appModel.serverAddress)
                 // 额度看板未开启（如 CodeBuddy 没配 PAT）：接口正常但没有快照，退回版本探测。
@@ -1303,12 +1317,14 @@ struct AgentUsageStrip: View {
             } else {
                 let response = try await appModel.apiClient().agentVersion(command: command)
                 try Task.checkCancellation()
+                guard requestIdentity == identity else { return }
                 version = response.version?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 AgentUsageCache.setVersion(version, command: command, namespace: appModel.serverAddress)
             }
         } catch is CancellationError {
             return
         } catch let error as APIError {
+            guard requestIdentity == identity else { return }
             if provider != nil {
                 do {
                     try await refreshVersionOnly()
@@ -1319,8 +1335,10 @@ struct AgentUsageStrip: View {
                     // user; the best-effort version fallback is supplementary.
                 }
             }
+            guard requestIdentity == identity else { return }
             requestError = error
         } catch {
+            guard requestIdentity == identity else { return }
             if provider != nil {
                 do {
                     try await refreshVersionOnly()
@@ -1330,13 +1348,16 @@ struct AgentUsageStrip: View {
                     // Keep the original quota error below.
                 }
             }
+            guard requestIdentity == identity else { return }
             requestError = APIError(summary: "Agent 用量加载失败", detail: String(describing: error))
         }
     }
 
     private func refreshVersionOnly() async throws {
+        let requestIdentity = identity
         let response = try await appModel.apiClient().agentVersion(command: command)
         try Task.checkCancellation()
+        guard requestIdentity == identity else { return }
         version = response.version?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         AgentUsageCache.setVersion(version, command: command, namespace: appModel.serverAddress)
     }

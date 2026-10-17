@@ -107,6 +107,18 @@ export interface CodeBuddyUsage {
 
 export type AgentUsageProvider = 'codex' | 'claude' | 'antigravity' | 'kimi' | 'qoder' | 'cursor' | 'codebuddy';
 
+export const CODEX_ACCOUNT_CHANGED_EVENT = 'quartet:codex-account-changed';
+export const CODEX_ACCOUNT_STORAGE_KEY = 'quartet:codex-account-revision';
+
+export function notifyCodexAccountChanged() {
+  try {
+    localStorage.removeItem(cacheKey('codex'));
+    localStorage.setItem(CODEX_ACCOUNT_STORAGE_KEY, `${Date.now()}-${Math.random()}`);
+  } catch { /* Memory-only clients still receive the change event. */ }
+  window.dispatchEvent(new CustomEvent(CODEX_ACCOUNT_CHANGED_EVENT));
+  window.dispatchEvent(new CustomEvent('quartet:agent-catalog-changed', { detail: { agentId: 'codex' } }));
+}
+
 // agentUsageProvider maps a selected built-in agent to a usage provider, or
 // null when the agent has no quota view. Match only stable built-in IDs and
 // declared historical commands: display names are user-controlled for custom

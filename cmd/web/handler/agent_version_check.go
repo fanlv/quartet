@@ -38,6 +38,11 @@ func (h *Handler) AgentUpgrade(ctx context.Context, c *app.RequestContext) {
 		httputil.BadRequest(c, "agentId is required")
 		return
 	}
+	release, ok := h.acquireAgentSettingWrite(c, agentID)
+	if !ok {
+		return
+	}
+	defer release()
 	if h.agentAuthentication != nil {
 		if err := h.agentAuthentication.CancelAgent(ctx, agentID); err != nil {
 			httputil.Conflict(c, err.Error())

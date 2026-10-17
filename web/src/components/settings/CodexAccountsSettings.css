@@ -1,0 +1,47 @@
+.codex-accounts { display: flex; flex-direction: column; gap: 18px; color: var(--fg); }
+.codex-accounts h3, .codex-accounts h4, .codex-accounts p { margin: 0; }
+.codex-accounts h3 { font-size: 17px; }
+.codex-accounts h4 { font-size: 15px; overflow-wrap: anywhere; }
+.codex-accounts-heading, .codex-account-row, .codex-account-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.codex-accounts-heading p { margin-top: 8px; font-size: 13px; line-height: 1.6; color: var(--muted); }
+.codex-accounts button { font: inherit; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); color: inherit; padding: 8px 13px; cursor: pointer; min-height: 36px; }
+.codex-accounts button:disabled { opacity: .5; cursor: default; }
+.codex-accounts button:focus-visible, .codex-accounts input:focus-visible, .codex-accounts textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.codex-accounts .codex-account-primary { background: var(--accent-deep); color: var(--accent-fg); border-color: var(--accent-deep); }
+.codex-accounts .codex-account-danger { color: var(--danger); }
+.codex-current-account, .codex-account-item { display: flex; flex-direction: column; gap: 10px; padding: 18px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); }
+.codex-current-account { border-left: 3px solid var(--accent); }
+.codex-account-badge { flex-shrink: 0; color: var(--accent-deep); background: var(--accent-soft); border-radius: 4px; padding: 3px 8px; font-size: 12px; }
+.codex-account-path { overflow-wrap: anywhere; font-size: 12px; }
+.codex-account-files, .codex-account-detail, .codex-account-hint { color: var(--muted); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.codex-account-note { font-size: 13px; white-space: pre-wrap; }
+.codex-account-toolbar, .codex-account-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.codex-account-list { display: flex; flex-direction: column; gap: 12px; }
+.codex-account-empty { border: 1px dashed var(--border-strong); border-radius: 8px; padding: 30px 20px; text-align: center; }
+.codex-account-empty p { color: var(--muted); font-size: 13px; margin-top: 10px; line-height: 1.6; }
+.codex-account-error { border: 1px solid var(--danger); color: var(--fg); border-radius: 6px; padding: 12px; margin: 0; }
+.codex-account-error pre, pre.codex-account-error { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.codex-account-error pre { margin: 0 0 10px; }
+.codex-account-notice { color: var(--accent-deep); font-size: 13px; white-space: pre-wrap; }
+.codex-account-dialog { box-sizing: border-box; width: min(540px, calc(100vw - 28px)); max-height: calc(100dvh - 40px); margin: auto; padding: 22px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--canvas); color: var(--fg); overflow-y: auto; }
+.codex-account-dialog::backdrop { background: rgba(0, 0, 0, .4); }
+.codex-account-dialog-heading { margin-bottom: 20px; }
+.codex-account-dialog-heading button { font-size: 22px; border: 0; padding: 2px 8px; }
+.codex-account-dialog form { display: flex; flex-direction: column; gap: 14px; }
+.codex-account-dialog form > label, .codex-account-drop > label { display: flex; flex-direction: column; gap: 7px; font-size: 13px; }
+.codex-account-dialog input:not([type=checkbox]), .codex-account-dialog textarea { box-sizing: border-box; width: 100%; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 5px; padding: 9px; }
+.codex-account-dialog textarea { resize: vertical; min-height: 66px; }
+.codex-account-dialog .codex-account-check { display: flex; flex-direction: row; align-items: center; gap: 9px; font-size: 13px; margin: 12px 0; }
+.codex-account-check input { accent-color: var(--accent-deep); }
+.codex-account-drop { display: flex; flex-direction: column; gap: 14px; padding: 16px; border: 1px dashed var(--border-strong); border-radius: 6px; }
+.codex-account-drop > p { font-size: 12px; color: var(--muted); }
+.codex-account-dialog-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 18px; }
+.codex-login-output { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; padding: 14px; border-radius: 6px; border: 1px solid var(--border-strong); font-size: 13px; line-height: 1.7; }
+.codex-login-output a { color: var(--accent-deep); }
+@media (max-width: 600px) {
+  .codex-accounts-heading { align-items: flex-start; }
+  .codex-account-toolbar button, .codex-account-actions button { min-height: 42px; }
+  .codex-account-toolbar { align-items: stretch; }
+  .codex-account-toolbar button { flex: 1 1 40%; }
+  .codex-current-account, .codex-account-item { padding: 14px; }
+}

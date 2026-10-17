@@ -23,19 +23,23 @@ const (
 
 // Environment variable keys
 const (
-	EnvKeyListenAddr           = "QUARTET_LISTEN_ADDR"     // override default listen addr; always wins over the cert-based default (443 vs 8090)
-	EnvKeyLogHTTPBody          = "QUARTET_LOG_HTTP_BODY"   // opt-in to log request/response bodies (noisy, may leak secrets; disabled by default)
-	EnvKeyLogLevel             = "QUARTET_LOG_LEVEL"       // initial log level: debug|info|warn|error (default info)
-	EnvKeyCORSOrigins          = "QUARTET_CORS_ORIGINS"    // comma-separated CORS allowlist; defaults to same-origin if unset
-	EnvKeyTrustedProxies       = "QUARTET_TRUSTED_PROXIES" // comma-separated trusted reverse-proxy IPs/CIDRs; defaults to loopback only
-	EnvKeyStaticDir            = "QUARTET_STATIC_DIR"      // dir served as the web UI static root; default "static" (relative to cwd)
-	EnvKeyCertsDir             = "QUARTET_CERTS_DIR"       // dir holding cert.pem/key.pem; presence enables HTTPS; default "certs" (relative to cwd)
-	EnvKeyCodexPath            = "CODEX_PATH"              // Codex executable selected by codex-acp
-	EnvKeyClaudeCodeExecutable = "CLAUDE_CODE_EXECUTABLE"  // Claude Code executable selected by claude-agent-acp
-	EnvKeyNoBrowser            = "NO_BROWSER"              // disable automatic browser login in ACP probes and web authentication
-	EnvKeyBrowser              = "BROWSER"                 // browser command used by agents; probes replace it with a no-op
-	EnvKeyGeminiAPIKey         = "GEMINI_API_KEY"          // Gemini API-key authentication
-	EnvKeyOpenAIAPIKey         = "OPENAI_API_KEY"          // OpenAI API-key authentication
+	EnvKeyListenAddr              = "QUARTET_LISTEN_ADDR"        // override default listen addr; always wins over the cert-based default (443 vs 8090)
+	EnvKeyLogHTTPBody             = "QUARTET_LOG_HTTP_BODY"      // opt-in to log request/response bodies (noisy, may leak secrets; disabled by default)
+	EnvKeyLogLevel                = "QUARTET_LOG_LEVEL"          // initial log level: debug|info|warn|error (default info)
+	EnvKeyCORSOrigins             = "QUARTET_CORS_ORIGINS"       // comma-separated CORS allowlist; defaults to same-origin if unset
+	EnvKeyTrustedProxies          = "QUARTET_TRUSTED_PROXIES"    // comma-separated trusted reverse-proxy IPs/CIDRs; defaults to loopback only
+	EnvKeyStaticDir               = "QUARTET_STATIC_DIR"         // dir served as the web UI static root; default "static" (relative to cwd)
+	EnvKeyCertsDir                = "QUARTET_CERTS_DIR"          // dir holding cert.pem/key.pem; presence enables HTTPS; default "certs" (relative to cwd)
+	EnvKeyCodexPath               = "CODEX_PATH"                 // Codex executable selected by codex-acp
+	EnvKeyCodexHome               = "CODEX_HOME"                 // Codex credential, configuration and session directory
+	EnvKeyCodexAPIKey             = "CODEX_API_KEY"              // Codex API-key override
+	EnvKeyOpenAIIdentityTokenFile = "OPENAI_IDENTITY_TOKEN_FILE" // Workload identity token used instead of a stored Codex login
+	EnvKeyOpenAIAuthProvider      = "OPENAI_AUTH_PROVIDER"       // Workload identity authentication provider
+	EnvKeyClaudeCodeExecutable    = "CLAUDE_CODE_EXECUTABLE"     // Claude Code executable selected by claude-agent-acp
+	EnvKeyNoBrowser               = "NO_BROWSER"                 // disable automatic browser login in ACP probes and web authentication
+	EnvKeyBrowser                 = "BROWSER"                    // browser command used by agents; probes replace it with a no-op
+	EnvKeyGeminiAPIKey            = "GEMINI_API_KEY"             // Gemini API-key authentication
+	EnvKeyOpenAIAPIKey            = "OPENAI_API_KEY"             // OpenAI API-key authentication
 )
 
 // Error codes

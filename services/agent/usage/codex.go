@@ -14,6 +14,7 @@ import (
 	"github.com/fanlv/quartet/pkg/executil"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/types/model"
+	typepath "github.com/fanlv/quartet/types/path"
 )
 
 const (
@@ -25,7 +26,6 @@ const (
 	// reset credits (the usage endpoint only gives the aggregate count). Same
 	// host as codexUsageURL, so it goes through the same Codex proxy.
 	codexResetCreditsURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
-	codexAuthRelPath     = ".codex/auth.json"
 )
 
 type codexAuthFile struct {
@@ -78,11 +78,11 @@ func (s *serviceImpl) CodexUsage(ctx context.Context) (*model.CodexUsage, error)
 	// Fetch the Codex CLI version in parallel so it adds no serial latency.
 	verCh := s.codexVersionAsync(ctx)
 
-	home, err := os.UserHomeDir()
+	home, err := typepath.CodexHome(s.codexACPEnv())
 	if err != nil {
 		return nil, fmt.Errorf("get home dir failed: %w", err)
 	}
-	authPath := filepath.Join(home, codexAuthRelPath)
+	authPath := filepath.Join(home, "auth.json")
 	raw, err := os.ReadFile(authPath)
 	if err != nil {
 		return nil, fmt.Errorf("read %s failed: %w", authPath, err)

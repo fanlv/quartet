@@ -78,6 +78,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var workspaces: [WorkspaceSummary] = []
     @Published private(set) var jobs: [JobSummary] = []
     @Published private(set) var agentCatalogSnapshot: [AgentSummary] = []
+    @Published private(set) var codexAccountGeneration: UInt64 = 0
     @Published private(set) var selectedWorkspaceID: String?
     @Published private(set) var hideScheduledJobs: Bool
     @Published private(set) var appLanguage: AppLanguage
@@ -877,6 +878,11 @@ final class AppModel: ObservableObject {
         } catch {
             present(error)
         }
+    }
+
+    func codexAccountDidChange() {
+        codexAccountGeneration &+= 1
+        AgentUsageSummaryStore.shared.invalidateCodex(namespace: serverAddress)
     }
 
     func managedAgentCatalogItems() async throws -> [AgentCatalogItem] {

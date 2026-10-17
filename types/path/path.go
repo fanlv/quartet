@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/fanlv/quartet/types/consts"
 )
 
 const (
@@ -118,6 +120,42 @@ func QuartetDataDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, quartetDataDir), nil
+}
+
+// CodexAccountsFile stores private Codex profiles and interrupted file swaps.
+func CodexAccountsFile() (string, error) {
+	dir, err := QuartetDataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "codex-accounts", "accounts.json"), nil
+}
+
+func CodexLoginTmpDir() (string, error) {
+	dir, err := QuartetTmpDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "codex-login"), nil
+}
+
+// CodexHome resolves the same user-level home used by Codex and its adapter.
+func CodexHome(environment map[string]string) (string, error) {
+	home, configured := environment[consts.EnvKeyCodexHome]
+	if !configured {
+		home = os.Getenv(consts.EnvKeyCodexHome)
+	}
+	if strings.TrimSpace(home) == "" {
+		userHome, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve Codex home: %w", err)
+		}
+		home = filepath.Join(userHome, ".codex")
+	}
+	if !filepath.IsAbs(home) {
+		return "", fmt.Errorf("%s must be an absolute path: %s", consts.EnvKeyCodexHome, home)
+	}
+	return filepath.Clean(home), nil
 }
 
 // QuartetRuntimeDir returns {LOCAL_MEMORY}/var/quartet/, the root of Quartet

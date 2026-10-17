@@ -50,6 +50,7 @@ const (
 // process, captures its stderr, and serializes Prompt calls across sessions
 // (the subprocess supports one active Prompt at a time).
 type Conn struct {
+	runtimeKey string
 	// --- Process lifecycle ---
 	cmd       *exec.Cmd
 	stderrBuf *syncBuffer
@@ -178,6 +179,9 @@ func (c *Conn) Close() {
 		_ = c.conn.Close()
 	}
 	c.terminate()
+	runtimeMaintenance.Lock()
+	delete(runtimeMaintenance.conns, c)
+	runtimeMaintenance.Unlock()
 }
 
 // MarkClosedByIdleReap records that this connection is being closed by
@@ -212,6 +216,11 @@ func (c *Conn) TouchLastUsed() {
 // idle-but-live Conn for teardown while a new Run is starting on that same
 // Conn. The reaper checks the same useMu before marking/closing candidates.
 func (c *Conn) TryAcquireUse() bool {
+	runtimeMaintenance.Lock()
+	defer runtimeMaintenance.Unlock()
+	if runtimeMaintenance.blocked[c.runtimeKey] {
+		return false
+	}
 	c.useMu.Lock()
 	defer c.useMu.Unlock()
 
@@ -400,6 +409,11 @@ func newConn(ctx context.Context, agentType, workdir string, options connOptions
 		args = parts[1:]
 	}
 	cmd := executil.Command(program, args...)
+	releaseCreation, err := beginRuntimeCreation(envKey)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseCreation()
 	cmd.Env = append(os.Environ(), ACPChildMarkerEnv+"="+ACPChildMarkerValue)
 	cmd.SysProcAttr = sysProcAttr()
 
@@ -470,6 +484,7 @@ func newConn(ctx context.Context, agentType, workdir string, options connOptions
 	)
 
 	c := &Conn{
+		runtimeKey:  envKey,
 		conn:        sdkConn,
 		cmd:         cmd,
 		client:      client,
@@ -519,5 +534,8 @@ func newConn(ctx context.Context, agentType, workdir string, options connOptions
 	logger.Infof(ctx, "[ACP] capabilities: agentType=%s loadSession=%v resume=%v",
 		agentType, initResp.AgentCapabilities != nil && initResp.AgentCapabilities.LoadSession, c.supportsResume)
 
+	runtimeMaintenance.Lock()
+	runtimeMaintenance.conns[c] = options.noBrowser
+	runtimeMaintenance.Unlock()
 	return c, nil
 }

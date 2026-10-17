@@ -59,6 +59,13 @@ func (h *Handler) runACPInternal(ctx context.Context, s *model.Session, userMess
 			err,
 		)
 	}
+	if binding.AgentID == "codex" && h.codexAccounts != nil {
+		defer func() {
+			if _, err := h.codexAccounts.List(context.WithoutCancel(ctx)); err != nil {
+				logger.Warnf(ctx, "[codex.accounts] save live credentials after round: %v", err)
+			}
+		}()
+	}
 
 	// Transient phase reporter: surfaces the "silent" preparation window
 	// (subprocess launch / reconnect / history replay / waiting for the
@@ -139,7 +146,7 @@ func (h *Handler) acquireSessionExecution(
 	release, acquired := h.agentExecutions.acquireExecution(agentID)
 	if !acquired {
 		return nil, fmt.Errorf(
-			"AgentID %q revision %q cannot execute: Agent deletion is in progress",
+			"AgentID %q revision %q cannot execute: Agent deletion or credential update is in progress",
 			agentID,
 			revision,
 		)

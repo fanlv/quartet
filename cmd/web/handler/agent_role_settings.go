@@ -210,7 +210,7 @@ func (h *Handler) acquireAgentSettingWrite(c *app.RequestContext, agentID string
 	}
 	release, ok := h.agentExecutions.acquireExecution(agentID)
 	if !ok {
-		httputil.Conflict(c, "AgentID "+agentID+" is deleting; settings update was rejected")
+		httputil.Conflict(c, "AgentID "+agentID+" is deleting or updating credentials/configuration; settings update was rejected")
 		return nil, false
 	}
 	return release, true

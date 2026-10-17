@@ -55,6 +55,15 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	api.GET("/icon", permit(auth.PermissionAgentRead), h.IconProxy)
 
 	agent := api.Group("/agent")
+	codexAccounts := agent.Group("/codex/accounts", permit(auth.PermissionAgentManage))
+	codexAccounts.GET("", h.CodexAccountList)
+	codexAccounts.POST("/login", h.CodexAccountLogin)
+	codexAccounts.GET("/login/:loginId", h.CodexAccountLoginState)
+	codexAccounts.POST("/login/:loginId/cancel", h.CodexAccountLoginCancel)
+	codexAccounts.POST("/actions/:action", h.CodexAccountMutate)
+	codexAccounts.POST("/:accountId/:action", h.CodexAccountMutate)
+	codexAccounts.PUT("/:accountId", h.CodexAccountMutate)
+	codexAccounts.DELETE("/:accountId", h.CodexAccountMutate)
 	agent.GET("/list", permit(auth.PermissionAgentRead), h.AgentList)
 	// Complete management catalog: append-only built-ins followed by persisted
 	// custom entries, with structured ACP startup definitions and capabilities.

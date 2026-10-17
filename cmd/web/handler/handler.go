@@ -16,6 +16,7 @@ import (
 	"github.com/fanlv/quartet/services/agent/acp"
 	"github.com/fanlv/quartet/services/agent/authentication"
 	"github.com/fanlv/quartet/services/agent/catalog"
+	"github.com/fanlv/quartet/services/agent/codexaccounts"
 	"github.com/fanlv/quartet/services/agent/probe"
 	"github.com/fanlv/quartet/services/agent/usage"
 	agentversion "github.com/fanlv/quartet/services/agent/versioncheck"
@@ -114,6 +115,7 @@ type Handler struct {
 	agentCatalog         *catalog.Service
 	agentExecutions      *agentExecutionGate
 	agentAuthentication  *authentication.Service
+	codexAccounts        *codexaccounts.Service
 	settingsService      config.SettingsService
 	promptService        prompt.Service
 	graphService         graph.Service
@@ -330,6 +332,20 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 		authService:          authSvc,
 	}
 	h.agentAuthentication = authentication.NewService(ctx, agentCatalog, ss, acpProbeCache, h.agentExecutions.acquireExecution)
+	h.codexAccounts, err = codexaccounts.NewService(codexaccounts.Options{
+		Root:        ctx,
+		Environment: func() map[string]string { return ss.GetACPEnvVars("codex") },
+		Acquire:     h.acquireCodexAccountUpdate,
+		Invalidate:  h.invalidateCodexAccount,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !startupCheck {
+		if err := h.codexAccounts.Initialize(ctx); err != nil {
+			logger.Errorf(ctx, "[codex.accounts] recover interrupted account switch: %v", err)
+		}
+	}
 	if !startupCheck {
 		if err := h.initializeEinoUsageModels(ctx); err != nil {
 			// Eino is optional, so a missing/broken local eino-cli must not make the

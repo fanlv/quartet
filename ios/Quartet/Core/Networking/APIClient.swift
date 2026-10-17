@@ -389,6 +389,40 @@ struct APIClient: @unchecked Sendable {
 
     // MARK: - Agent 管理
 
+    func codexAccounts() async throws -> CodexAccountsResponse {
+        try await request(path: "api/v1/agent/codex/accounts") { response in
+            response.code == 0 ? nil : "code must equal 0; received \(response.code)"
+        }
+    }
+
+    func mutateCodexAccount(action: String, accountID: String? = nil, body: CodexAccountMutation) async throws -> CodexAccountsResponse {
+        let base = "api/v1/agent/codex/accounts"
+        let path: String
+        let method: String
+        if let accountID {
+            path = action == "update" || action == "delete" ? "\(base)/\(accountID)" : "\(base)/\(accountID)/\(action)"
+            method = action == "update" ? "PUT" : action == "delete" ? "DELETE" : "POST"
+        } else {
+            path = "\(base)/actions/\(action)"
+            method = "POST"
+        }
+        return try await request(path: path, method: method, body: body) { response in
+            response.code == 0 ? nil : "code must equal 0; received \(response.code)"
+        }
+    }
+
+    func startCodexAccountLogin(_ body: CodexAccountMutation) async throws -> CodexAccountLoginResponse {
+        try await request(path: "api/v1/agent/codex/accounts/login", method: "POST", body: body)
+    }
+
+    func codexAccountLogin(id: String) async throws -> CodexAccountLoginResponse {
+        try await request(path: "api/v1/agent/codex/accounts/login/\(id)")
+    }
+
+    func cancelCodexAccountLogin(id: String) async throws {
+        let _: AgentCodeResponse = try await request(path: "api/v1/agent/codex/accounts/login/\(id)/cancel", method: "POST", body: EmptyRequest())
+    }
+
     func agentCatalogItems() async throws -> AgentCatalogListResponse {
         try await request(path: "api/v1/agent/catalog") { response in
             response.code == 0 ? nil : "code must equal 0; received \(response.code)"

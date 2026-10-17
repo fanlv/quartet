@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10000000000000000000070 /* CodexAccountsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000070 /* CodexAccountsSettingsView.swift */; };
 		5446DE90D6C5EE1F1AC35A2F /* Pods_Quartet.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA2543BC3CD90BE5E3D203F0 /* Pods_Quartet.framework */; };
 		A10000000000000000000001 /* QuartetApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* QuartetApp.swift */; };
 		A10000000000000000000002 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* AppModel.swift */; };
@@ -71,6 +72,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A20000000000000000000070 /* CodexAccountsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAccountsSettingsView.swift; sourceTree = "<group>"; };
 		1778C73C5757B965ED76A5DB /* Pods-Quartet.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Quartet.release.xcconfig"; path = "Target Support Files/Pods-Quartet/Pods-Quartet.release.xcconfig"; sourceTree = "<group>"; };
 		A20000000000000000000001 /* QuartetApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuartetApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
@@ -315,6 +317,7 @@
 				A2000000000000000000000B /* SettingsView.swift */,
 				A20000000000000000000040 /* AgentManagementView.swift */,
 				A20000000000000000000041 /* AgentCatalogSettingsView.swift */,
+				A20000000000000000000070 /* CodexAccountsSettingsView.swift */,
 				A20000000000000000000042 /* AgentEnvSettingsView.swift */,
 				A20000000000000000000043 /* AgentDefaultsSettingsView.swift */,
 				A20000000000000000000044 /* AgentRoleSettingsView.swift */,
@@ -541,6 +544,7 @@
 				A1000000000000000000000B /* SettingsView.swift in Sources */,
 				A10000000000000000000040 /* AgentManagementView.swift in Sources */,
 				A10000000000000000000041 /* AgentCatalogSettingsView.swift in Sources */,
+				A10000000000000000000070 /* CodexAccountsSettingsView.swift in Sources */,
 				A10000000000000000000042 /* AgentEnvSettingsView.swift in Sources */,
 				A10000000000000000000043 /* AgentDefaultsSettingsView.swift in Sources */,
 				A10000000000000000000044 /* AgentRoleSettingsView.swift in Sources */,

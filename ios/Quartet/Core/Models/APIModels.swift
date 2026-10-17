@@ -1,5 +1,116 @@
 import Foundation
 
+struct CodexAccount: Decodable, Identifiable, Sendable {
+    let id: String
+    let name: String
+    let note: String
+    let authType: String
+    let email: String?
+    let accountId: String?
+    let workspaceId: String?
+    let hasConfig: Bool
+    let model: String?
+    let provider: String?
+    let createdAt: Int64
+    let updatedAt: Int64
+    let lastUsedAt: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, note, email, model, provider
+        case authType = "auth_type", accountId = "account_id", workspaceId = "workspace_id"
+        case hasConfig = "has_config", createdAt = "created_at", updatedAt = "updated_at", lastUsedAt = "last_used_at"
+    }
+}
+
+struct CodexAccountCurrent: Decodable, Sendable {
+    let home: String
+    let account: CodexAccount?
+    let managedId: String?
+    let status: String
+    let hasAuth: Bool
+    let hasConfig: Bool
+    let configApplied: Bool
+    let error: String?
+    let blockedReason: String?
+    let availability: String
+    let validationError: String?
+    let validatedAt: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case home, account, status, error, availability
+        case managedId = "managed_id", hasAuth = "has_auth", hasConfig = "has_config", configApplied = "config_applied"
+        case blockedReason = "blocked_reason", validationError = "validation_error", validatedAt = "validated_at"
+    }
+}
+
+struct CodexAccountOperation: Decodable, Identifiable, Sendable {
+    let id: String
+    let action: String
+    let accountId: String?
+    let status: String
+    let error: String?
+    let finishedAt: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case id, action, status, error
+        case accountId = "account_id", finishedAt = "finished_at"
+    }
+}
+
+struct CodexAccountsResponse: Decodable, Sendable {
+    let code: Int
+    let revision: String
+    let liveRevision: String
+    let accounts: [CodexAccount]
+    let current: CodexAccountCurrent
+    let hasBackup: Bool
+    let operations: [CodexAccountOperation]
+    let activeLogin: CodexAccountLogin?
+    let warning: String?
+
+    enum CodingKeys: String, CodingKey {
+        case code, revision, accounts, current, operations, warning
+        case liveRevision = "live_revision", hasBackup = "has_backup", activeLogin = "active_login"
+    }
+}
+
+struct CodexAccountMutation: Encodable, Sendable {
+    var revision: String?
+    var liveRevision: String?
+    var operationId: String = UUID().uuidString
+    var name: String = ""
+    var note: String = ""
+    var authJson: String?
+    var configToml: String?
+    var removeConfig: Bool = false
+    var applyConfig: Bool = false
+
+    enum CodingKeys: String, CodingKey {
+        case revision, name, note
+        case liveRevision = "live_revision", operationId = "operation_id"
+        case authJson = "auth_json", configToml = "config_toml", removeConfig = "remove_config", applyConfig = "apply_config"
+    }
+}
+
+struct CodexAccountLogin: Decodable, Sendable {
+    let id: String
+    let name: String
+    let status: String
+    let output: String
+    let error: String?
+    let accountId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, status, output, error
+        case accountId = "account_id"
+    }
+}
+
+struct CodexAccountLoginResponse: Decodable, Sendable {
+    let code: Int
+    let login: CodexAccountLogin
+}
+
 struct HealthResponse: Decodable, Equatable, Sendable {
     let status: String
     let time: String?
