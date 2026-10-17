@@ -248,6 +248,10 @@ struct APIClient: @unchecked Sendable {
         )
     }
 
+    func systemStats() async throws -> SystemStatsReport {
+        try await request(path: "api/v1/stats/system")
+    }
+
     func usageStats(
         from: String?,
         to: String?,

@@ -31,6 +31,7 @@ import (
 	"github.com/fanlv/quartet/services/schedule"
 	"github.com/fanlv/quartet/services/session"
 	"github.com/fanlv/quartet/services/skills"
+	"github.com/fanlv/quartet/services/systemstats"
 	"github.com/fanlv/quartet/services/usagestats"
 	"github.com/fanlv/quartet/services/userinput"
 	"github.com/fanlv/quartet/services/wechatoutbox"
@@ -126,6 +127,7 @@ type Handler struct {
 	scheduleService      schedule.Service
 	scheduler            *schedule.Scheduler
 	usageStats           usagestats.Service
+	systemStats          *systemstats.Service
 	usageModelMu         sync.RWMutex
 	usageModelAliases    map[string]string
 	usageService         usage.Service
@@ -318,6 +320,7 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 		workspaceService:     wss,
 		scheduleService:      schSvc,
 		usageStats:           usageStats,
+		systemStats:          systemstats.NewService(ctx),
 		usageModelAliases:    make(map[string]string),
 		usageService:         usage.NewService(ss, agentCatalog),
 		agentVersions:        agentversion.NewService(agentCatalog),

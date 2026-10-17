@@ -950,6 +950,22 @@
   },
   "stats": {
     "title": "使用统计",
+    "system": {
+      "title": "机器资源",
+      "description": "后端所在机器 · 每 5 秒更新",
+      "cpu": "CPU",
+      "memory": "内存",
+      "disk": "磁盘",
+      "cores": "{{count}} 个逻辑核心",
+      "capacity": "已用 {{used}} / 共 {{total}}",
+      "available": "可用 {{value}}",
+      "diskScope": "磁盘：Quartet 数据所在盘",
+      "updatedAt": "更新于 {{time}}",
+      "refresh": "刷新机器资源",
+      "loading": "正在采集…",
+      "unavailable": "暂不可用",
+      "fetchError": "机器资源采集失败"
+    },
     "topbarTooltip": "统计",
     "tokensLocalEstimateNote": "总 Token 由两类互斥来源合并：有厂商上报时采用上报用量，否则采用本地估算；缓存、推理和图片 Token 只用于解释，不要再次相加。",
     "rangeLabel": "范围",

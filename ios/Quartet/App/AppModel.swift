@@ -596,6 +596,25 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func fetchSystemStats() async throws -> SystemStatsReport {
+        if isRunningUITests {
+            return SystemStatsReport(
+                hostname: "Quartet Mac", sampledAt: ISO8601DateFormatter().string(from: Date()),
+                cpu: SystemCPUStats(model: "Apple M4", logicalCores: 10, usagePercent: 23.7),
+                memory: SystemMemoryStats(
+                    totalBytes: 25_769_803_776, usedBytes: 10_737_418_240,
+                    availableBytes: 15_032_385_536, usagePercent: 41.7
+                ),
+                disk: SystemDiskStats(
+                    path: "/Users/quartet/Memory", totalBytes: 1_000_000_000_000,
+                    usedBytes: 627_000_000_000, availableBytes: 373_000_000_000, usagePercent: 62.7
+                ),
+                errors: []
+            )
+        }
+        return try await makeClient().systemStats()
+    }
+
     func fetchUsageStats(
         from: String?,
         to: String?,

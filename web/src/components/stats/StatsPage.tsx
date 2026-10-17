@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatStatsCount, formatStatsDuration } from '../../utils/statsFormat';
+import { SystemStatsCard } from './SystemStatsCard';
 import './StatsPage.css';
 
 // Types mirroring the /api/v1/stats/usage response. The shapes intentionally
@@ -313,6 +314,10 @@ export function StatsPage({ onClose, currentWorkspaceId, onJumpToWorkspace }: St
               </button>
             </div>
           )}
+          {report && !isEmpty && (
+            <KpiBand kpis={kpis} previous={report.previous} periodDays={periodDays} />
+          )}
+          <SystemStatsCard />
           {!loading && !error && isEmpty && (
             <div className="stats-empty">
               <div className="stats-empty-title">{t('stats.noDataInRange')}</div>
@@ -321,7 +326,6 @@ export function StatsPage({ onClose, currentWorkspaceId, onJumpToWorkspace }: St
           )}
           {report && !isEmpty && (
             <>
-              <KpiBand kpis={kpis} previous={report.previous} periodDays={periodDays} />
               <TrendCard
                 range={report.range}
                 daily={report.daily}

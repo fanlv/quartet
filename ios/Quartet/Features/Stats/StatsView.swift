@@ -16,6 +16,7 @@ struct StatsView: View {
     @State private var isLoading = false
     @State private var errorDetail: String?
     @State private var refreshRevision = 0
+    @State private var systemRefreshRevision = 0
     @State private var requestSequence: UInt64 = 0
     @State private var agents: [AgentSummary] = []
     @State private var isLoadingAgentUsage = false
@@ -40,6 +41,8 @@ struct StatsView: View {
                     if let report, report.hasData {
                         StatsKPIGrid(report: report, periodDays: periodDays(in: report.range))
                     }
+
+                    StatsSystemResourcesCard(parentRefreshRevision: systemRefreshRevision)
 
                     StatsAgentUsageCard(
                         store: agentUsageStore,
@@ -66,6 +69,7 @@ struct StatsView: View {
             .mainTabBarBottomInset(mainTabBarInset)
             .quartetNavigationTitle("使用统计")
             .refreshable {
+                systemRefreshRevision &+= 1
                 await loadStats()
                 await loadAgentUsage(force: true)
             }
@@ -73,6 +77,7 @@ struct StatsView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         refreshRevision &+= 1
+                        systemRefreshRevision &+= 1
                         Task { await loadAgentUsage(force: true) }
                     } label: {
                         if isLoading || isLoadingAgentUsage {
@@ -320,6 +325,209 @@ struct StatsView: View {
     private func periodDays(in range: UsageStatsRange) -> Int {
         guard let from = StatsFormat.date(range.from), let to = StatsFormat.date(range.to) else { return 0 }
         return (Calendar.current.dateComponents([.day], from: from, to: to).day ?? -1) + 1
+    }
+}
+
+private struct StatsSystemResourcesCard: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.locale) private var locale
+    @Environment(\.scenePhase) private var scenePhase
+
+    let parentRefreshRevision: Int
+
+    @State private var report: SystemStatsReport?
+    @State private var isLoading = false
+    @State private var errorDetail: String?
+    @State private var refreshRevision = 0
+    @State private var requestSequence: UInt64 = 0
+    @State private var namespace = ""
+    @State private var presentedError: PresentedError?
+
+    private var refreshKey: String {
+        "\(model.connectionRevision)|\(scenePhase)|\(parentRefreshRevision)|\(refreshRevision)"
+    }
+
+    private var collectionError: String? {
+        let details = ([errorDetail].compactMap { $0 } + (report?.errors ?? [])).joined(separator: "\n\n")
+        return details.isEmpty ? nil : details
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Label("机器资源", systemImage: "desktopcomputer")
+                    .font(.quartet(.headline, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                Spacer(minLength: 8)
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(QuartetTheme.accent)
+                }
+                Button { refreshRevision &+= 1 } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.accent)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isLoading)
+                .accessibilityLabel("刷新机器资源")
+                .accessibilityIdentifier("stats-system-refresh")
+            }
+
+            Text("后端所在机器 · 每 5 秒更新")
+                .font(.quartet(.detail))
+                .foregroundStyle(QuartetTheme.secondaryText)
+
+            resourceRow(
+                title: "CPU", icon: "cpu", usage: report?.cpu?.usagePercent,
+                detail: report?.cpu.map {
+                    String(format: "%d 个逻辑核心".localized(in: locale), $0.logicalCores)
+                },
+                hint: report?.cpu?.model
+            )
+            Divider().overlay(QuartetTheme.divider)
+            resourceRow(
+                title: "内存", icon: "memorychip", usage: report?.memory?.usagePercent,
+                detail: report?.memory.map { capacity(used: $0.usedBytes, total: $0.totalBytes) },
+                hint: report?.memory.map { available($0.availableBytes) }
+            )
+            Divider().overlay(QuartetTheme.divider)
+            resourceRow(
+                title: "磁盘", icon: "internaldrive", usage: report?.disk?.usagePercent,
+                detail: report?.disk.map { capacity(used: $0.usedBytes, total: $0.totalBytes) },
+                hint: report?.disk.map { available($0.availableBytes) }
+            )
+
+            Divider().overlay(QuartetTheme.divider)
+            VStack(alignment: .leading, spacing: 5) {
+                if let report, !report.hostname.isEmpty {
+                    Text(report.hostname)
+                }
+                Text("磁盘：Quartet 数据所在盘")
+                if let path = report?.disk?.path {
+                    Text(path)
+                        .font(.quartet(.compact, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+                if let sampledAt = report?.sampledAt,
+                   let date = sampleDate(sampledAt) {
+                    Text(String(format: "更新于 %@".localized(in: locale), date.formatted(.dateTime.hour().minute().second().locale(locale))))
+                        .monospacedDigit()
+                }
+            }
+            .font(.quartet(.compact))
+            .foregroundStyle(QuartetTheme.secondaryText)
+
+            if let detail = collectionError {
+                Button {
+                    presentedError = PresentedError(title: "机器资源采集失败", detail: detail)
+                } label: {
+                    Label("机器资源采集失败", systemImage: "exclamationmark.circle.fill")
+                        .font(.quartet(.detail, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.failed)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("stats-system-error")
+            }
+        }
+        .statsCard()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("stats-system-resources")
+        .sheet(item: $presentedError) { error in
+            ErrorDetailView(error: error)
+        }
+        .task(id: refreshKey) {
+            let currentNamespace = "\(model.serverAddress)|\(model.connectionRevision)"
+            if namespace != currentNamespace {
+                namespace = currentNamespace
+                report = nil
+                errorDetail = nil
+            }
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                let started = ContinuousClock.now
+                await load()
+                do {
+                    try await Task.sleep(until: started.advanced(by: .seconds(5)), clock: .continuous)
+                } catch { return }
+            }
+        }
+    }
+
+    private func resourceRow(title: String, icon: String, usage: Double?, detail: String?, hint: String?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label(title.localized(in: locale), systemImage: icon)
+                    .font(.quartet(.control, weight: .semibold))
+                    .foregroundStyle(QuartetTheme.primaryText)
+                Spacer()
+                Text(usage.map { ($0 / 100).formatted(.percent.precision(.fractionLength(1)).locale(locale)) } ?? "—")
+                    .font(.quartet(.headline, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(QuartetTheme.primaryText)
+            }
+            if let usage {
+                ProgressView(value: min(100, max(0, usage)), total: 100)
+                    .tint(usage >= 90 ? QuartetTheme.failed : usage >= 75 ? QuartetTheme.warning : QuartetTheme.accent)
+                    .accessibilityLabel(title.localized(in: locale))
+            }
+            Text(detail ?? (isLoading && report == nil ? "正在采集…" : "不可用").localized(in: locale))
+                .font(.quartet(.detail))
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .monospacedDigit()
+            if let hint, !hint.isEmpty {
+                Text(hint)
+                    .font(.quartet(.compact))
+                    .foregroundStyle(QuartetTheme.secondaryText)
+                    .monospacedDigit()
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func bytes(_ value: UInt64) -> String {
+        let units = ["B", "KiB", "MiB", "GiB", "TiB"]
+        let index = value > 0 ? min(Int(log(Double(value)) / log(1024)), units.count - 1) : 0
+        let number = (Double(value) / pow(1024, Double(index))).formatted(.number.precision(.fractionLength(0...1)).locale(locale))
+        return "\(number) \(units[index])"
+    }
+
+    private func sampleDate(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
+    private func capacity(used: UInt64, total: UInt64) -> String {
+        String(format: "已用 %@ / 共 %@".localized(in: locale), bytes(used), bytes(total))
+    }
+
+    private func available(_ value: UInt64) -> String {
+        String(format: "可用 %@".localized(in: locale), bytes(value))
+    }
+
+    private func load() async {
+        requestSequence &+= 1
+        let sequence = requestSequence
+        let connectionRevision = model.connectionRevision
+        isLoading = true
+        defer {
+            if sequence == requestSequence, connectionRevision == model.connectionRevision { isLoading = false }
+        }
+        do {
+            let loaded = try await model.fetchSystemStats()
+            guard !Task.isCancelled, sequence == requestSequence,
+                  connectionRevision == model.connectionRevision else { return }
+            report = loaded
+            errorDetail = nil
+        } catch {
+            guard !Task.isCancelled, sequence == requestSequence,
+                  connectionRevision == model.connectionRevision else { return }
+            errorDetail = (error as? APIError)?.detail ?? String(describing: error)
+        }
     }
 }
 

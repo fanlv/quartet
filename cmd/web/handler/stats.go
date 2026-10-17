@@ -12,6 +12,17 @@ import (
 	"github.com/fanlv/quartet/services/usagestats"
 )
 
+// StatsSystem returns current resource usage for the backend machine.
+func (h *Handler) StatsSystem(ctx context.Context, c *app.RequestContext) {
+	report, err := h.systemStats.Get(ctx)
+	if err != nil {
+		httputil.InternalErrorLog(ctx, c, "stats.system", err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, report)
+}
+
 // statsResponse is the JSON shape returned by GET /api/v1/stats/usage.
 // Mirrors usagestats.UsageReport but enriches Workspace / Model rows and
 // daily model buckets with human-readable labels while keeping model ids as

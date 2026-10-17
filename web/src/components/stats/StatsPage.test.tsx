@@ -33,7 +33,7 @@ describe('StatsPage token trend accessibility', () => {
         toolCall: 0,
       },
     });
-    vi.mocked(fetch).mockResolvedValue(jsonResponse({
+    const report = {
       range: { from: '2026-08-24', to: '2026-08-26' },
       byWorkspace: [],
       byModel: [],
@@ -44,7 +44,12 @@ describe('StatsPage token trend accessibility', () => {
         { date: '2026-08-26', ...totals(300, 30), models: {} },
       ],
       note: 'stats.tokensLocalEstimateNote',
-    }));
+    };
+    vi.mocked(fetch).mockImplementation(async (input) => jsonResponse(
+      String(input).startsWith('/api/v1/stats/system')
+        ? { hostname: 'test-machine', sampledAt: '2026-08-26T12:00:00Z', cpu: null, memory: null, disk: null, errors: [] }
+        : report,
+    ));
 
     render(<StatsPage onClose={vi.fn()} />);
 

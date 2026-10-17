@@ -954,6 +954,23 @@
   },
   "stats": {
     "title": "Usage Statistics",
+    "system": {
+      "title": "Machine resources",
+      "description": "Backend machine · Updates every 5 seconds",
+      "cpu": "CPU",
+      "memory": "Memory",
+      "disk": "Disk",
+      "cores_one": "{{count}} logical core",
+      "cores_other": "{{count}} logical cores",
+      "capacity": "{{used}} used / {{total}} total",
+      "available": "{{value}} available",
+      "diskScope": "Disk containing Quartet data",
+      "updatedAt": "Updated at {{time}}",
+      "refresh": "Refresh machine resources",
+      "loading": "Collecting…",
+      "unavailable": "Unavailable",
+      "fetchError": "Failed to collect machine resources"
+    },
     "topbarTooltip": "Statistics",
     "tokensLocalEstimateNote": "Total tokens combine two mutually exclusive sources: vendor-reported usage when available, otherwise a local estimate. Cache, reasoning, and image tokens are explanatory details and must not be added again.",
     "rangeLabel": "Range",

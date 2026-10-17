@@ -246,6 +246,7 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	// Usage stats routes
 	statsGroup := api.Group("/stats")
 	statsGroup.GET("/usage", permit(auth.PermissionStatsRead), h.StatsUsage)
+	statsGroup.GET("/system", permit(auth.PermissionStatsRead), h.StatsSystem)
 
 	// System operation routes.
 	systemGroup := api.Group("/system")

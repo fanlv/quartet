@@ -41,6 +41,36 @@ struct WebRestartResponse: Decodable, Sendable {
     }
 }
 
+struct SystemStatsReport: Decodable, Sendable {
+    let hostname: String
+    let sampledAt: String
+    let cpu: SystemCPUStats?
+    let memory: SystemMemoryStats?
+    let disk: SystemDiskStats?
+    let errors: [String]
+}
+
+struct SystemCPUStats: Decodable, Sendable {
+    let model: String
+    let logicalCores: Int
+    let usagePercent: Double
+}
+
+struct SystemMemoryStats: Decodable, Sendable {
+    let totalBytes: UInt64
+    let usedBytes: UInt64
+    let availableBytes: UInt64
+    let usagePercent: Double
+}
+
+struct SystemDiskStats: Decodable, Sendable {
+    let path: String
+    let totalBytes: UInt64
+    let usedBytes: UInt64
+    let availableBytes: UInt64
+    let usagePercent: Double
+}
+
 struct UsageStatsReport: Decodable, Sendable {
     let range: UsageStatsRange
     let byWorkspace: [UsageStatsWorkspaceRow]
