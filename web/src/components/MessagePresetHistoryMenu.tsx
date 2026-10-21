@@ -60,12 +60,12 @@ export function MessagePresetHistoryMenu({
   }, [workspaceId]);
 
   const selectPreset = (preset: MessagePreset) => {
+    setOpen(false);
     if (currentInput.length > 0) {
       setPendingPreset(preset);
       return;
     }
     onApplyPreset(preset.content, 'replace');
-    setOpen(false);
   };
 
   const applyPending = (mode: 'replace' | 'append') => {

@@ -37,6 +37,7 @@ import { isImageUrl, resolveIconSrc } from '../utils/url';
 import { showToast } from '../utils/toast';
 import { fetchAvailableAgentList } from '../api/agents';
 import { useLocalComposerDraft } from '../hooks/useLocalComposerDraft';
+import { useAutosizeTextarea } from '../hooks/useAutosizeTextarea';
 import { useAttachmentDrop } from '../hooks/useAttachmentDrop';
 
 type LocalSentMessage = SentMessageHistoryItem;
@@ -483,6 +484,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const thoughtLevelDropdownRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useAutosizeTextarea(textareaRef, input);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const handleAttachmentUploaded = useCallback((attachment: UploadedAttachment) => {
     if (attachment.isImage) {
@@ -2087,14 +2089,16 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                 currentInput={input}
                 historyItems={historyItems}
                 onApplyPreset={(content, mode) => {
-                  const nextInput = mode === 'append' && input ? `${input}\n\n${content}` : content;
-                  setInput(nextInput);
+                  setComposerDraft((current) => ({
+                    ...current,
+                    text: mode === 'append' && current.text ? `${current.text}\n\n${content}` : content,
+                  }));
                   closeSlash();
                   historyCursorRef.current = null;
                   historyDraftRef.current = null;
                   requestAnimationFrame(() => {
                     textareaRef.current?.focus();
-                    if (textareaRef.current) textareaRef.current.selectionStart = textareaRef.current.selectionEnd = nextInput.length;
+                    if (textareaRef.current) textareaRef.current.selectionStart = textareaRef.current.selectionEnd = textareaRef.current.value.length;
                   });
                 }}
                 onApplyHistory={(item) => {

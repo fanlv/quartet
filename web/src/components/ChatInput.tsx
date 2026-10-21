@@ -24,6 +24,7 @@ import { DurationBadge } from './DurationBadge';
 import { ConfigurationIcon } from './ComposerIcons';
 import { MessagePresetHistoryMenu, type SentMessageHistoryItem } from './MessagePresetHistoryMenu';
 import { useLocalComposerDraft } from '../hooks/useLocalComposerDraft';
+import { useAutosizeTextarea } from '../hooks/useAutosizeTextarea';
 import { useAttachmentDrop } from '../hooks/useAttachmentDrop';
 import './ChatInput.css';
 
@@ -283,6 +284,7 @@ export function ChatInput({
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const thoughtLevelDropdownRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useAutosizeTextarea(textareaRef, input);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [tabletBottomGap, setTabletBottomGap] = useState(0);
 
@@ -1216,14 +1218,16 @@ export function ChatInput({
               currentInput={input}
               historyItems={historyItems}
               onApplyPreset={(content, mode) => {
-                const nextInput = mode === 'append' && input ? `${input}\n\n${content}` : content;
-                setInput(nextInput);
+                setComposerDraft((current) => ({
+                  ...current,
+                  text: mode === 'append' && current.text ? `${current.text}\n\n${content}` : content,
+                }));
                 closeSlash();
                 historyCursorRef.current = null;
                 historyDraftRef.current = null;
                 requestAnimationFrame(() => {
                   textareaRef.current?.focus();
-                  if (textareaRef.current) textareaRef.current.selectionStart = textareaRef.current.selectionEnd = nextInput.length;
+                  if (textareaRef.current) textareaRef.current.selectionStart = textareaRef.current.selectionEnd = textareaRef.current.value.length;
                 });
               }}
               onApplyHistory={(item) => {
