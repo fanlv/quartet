@@ -84,15 +84,19 @@ release.
 
 | Recent tasks | New task |
 |---|---|
-| ![Sophia recent tasks list](./docs/images/ios-recent-tasks.png) | ![Sophia new task composer](./docs/images/ios-new-task-composer.png) |
+| ![Sophia recent tasks list](./docs/images/ios-recent-tasks.jpg) | ![Sophia new task composer](./docs/images/ios-new-task-composer.png) |
 
 | Agent conversation | Scheduled tasks |
 |---|---|
-| ![Sophia agent conversation with streamed tool activity](./docs/images/ios-agent-conversation.png) | ![Sophia scheduled tasks list](./docs/images/ios-scheduled-tasks.png) |
+| ![Sophia agent conversation with streamed tool activity](./docs/images/ios-agent-conversation.png) | ![Sophia scheduled tasks list](./docs/images/ios-scheduled-tasks.jpg) |
 
-| Usage statistics | Settings |
+| Files | Settings |
 |---|---|
-| ![Sophia usage statistics](./docs/images/ios-usage-statistics.png) | ![Sophia settings](./docs/images/ios-settings.png) |
+| ![Sophia workspace file browser](./docs/images/ios-files.jpg) | ![Sophia settings](./docs/images/ios-settings.png) |
+
+| Usage statistics | Daily token details |
+|---|---|
+| ![Sophia usage statistics](./docs/images/ios-usage-statistics.jpg) | ![Sophia daily token details](./docs/images/ios-usage-daily-token.png) |
 
 ## Graph Workflows
 

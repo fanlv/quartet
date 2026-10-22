@@ -69,15 +69,19 @@ Quartet 面向在个人电脑或其他受控环境中运行的可信共享实例
 
 | 最近任务 | 新任务 |
 |---|---|
-| ![Sophia 最近任务列表](./docs/images/ios-recent-tasks.png) | ![Sophia 新任务面板](./docs/images/ios-new-task-composer.png) |
+| ![Sophia 最近任务列表](./docs/images/ios-recent-tasks.jpg) | ![Sophia 新任务面板](./docs/images/ios-new-task-composer.png) |
 
 | Agent 对话 | 定时任务 |
 |---|---|
-| ![Sophia Agent 对话与实时工具调用](./docs/images/ios-agent-conversation.png) | ![Sophia 定时任务列表](./docs/images/ios-scheduled-tasks.png) |
+| ![Sophia Agent 对话与实时工具调用](./docs/images/ios-agent-conversation.png) | ![Sophia 定时任务列表](./docs/images/ios-scheduled-tasks.jpg) |
 
-| 用量统计 | 设置 |
+| 文件浏览 | 设置 |
 |---|---|
-| ![Sophia 用量统计](./docs/images/ios-usage-statistics.png) | ![Sophia 设置](./docs/images/ios-settings.png) |
+| ![Sophia 工作区文件浏览](./docs/images/ios-files.jpg) | ![Sophia 设置](./docs/images/ios-settings.png) |
+
+| 用量统计 | 每日 Token 明细 |
+|---|---|
+| ![Sophia 用量统计](./docs/images/ios-usage-statistics.jpg) | ![Sophia 每日 Token 明细](./docs/images/ios-usage-daily-token.png) |
 
 ## Graph Workflow
 
