@@ -690,7 +690,14 @@ func (h *Handler) StepStopJobGraphRun(ctx context.Context, c *app.RequestContext
 	})
 }
 
-// CancelStopJobGraphRun cancels a pending step-stop, returning the run to
+// SessionStopJobGraphRun stops before the next new Agent session.
+func (h *Handler) SessionStopJobGraphRun(ctx context.Context, c *app.RequestContext) {
+	h.jobGraphRunControl(ctx, c, func(runID, reason string) (*model.GraphRun, error) {
+		return h.graphService.SessionStopRun(ctx, runID, reason)
+	})
+}
+
+// CancelStopJobGraphRun cancels a pending step/session stop, returning the run to
 // running.
 func (h *Handler) CancelStopJobGraphRun(ctx context.Context, c *app.RequestContext) {
 	h.jobGraphRunControl(ctx, c, func(runID, reason string) (*model.GraphRun, error) {
@@ -845,6 +852,7 @@ func graphRunSSETerminal(status model.GraphRunStatus) bool {
 	case model.GraphRunStatusCompleted,
 		model.GraphRunStatusFailed,
 		model.GraphRunStatusStepStopped,
+		model.GraphRunStatusSessionStopped,
 		model.GraphRunStatusStopped,
 		model.GraphRunStatusTimedOut,
 		model.GraphRunStatusRecovering,

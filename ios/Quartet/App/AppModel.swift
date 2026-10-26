@@ -209,7 +209,7 @@ final class AppModel: ObservableObject {
     var activeJobs: [JobSummary] {
         jobs.filter { job in
             let status = displayedStatus(for: job)
-            return status == "running" || status == "pending" || status == "stepStopping"
+            return status == "running" || status == "pending" || status == "stepStopping" || status == "sessionStopping"
         }
     }
 
@@ -2444,7 +2444,7 @@ final class AppModel: ObservableObject {
 
     private func reconcileOptimisticJobExecution(_ fresh: JobSummary) -> JobSummary {
         guard let optimistic = optimisticJobExecutions[fresh.id] else { return fresh }
-        let hasStarted = fresh.status == "running" || fresh.status == "stepStopping"
+        let hasStarted = fresh.status == "running" || fresh.status == "stepStopping" || fresh.status == "sessionStopping"
         let hasNewerTerminalState = fresh.status != "pending"
             && fresh.updatedAt > optimistic.baseline.updatedAt
         if hasStarted || hasNewerTerminalState {
@@ -2658,6 +2658,8 @@ final class AppModel: ObservableObject {
         case "awaitingInput": "等待人工".localizedForApp
         case "stepStopping": "步骤后停止中".localizedForApp
         case "stepStopped": "已在步骤后停止".localizedForApp
+        case "sessionStopping": "当前 Session 后停止中".localizedForApp
+        case "sessionStopped": "已在 Session 后停止".localizedForApp
         case "completed": "已完成".localizedForApp
         case "failed": "失败".localizedForApp
         case "timedOut": "已超时".localizedForApp

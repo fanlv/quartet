@@ -155,6 +155,8 @@ export type GraphRunStatus =
   | 'failed'
   | 'stepStopping'
   | 'stepStopped'
+  | 'sessionStopping'
+  | 'sessionStopped'
   | 'stopped'
   | 'timedOut'
   | 'recovering'

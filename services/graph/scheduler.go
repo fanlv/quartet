@@ -125,11 +125,12 @@ type scheduler struct {
 
 	// Run-control state (steps 15/16). All mutated only by the scheduler
 	// goroutine in response to a controlSignal delivered over `control`.
-	control    <-chan controlSignal
-	stepStop   bool                   // 步骤后停止: only dispatch the frozen batch
-	stopReason string                 // reason recorded on graceful/hard stop
-	batchSeq   int                    // monotonically increasing ready-batch id source
-	curBatch   *model.GraphReadyBatch // the open ready batch (step-stop boundary)
+	control     <-chan controlSignal
+	stepStop    bool                   // 步骤后停止: only dispatch the frozen batch
+	sessionStop bool                   // 会话后停止: keep inherited turns, hold new Agent sessions
+	stopReason  string                 // reason recorded on graceful/hard stop
+	batchSeq    int                    // monotonically increasing ready-batch id source
+	curBatch    *model.GraphReadyBatch // the open ready batch (step-stop boundary)
 
 	activeLoops map[string]*scopeRun // active loop scopes by loop-instance-key string
 
@@ -404,21 +405,78 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 	workerCtx, cancelWorkers := context.WithCancel(ctx)
 	defer cancelWorkers()
 
+	applyControl := func(sig controlSignal) bool {
+		switch sig.kind {
+		case ctrlHardStop:
+			logger.Warnf(ctx, "[graph] hard stop requested: runId=%s reason=%s inFlight=%d ready=%d", sc.run.ID, sig.reason, inFlight, len(sc.ready))
+			cancelWorkers()
+			sc.stopReason = orDefault(sig.reason, "hard stopped")
+			sc.interruptRunning(ctx, sc.stopReason)
+			sc.drain(ctx, resultCh, sessionCh, &inFlight)
+			sc.finishStopped(ctx)
+			return true
+		case ctrlUpdateVersion:
+			sc.applyVersionUpdate(ctx, sig)
+		case ctrlCancelStop:
+			sc.cancelGracefulSignal(ctx, sig)
+		default:
+			sc.applyGracefulSignal(ctx, sig)
+		}
+		return false
+	}
+
 	for {
+		if sc.failed {
+			cancelWorkers()
+			sc.snapshotLoopState()
+			sc.interruptRunning(ctx, "cancelled after graph run failure")
+			sc.drain(ctx, resultCh, sessionCh, &inFlight)
+			sc.persist(ctx)
+			return
+		}
 		if ctx.Err() != nil {
 			cancelWorkers()
 			sc.drain(ctx, resultCh, sessionCh, &inFlight)
 			sc.finishForContextError(context.Background(), ctx.Err())
 			return
 		}
+		// Apply controls already accepted by the service before starting another
+		// node. A completion and a stop request can arrive together.
+	drainControls:
+		for {
+			select {
+			case sig := <-sc.control:
+				if applyControl(sig) {
+					return
+				}
+				if sc.failed {
+					break drainControls
+				}
+			default:
+				break drainControls
+			}
+		}
+		if sc.failed {
+			continue
+		}
 		// Dispatch as many dispatchable ready instances as free semaphore slots
 		// allow without blocking the loop (so completions can always free slots).
-		// canDispatch gates step-stop.
-		for len(sc.ready) > 0 && sc.canDispatch(sc.ready[0]) {
+		// A held new-session node must not block another branch's inherited turn.
+		for {
+			readyIndex := sc.nextDispatchableIndex()
+			if readyIndex < 0 {
+				break
+			}
 			select {
 			case sem <- struct{}{}:
-				item := sc.ready[0]
-				sc.ready = sc.ready[1:]
+				item := sc.ready[readyIndex]
+				if readyIndex == 0 {
+					sc.ready = sc.ready[1:]
+				} else {
+					copy(sc.ready[readyIndex:], sc.ready[readyIndex+1:])
+					sc.ready[len(sc.ready)-1] = readyItem{}
+					sc.ready = sc.ready[:len(sc.ready)-1]
+				}
 				inFlight++
 				logger.Infof(ctx, "[graph] dispatch node: runId=%s nodeId=%s type=%s key=%s version=%d inFlight=%d ready=%d limit=%d timeout=%s",
 					sc.run.ID, item.node.ID, item.node.Type, instanceKeyString(item.key), item.run.CurrentVersion,
@@ -448,8 +506,8 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 		}
 	wait:
 		if inFlight == 0 && !sc.hasDispatchable() {
-			// In-flight drained and nothing left to dispatch. If a step-stop is
-			// in progress, finish into its terminal state;
+			// A graceful stop settles once its held frontier is reached. A session
+			// stop without another new-session node can complete naturally;
 			// if a clarify node parked the run waiting for human input, settle into
 			// the awaitingInput terminal; otherwise the run reached its natural end.
 			//
@@ -458,7 +516,7 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 			// human discussion even if a parallel branch already reached an end —
 			// the run is not actually complete until the user clicks「讨论完成」and the
 			// continue path finalizes the clarify and runs its downstream.
-			if sc.stepStop {
+			if sc.stepStop || (sc.sessionStop && len(sc.ready) > 0) {
 				sc.finishGraceful(ctx)
 				return
 			}
@@ -475,41 +533,15 @@ func (sc *scheduler) loop(ctx context.Context, resume bool) {
 			logger.Infof(ctx, "[graph] worker result received: runId=%s nodeId=%s key=%s err=%v inFlight=%d ready=%d",
 				sc.run.ID, res.node.ID, instanceKeyString(res.key), res.err != nil, inFlight, len(sc.ready))
 			sc.handleResult(ctx, res)
-			if sc.failed {
-				cancelWorkers()
-				// Snapshot in-flight loop scopes before interrupting/persisting so a
-				// resume continues each loop from its current round (step-level
-				// resume) instead of re-running the whole loop from round 0.
-				sc.snapshotLoopState()
-				sc.interruptRunning(ctx, "cancelled after graph run failure")
-				sc.drain(ctx, resultCh, sessionCh, &inFlight)
-				sc.persist(ctx)
-				return
-			}
 		case so := <-sessionCh:
 			// A worker opened its Agent session; surface it now (eager session
 			// visibility). Does not touch the semaphore / inFlight — the worker is
 			// still running and will report completion over resultCh.
 			sc.handleSessionOpened(ctx, so)
 		case sig := <-sc.control:
-			if sig.kind == ctrlHardStop {
-				logger.Warnf(ctx, "[graph] hard stop requested: runId=%s reason=%s inFlight=%d ready=%d", sc.run.ID, sig.reason, inFlight, len(sc.ready))
-				cancelWorkers()
-				sc.stopReason = orDefault(sig.reason, "hard stopped")
-				sc.interruptRunning(ctx, sc.stopReason)
-				sc.drain(ctx, resultCh, sessionCh, &inFlight)
-				sc.finishStopped(ctx)
+			if applyControl(sig) {
 				return
 			}
-			if sig.kind == ctrlUpdateVersion {
-				sc.applyVersionUpdate(ctx, sig)
-				continue
-			}
-			if sig.kind == ctrlCancelStop {
-				sc.cancelGracefulSignal(ctx, sig)
-				continue
-			}
-			sc.applyGracefulSignal(ctx, sig)
 		case <-ctx.Done():
 			cancelWorkers()
 			sc.drain(ctx, resultCh, sessionCh, &inFlight)

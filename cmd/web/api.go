@@ -234,6 +234,7 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	jobGroup.GET("/:jobId/graph-run/hooks", permit(auth.PermissionJobRead), h.JobGraphRunHooks)
 	jobGroup.POST("/:jobId/graph-run/stop", permit(auth.PermissionJobExecute), h.StopJobGraphRun)
 	jobGroup.POST("/:jobId/graph-run/step-stop", permit(auth.PermissionJobExecute), h.StepStopJobGraphRun)
+	jobGroup.POST("/:jobId/graph-run/session-stop", permit(auth.PermissionJobExecute), h.SessionStopJobGraphRun)
 	jobGroup.POST("/:jobId/graph-run/cancel-stop", permit(auth.PermissionJobExecute), h.CancelStopJobGraphRun)
 	jobGroup.POST("/:jobId/graph-run/resume", permit(auth.PermissionJobExecute), h.ResumeJobGraphRun)
 	jobGroup.POST("/:jobId/graph-run/continue", permit(auth.PermissionJobExecute), h.ContinueJobGraphRun)

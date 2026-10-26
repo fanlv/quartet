@@ -1,6 +1,70 @@
 {
   "sourceLanguage" : "zh-Hans",
   "strings" : {
+    "当前 Session 后停止": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop after current session"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前 Session 后停止"
+          }
+        }
+      }
+    },
+    "当前 Session 后停止中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopping after current session"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前 Session 后停止中"
+          }
+        }
+      }
+    },
+    "已在 Session 后停止": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped after session"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在 Session 后停止"
+          }
+        }
+      }
+    },
+    "继续当前 Session 的后续步骤，在需要新建 Agent Session 前停止。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue the current session's steps and stop before opening a new Agent session."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续当前 Session 的后续步骤，在需要新建 Agent Session 前停止。"
+          }
+        }
+      }
+    },
     "已展开": {
       "localizations": {
         "en": {

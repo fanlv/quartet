@@ -375,7 +375,7 @@ struct JobDetailView: View {
     }
 
     private func isActive(_ status: String) -> Bool {
-        ["running", "pending", "awaitingInput", "stepStopping"].contains(status)
+        ["running", "pending", "awaitingInput", "stepStopping", "sessionStopping"].contains(status)
     }
 
     private func statusLabel(_ status: String) -> String {
@@ -385,6 +385,8 @@ struct JobDetailView: View {
         case "awaitingInput": "等待人工".localizedForApp
         case "stepStopping": "步骤后停止中".localizedForApp
         case "stepStopped": "已在步骤后停止".localizedForApp
+        case "sessionStopping": "当前 Session 后停止中".localizedForApp
+        case "sessionStopped": "已在 Session 后停止".localizedForApp
         case "completed": "已完成".localizedForApp
         case "failed", "timedOut": "失败".localizedForApp
         case "stopped": "已停止".localizedForApp
@@ -394,7 +396,7 @@ struct JobDetailView: View {
 
     private func colorKey(_ status: String) -> String {
         switch status {
-        case "running", "pending", "awaitingInput", "stepStopping":
+        case "running", "pending", "awaitingInput", "stepStopping", "sessionStopping":
             return "running"
         case "completed":
             return "completed"

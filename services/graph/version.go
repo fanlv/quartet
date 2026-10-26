@@ -162,6 +162,7 @@ func (s *serviceImpl) adjustStaticLoopDenominator(ctx context.Context, run *mode
 func isStaticEditableStatus(st model.GraphRunStatus) bool {
 	switch st {
 	case model.GraphRunStatusFailed, model.GraphRunStatusStepStopped,
+		model.GraphRunStatusSessionStopped,
 		model.GraphRunStatusStopped,
 		model.GraphRunStatusTimedOut, model.GraphRunStatusRecovering,
 		model.GraphRunStatusAwaitingInput:

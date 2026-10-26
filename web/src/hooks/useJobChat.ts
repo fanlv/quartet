@@ -237,7 +237,7 @@ function graphSessionEntries(
 // is intentionally excluded — a crash-recovered run is a static, resumable
 // terminal that emits no new events, so the Chat page treats it as non-live
 // (stops the loading spinner) and relies on the snapshot reconcile.
-const GRAPH_LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'stepStopping']);
+const GRAPH_LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'stepStopping', 'sessionStopping']);
 
 // A stop request is tiny and the backend answers in milliseconds; the long
 // timeout only bounds the pathological case — behind an HTTP/1.1 hop a

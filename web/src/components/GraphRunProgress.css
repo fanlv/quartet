@@ -64,7 +64,8 @@
 .graph-run-status.status-running,
 .graph-run-status.status-pending,
 .graph-run-status.status-recovering,
-.graph-run-status.status-stepStopping {
+.graph-run-status.status-stepStopping,
+.graph-run-status.status-sessionStopping {
   background: #dcf2e2;
   color: var(--accent-hover);
 }
@@ -81,6 +82,7 @@
 }
 
 .graph-run-status.status-stepStopped,
+.graph-run-status.status-sessionStopped,
 .graph-run-status.status-stopped {
   background: #fef3c7;
   color: #92400e;
@@ -205,6 +207,7 @@
 .graph-run-bar.status-running,
 .graph-run-bar.status-pending,
 .graph-run-bar.status-stepStopping,
+.graph-run-bar.status-sessionStopping,
 .graph-run-bar.status-recovering {
   background: var(--accent);
 }
@@ -219,6 +222,7 @@
 }
 
 .graph-run-bar.status-stepStopped,
+.graph-run-bar.status-sessionStopped,
 .graph-run-bar.status-stopped {
   background: #f59e0b;
 }

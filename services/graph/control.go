@@ -36,8 +36,8 @@ func (sc *scheduler) seedFresh(ctx context.Context) {
 }
 
 // canDispatch reports whether a ready item may be dispatched now given the
-// current control state. A step-stop only allows the frozen batch's members
-// through.
+// current control state. Session stops gate real Agent session creation; Shell
+// display sessions do not participate in Agent conversation lineage.
 func (sc *scheduler) canDispatch(item readyItem) bool {
 	if sc.stepStop {
 		if sc.curBatch == nil {
@@ -46,22 +46,28 @@ func (sc *scheduler) canDispatch(item readyItem) bool {
 		_, ok := sc.curBatch.Members[instanceKeyString(item.key)]
 		return ok
 	}
+	if sc.sessionStop && isAgent(item.node.Type) {
+		return item.node.Config.SessionStrategy == model.GraphSessionStrategyInherit ||
+			resumeCarrySession(item.run, item.key, item.node) != ""
+	}
 	return true
 }
 
-// hasDispatchable reports whether any ready item can still be dispatched. Under
-// a step-stop this becomes false once the frozen batch (or nothing) remains,
-// which is the signal for loop() to finalise into stepStopped.
+// hasDispatchable reports whether any ready item can pass the current stop gate.
 func (sc *scheduler) hasDispatchable() bool {
-	for _, item := range sc.ready {
-		if sc.canDispatch(item) {
-			return true
-		}
-	}
-	return false
+	return sc.nextDispatchableIndex() >= 0
 }
 
-// applyGracefulSignal records a step-stop request. It does not cancel in-flight
+func (sc *scheduler) nextDispatchableIndex() int {
+	for index, item := range sc.ready {
+		if sc.canDispatch(item) {
+			return index
+		}
+	}
+	return -1
+}
+
+// applyGracefulSignal records a step/session stop. It does not cancel in-flight
 // work; it only changes what may be dispatched and where the run settles when
 // the dispatchable frontier drains.
 func (sc *scheduler) applyGracefulSignal(ctx context.Context, sig controlSignal) {
@@ -71,6 +77,7 @@ func (sc *scheduler) applyGracefulSignal(ctx context.Context, sig controlSignal)
 			return
 		}
 		sc.stepStop = true
+		sc.sessionStop = false
 		sc.stopReason = orDefault(sig.reason, "step stopped")
 		sc.run.Status = model.GraphRunStatusStepStopping
 		sc.freezeCurrentBatch(ctx)
@@ -80,37 +87,74 @@ func (sc *scheduler) applyGracefulSignal(ctx context.Context, sig controlSignal)
 		}
 		logger.Infof(ctx, "[graph] step-stop requested: runId=%s reason=%s batchId=%s members=%d ready=%d",
 			sc.run.ID, sc.stopReason, sc.curBatch.ID, memberCount, len(sc.ready))
+	case ctrlSessionStop:
+		if sc.sessionStop {
+			return
+		}
+		sc.stepStop = false
+		sc.sessionStop = true
+		sc.clearFrozenBatch()
+		sc.stopReason = orDefault(sig.reason, "session stopped")
+		sc.run.Status = model.GraphRunStatusSessionStopping
+		logger.Infof(ctx, "[graph] session-stop requested: runId=%s reason=%s ready=%d",
+			sc.run.ID, sc.stopReason, len(sc.ready))
 	default:
 		return
 	}
 	sc.run.UpdatedAt = time.Now()
 	sc.persist(ctx)
+	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeProgressUpdated, nil, "", "", sc.stopReason, nil)
+	if sc.sessionStop {
+		sc.releaseStoppedLoops(ctx)
+	}
 }
 
-// cancelGracefulSignal reverses a not-yet-settled step-stop request, returning
-// the run to running. Because a step-stop never cancels in-flight work (it only
-// gates dispatch), clearing the flag releases the held dispatch frontier: the
-// next loop pass dispatches the previously-blocked ready items again. The frozen
-// batch is discarded so a later step-stop re-freezes cleanly. No-op if no
-// step-stop is pending.
+// cancelGracefulSignal releases a pending step/session stop's dispatch gate.
+// Discard the frozen batch so a later step-stop captures a fresh boundary.
 func (sc *scheduler) cancelGracefulSignal(ctx context.Context, sig controlSignal) {
-	if !sc.stepStop {
+	if !sc.stepStop && !sc.sessionStop {
 		return
 	}
 	wasStepStop := sc.stepStop
+	wasSessionStop := sc.sessionStop
 	sc.stepStop = false
+	sc.sessionStop = false
 	sc.stopReason = ""
-	sc.curBatch = nil
-	if sc.run.Resume != nil {
-		sc.run.Resume.FrozenBatch = nil
-	}
+	sc.clearFrozenBatch()
 	sc.run.Status = model.GraphRunStatusRunning
 	sc.run.UpdatedAt = time.Now()
 	sc.persist(ctx)
 	sc.svc.appendEvent(ctx, sc.run.ID, model.GraphEventTypeProgressUpdated, nil, "", "",
 		orDefault(sig.reason, "stop cancelled"), nil)
-	logger.Infof(ctx, "[graph] graceful stop cancelled: runId=%s wasStepStop=%v ready=%d",
-		sc.run.ID, wasStepStop, len(sc.ready))
+	logger.Infof(ctx, "[graph] graceful stop cancelled: runId=%s wasStepStop=%v wasSessionStop=%v ready=%d",
+		sc.run.ID, wasStepStop, wasSessionStop, len(sc.ready))
+	sc.releaseStoppedLoops(ctx)
+}
+
+func (sc *scheduler) clearFrozenBatch() {
+	sc.curBatch = nil
+	if sc.run.Resume != nil {
+		sc.run.Resume.FrozenBatch = nil
+	}
+}
+
+// A step-stop can leave a completed loop round held while other branches still
+// run. Releasing that stop must also advance those rounds, not just ready work.
+func (sc *scheduler) releaseStoppedLoops(ctx context.Context) {
+	loops := make([]*scopeRun, 0, len(sc.activeLoops))
+	for _, loop := range sc.activeLoops {
+		if loop.live == 0 {
+			loops = append(loops, loop)
+		}
+	}
+	for _, loop := range loops {
+		if sc.failed {
+			return
+		}
+		if sc.activeLoops[instanceKeyString(loop.loopKey)] == loop {
+			sc.onScopeQuiesced(ctx, loop)
+		}
+	}
 }
 
 // flight or queued (the "current ready batch", §2) into Resume.FrozenBatch.
@@ -164,7 +208,7 @@ func (sc *scheduler) finishStopped(ctx context.Context) {
 	}
 }
 
-// finishGraceful finalises a step-stop once the dispatchable frontier has
+// finishGraceful finalises a step/session stop once the dispatchable frontier has
 // drained and no workers are in flight. Un-dispatched ready instances are rolled
 // back so resume re-derives them cleanly.
 func (sc *scheduler) finishGraceful(ctx context.Context) {
@@ -173,6 +217,10 @@ func (sc *scheduler) finishGraceful(ctx context.Context) {
 	jobStatus := model.JobStatusStopped
 	label := "run step-stopped"
 	sc.run.Status = model.GraphRunStatusStepStopped
+	if sc.sessionStop {
+		label = "run session-stopped"
+		sc.run.Status = model.GraphRunStatusSessionStopped
+	}
 	sc.run.FinishedAt = finishedAt
 	sc.run.UpdatedAt = time.Now()
 	sc.snapshotLoopState()
@@ -183,7 +231,7 @@ func (sc *scheduler) finishGraceful(ctx context.Context) {
 		label, sc.run.ID, sc.stopReason, sc.run.Progress.CompletedCount, sc.run.Progress.SkippedCount,
 		sc.run.Progress.FailedCount, sc.run.Progress.TotalCount)
 	if sc.jobs != nil {
-		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, jobStatus, model.GraphRunStatusStepStopped, sc.run.StartedAt, finishedAt, "")
+		_ = sc.jobs.SetGraphRunState(ctx, sc.run.JobID, sc.run.ID, jobStatus, sc.run.Status, sc.run.StartedAt, finishedAt, "")
 	}
 }
 

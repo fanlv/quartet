@@ -167,9 +167,12 @@ const (
 	GraphRunStatusFailed       GraphRunStatus = "failed"
 	GraphRunStatusStepStopping GraphRunStatus = "stepStopping"
 	GraphRunStatusStepStopped  GraphRunStatus = "stepStopped"
-	GraphRunStatusStopped      GraphRunStatus = "stopped"
-	GraphRunStatusTimedOut     GraphRunStatus = "timedOut"
-	GraphRunStatusRecovering   GraphRunStatus = "recovering"
+	// Session stops let inherited Agent turns finish before opening a new session.
+	GraphRunStatusSessionStopping GraphRunStatus = "sessionStopping"
+	GraphRunStatusSessionStopped  GraphRunStatus = "sessionStopped"
+	GraphRunStatusStopped         GraphRunStatus = "stopped"
+	GraphRunStatusTimedOut        GraphRunStatus = "timedOut"
+	GraphRunStatusRecovering      GraphRunStatus = "recovering"
 	// GraphRunStatusAwaitingInput is a resumable terminal: a clarify node ran its
 	// turn and the run settled here waiting for the user to discuss in its session
 	// and then continue. The scheduler has exited (like stopped); the bound

@@ -417,7 +417,7 @@ final class ChatViewModel: ObservableObject {
         stopStreaming()
         jobID = route.summary.id
         isGraph = route.summary.mode == "graph"
-        graphRunLive = isGraph && ["pending", "running", "stepStopping"].contains(route.summary.status)
+        graphRunLive = isGraph && ["pending", "running", "stepStopping", "sessionStopping"].contains(route.summary.status)
         title = route.summary.displayTitle
         status = route.summary.status
         sessionID = "session-preview"
@@ -1712,7 +1712,7 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func isLiveGraphStatus(_ status: String) -> Bool {
-        ["pending", "running", "stepStopping"].contains(status)
+        ["pending", "running", "stepStopping", "sessionStopping"].contains(status)
     }
 
     private func apply(_ event: ServerEvent, id: UInt64?) {

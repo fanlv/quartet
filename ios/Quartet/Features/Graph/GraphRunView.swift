@@ -241,15 +241,23 @@ struct GraphRunView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(available) { action in
-                        Button { confirmation = action } label: {
+                        Button {
+                            if action.isDestructive {
+                                confirmation = action
+                            } else {
+                                Task { await perform(action) }
+                            }
+                        } label: {
                             Label(action.label, systemImage: action.icon)
                                 .font(.quartet(.detail, weight: .semibold))
                                 .padding(.horizontal, 14)
-                                .frame(height: 42)
+                                .frame(minHeight: 44)
                                 .foregroundStyle(action.isDestructive ? QuartetTheme.failed : QuartetTheme.primaryText)
                                 .background(QuartetTheme.elevated, in: Capsule())
                         }
                         .disabled(pendingAction != nil)
+                        .accessibilityHint(action.hint)
+                        .accessibilityIdentifier("graph-run-\(action.rawValue)")
                     }
                 }
             }
@@ -354,7 +362,7 @@ struct GraphRunView: View {
 
     private func colorStatus(_ status: String) -> String {
         switch status {
-        case "running", "pending", "stepStopping", "awaitingInput", "recovering": "running"
+        case "running", "pending", "stepStopping", "sessionStopping", "awaitingInput", "recovering": "running"
         case "completed": "completed"
         case "failed", "timedOut": "failed"
         default: "stopped"
@@ -367,6 +375,8 @@ struct GraphRunView: View {
         case "running": "运行中".localizedForApp
         case "stepStopping": "当前步骤后停止中".localizedForApp
         case "stepStopped": "已在步骤后停止".localizedForApp
+        case "sessionStopping": "当前 Session 后停止中".localizedForApp
+        case "sessionStopped": "已在 Session 后停止".localizedForApp
         case "stopped": "已停止".localizedForApp
         case "completed": "已完成".localizedForApp
         case "failed": "失败".localizedForApp
@@ -785,7 +795,7 @@ private struct GraphSessionGroup: Identifiable {
         switch status {
         case "running", "pending": return "工作流正在等待第一个可查看的 Session。"
         case "failed": return "工作流在创建 Session 前失败。"
-        case "stopped", "stepStopped": return "工作流在创建 Session 前停止。"
+        case "stopped", "stepStopped", "sessionStopped": return "工作流在创建 Session 前停止。"
         default: return "本次运行没有记录可查看的 Session。"
         }
     }
@@ -858,6 +868,7 @@ private struct GraphSessionRow: View {
 
 private enum GraphAction: String, Identifiable, Equatable {
     case stepStop = "step-stop"
+    case sessionStop = "session-stop"
     case cancelStop = "cancel-stop"
     case stop
     case resume
@@ -867,6 +878,7 @@ private enum GraphAction: String, Identifiable, Equatable {
     var label: String {
         switch self {
         case .stepStop: "步骤后停止".localizedForApp
+        case .sessionStop: "当前 Session 后停止".localizedForApp
         case .cancelStop: "继续运行".localizedForApp
         case .stop: "立即停止".localizedForApp
         case .resume: "恢复运行".localizedForApp
@@ -876,10 +888,16 @@ private enum GraphAction: String, Identifiable, Equatable {
     var icon: String {
         switch self {
         case .stepStop: "pause.circle"
+        case .sessionStop: "bubble.left.and.bubble.right"
         case .cancelStop: "play.circle"
         case .stop: "stop.fill"
         case .resume, .completeDiscussion: "play.fill"
         }
+    }
+    var hint: String {
+        self == .sessionStop
+            ? "继续当前 Session 的后续步骤，在需要新建 Agent Session 前停止。".localizedForApp
+            : ""
     }
     var isDestructive: Bool { self == .stop }
     var confirmationTitle: String { "确认\(label)？" }
@@ -890,9 +908,10 @@ private enum GraphAction: String, Identifiable, Equatable {
     static func available(for status: String) -> [GraphAction] {
         switch status {
         case "pending": [.stop]
-        case "running": [.stepStop, .stop]
-        case "stepStopping": [.cancelStop, .stop]
-        case "failed", "stepStopped", "stopped", "timedOut", "recovering": [.resume]
+        case "running": [.stepStop, .sessionStop, .stop]
+        case "stepStopping": [.cancelStop, .sessionStop, .stop]
+        case "sessionStopping": [.stepStop, .cancelStop, .stop]
+        case "failed", "stepStopped", "sessionStopped", "stopped", "timedOut", "recovering": [.resume]
         case "awaitingInput": [.completeDiscussion]
         default: []
         }
@@ -905,10 +924,10 @@ private struct GraphRefreshPolicy: Equatable {
 
     init(status: String) {
         switch status {
-        case "pending", "running", "stepStopping":
+        case "pending", "running", "stepStopping", "sessionStopping":
             id = "live"
             interval = .seconds(2)
-        case "awaitingInput", "recovering", "stepStopped":
+        case "awaitingInput", "recovering", "stepStopped", "sessionStopped":
             id = "parked"
             interval = .seconds(4)
         default:
@@ -921,7 +940,7 @@ private struct GraphRefreshPolicy: Equatable {
 private enum GraphRunEditing {
     static func isEditable(_ status: String) -> Bool {
         [
-            "running", "stepStopping", "recovering", "stepStopped",
+            "running", "stepStopping", "sessionStopping", "recovering", "stepStopped", "sessionStopped",
             "stopped", "failed", "timedOut", "awaitingInput"
         ].contains(status)
     }

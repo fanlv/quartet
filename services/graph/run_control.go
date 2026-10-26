@@ -248,7 +248,7 @@ func (s *serviceImpl) forceTerminalNoSchedulerLocked(ctx context.Context, lifecy
 // scheduler by design and are left untouched.
 func isSchedulerlessInFlight(st model.GraphRunStatus) bool {
 	switch st {
-	case model.GraphRunStatusRunning, model.GraphRunStatusStepStopping, model.GraphRunStatusPending:
+	case model.GraphRunStatusRunning, model.GraphRunStatusStepStopping, model.GraphRunStatusSessionStopping, model.GraphRunStatusPending:
 		return true
 	default:
 		return false
@@ -260,7 +260,12 @@ func (s *serviceImpl) StepStopRun(ctx context.Context, runID, reason string) (*m
 	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlStepStop, reason: orDefault(reason, "step-stopped by user")})
 }
 
-// CancelStopRun cancels a pending step-stop that has not yet settled,
+// SessionStopRun stops before the next Agent node that needs a new session.
+func (s *serviceImpl) SessionStopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error) {
+	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlSessionStop, reason: orDefault(reason, "session-stopped by user")})
+}
+
+// CancelStopRun cancels a pending step/session stop that has not yet settled,
 // releasing the held dispatch frontier and returning the run to running.
 func (s *serviceImpl) CancelStopRun(ctx context.Context, runID, reason string) (*model.GraphRun, error) {
 	return s.signalAndSnapshot(ctx, runID, controlSignal{kind: ctrlCancelStop, reason: orDefault(reason, "stop cancelled by user")})
@@ -302,6 +307,7 @@ func (s *serviceImpl) signalAndSnapshot(ctx context.Context, runID string, sig c
 func isResumableStatus(st model.GraphRunStatus) bool {
 	switch st {
 	case model.GraphRunStatusFailed, model.GraphRunStatusStepStopped,
+		model.GraphRunStatusSessionStopped,
 		model.GraphRunStatusStopped,
 		model.GraphRunStatusTimedOut, model.GraphRunStatusRecovering,
 		model.GraphRunStatusAwaitingInput:
@@ -316,7 +322,7 @@ func isResumableStatus(st model.GraphRunStatus) bool {
 // state after crash recovery, with no live scheduler to accept controls.
 func isInFlightStatus(st model.GraphRunStatus) bool {
 	switch st {
-	case model.GraphRunStatusRunning, model.GraphRunStatusStepStopping:
+	case model.GraphRunStatusRunning, model.GraphRunStatusStepStopping, model.GraphRunStatusSessionStopping:
 		return true
 	default:
 		return false

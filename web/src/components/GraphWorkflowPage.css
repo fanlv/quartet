@@ -336,7 +336,8 @@
 
 .graph-run-status.status-running,
 .graph-run-status.status-pending,
-.graph-run-status.status-stepStopping {
+.graph-run-status.status-stepStopping,
+.graph-run-status.status-sessionStopping {
   background: #ecf8ef;
   color: #047857;
 }

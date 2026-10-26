@@ -118,8 +118,10 @@ interface GraphRunProgressProps {
 const EDITABLE_STATUSES = new Set<GraphRunStatus>([
   'running',
   'stepStopping',
+  'sessionStopping',
   'recovering',
   'stepStopped',
+  'sessionStopped',
   'stopped',
   'failed',
   'timedOut',
@@ -138,7 +140,7 @@ const EDITABLE_STATUSES = new Set<GraphRunStatus>([
 // 'awaitingInput' (§ 交互澄清结点) is deliberately in NEITHER set: it is a parked
 // terminal (no SSE tail, like a resumable) but it gets its own「讨论完成」continue
 // action rather than the generic Resume — so canContinue handles it separately.
-const LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'stepStopping']);
+const LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'stepStopping', 'sessionStopping']);
 
 // Same rationale as useJobChat's STOP_REQUEST_TIMEOUT_MS: on an HTTP/1.1
 // connection pool saturated by long-lived SSE streams, a tiny POST can queue
@@ -148,7 +150,7 @@ const ACTION_REQUEST_TIMEOUT_MS = 15_000;
 function isActionRequestTimeout(err: unknown): boolean {
   return err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError');
 }
-const RESUMABLE_STATUSES = new Set<GraphRunStatus>(['failed', 'stepStopped', 'stopped', 'timedOut', 'recovering']);
+const RESUMABLE_STATUSES = new Set<GraphRunStatus>(['failed', 'stepStopped', 'sessionStopped', 'stopped', 'timedOut', 'recovering']);
 
 function makeValidationLabel(err: GraphValidationError): string {
   const loc = [
@@ -196,6 +198,8 @@ function statusLabel(t: TFunction, status?: GraphRunStatus): string {
     case 'failed': return t('graph.status.failed');
     case 'stepStopping': return t('graph.status.stepStopping');
     case 'stepStopped': return t('graph.status.stepStopped');
+    case 'sessionStopping': return t('graph.status.sessionStopping');
+    case 'sessionStopped': return t('graph.status.sessionStopped');
     case 'stopped': return t('graph.status.stopped');
     case 'timedOut': return t('graph.status.timedOut');
     case 'recovering': return t('graph.status.recovering');
@@ -339,10 +343,11 @@ export function GraphRunProgress({ jobId, runId, snapshot, streamError, onSnapsh
   const effectiveExecutionBlocked = Boolean(executionBlocked || graphAgentBlock);
   const effectiveExecutionBlockedHint = executionBlockedHint || graphAgentBlock;
 
-  const canStepStop = !readOnly && run?.status === 'running';
-  // A pending step-stop (not yet settled) can be cancelled, releasing
+  const canStepStop = !readOnly && (run?.status === 'running' || run?.status === 'sessionStopping');
+  const canSessionStop = !readOnly && (run?.status === 'running' || run?.status === 'stepStopping');
+  // A pending step/session stop can be cancelled, releasing
   // the held dispatch frontier back to running.
-  const canCancelStop = !readOnly && run?.status === 'stepStopping';
+  const canCancelStop = !readOnly && (run?.status === 'stepStopping' || run?.status === 'sessionStopping');
   const canStop = !readOnly && !!run?.status && LIVE_STATUSES.has(run.status);
   // Resume / continue are execution entries: a session whose Agent was deleted
   // or no longer resolves cannot run, so they stay greyed out with the hint.
@@ -425,7 +430,7 @@ export function GraphRunProgress({ jobId, runId, snapshot, streamError, onSnapsh
     applySnapshot(snapshot);
   }, [applySnapshot, runId, snapshot]);
 
-  const doAction = useCallback(async (action: 'step-stop' | 'cancel-stop' | 'stop' | 'resume' | 'continue') => {
+  const doAction = useCallback(async (action: 'step-stop' | 'session-stop' | 'cancel-stop' | 'stop' | 'resume' | 'continue') => {
     if (!jobId) return;
     setActionPending(action);
     setError('');
@@ -946,6 +951,17 @@ export function GraphRunProgress({ jobId, runId, snapshot, streamError, onSnapsh
                   <span>{t('graph.runPanel.stepStop')}</span>
                 </button>
               )}
+              {run?.status === 'sessionStopping' ? (
+                <button type="button" className="graph-run-action primary" onClick={() => void doAction('cancel-stop')} disabled={!canCancelStop || !!actionPending} title={t('graph.runPanel.cancelStopTitle')}>
+                  <GraphActionIcon type="keepRunning" />
+                  <span>{t('graph.runPanel.cancelStop')}</span>
+                </button>
+              ) : (
+                <button type="button" className="graph-run-action warn" onClick={() => void doAction('session-stop')} disabled={!canSessionStop || !!actionPending} title={t('graph.runPanel.sessionStopTitle')} data-testid="graph-run-session-stop">
+                  <GraphActionIcon type="sessionStop" />
+                  <span>{t('graph.runPanel.sessionStop')}</span>
+                </button>
+              )}
               <button type="button" className="graph-run-action danger" onClick={() => void doAction('stop')} disabled={!canStop || !!actionPending} title={t('graph.runPanel.stopTitle')}>
                 <GraphActionIcon type="stop" />
                 <span>{t('graph.runPanel.stop')}</span>
@@ -1102,7 +1118,7 @@ export function GraphRunProgress({ jobId, runId, snapshot, streamError, onSnapsh
   );
 }
 
-function GraphActionIcon({ type }: { type: 'edit' | 'stepStop' | 'stop' | 'resume' | 'keepRunning' | 'expand' | 'collapse' | 'save' | 'cancel' | 'continue' | 'controls' | 'refresh' }) {
+function GraphActionIcon({ type }: { type: 'edit' | 'stepStop' | 'sessionStop' | 'stop' | 'resume' | 'keepRunning' | 'expand' | 'collapse' | 'save' | 'cancel' | 'continue' | 'controls' | 'refresh' }) {
   if (type === 'controls') {
     // Sliders / control-panel glyph for the mobile actions toggle.
     return <svg viewBox="0 0 24 24"><path d="M4 6h10" /><path d="M18 6h2" /><circle cx="16" cy="6" r="2" /><path d="M4 12h4" /><path d="M12 12h8" /><circle cx="10" cy="12" r="2" /><path d="M4 18h10" /><path d="M18 18h2" /><circle cx="16" cy="18" r="2" /></svg>;
@@ -1131,6 +1147,9 @@ function GraphActionIcon({ type }: { type: 'edit' | 'stepStop' | 'stop' | 'resum
   }
   if (type === 'stepStop') {
     return <svg viewBox="0 0 24 24"><path d="M8 5v14" /><path d="M16 5v14" /></svg>;
+  }
+  if (type === 'sessionStop') {
+    return <svg viewBox="0 0 24 24"><path d="M8 18H5l-3 3V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4" /><path d="M15 13v7M20 13v7" /></svg>;
   }
   if (type === 'stop') {
     return <svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" /></svg>;

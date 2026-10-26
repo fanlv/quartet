@@ -872,6 +872,7 @@ func graphRunSettled(status model.GraphRunStatus) bool {
 	case model.GraphRunStatusCompleted,
 		model.GraphRunStatusFailed,
 		model.GraphRunStatusStepStopped,
+		model.GraphRunStatusSessionStopped,
 		model.GraphRunStatusStopped,
 		model.GraphRunStatusTimedOut,
 		model.GraphRunStatusRecovering,
