@@ -513,16 +513,18 @@ enum MarkdownRenderer {
                 let ordered = firstItem.ordered
                 // 缩进宽度必须在 trim 之前量，否则嵌套层级信息就丢了。
                 var indents = [indentWidth(of: lines[index])]
+                var ordinals = [firstItem.ordinal]
                 var contents = [firstItem.content]
                 index += 1
                 while index < lines.count,
                       let next = listItem(in: lines[index].trimmingCharacters(in: .whitespaces)),
                       next.ordered == ordered {
                     indents.append(indentWidth(of: lines[index]))
+                    ordinals.append(next.ordinal)
                     contents.append(next.content)
                     index += 1
                 }
-                result.append(.list(ordered: ordered, items: listItems(indents: indents, contents: contents)))
+                result.append(.list(ordered: ordered, items: listItems(indents: indents, ordinals: ordinals, contents: contents)))
                 continue
             }
             markdownLines.append(lines[index])
@@ -532,24 +534,26 @@ enum MarkdownRenderer {
     }
 
     /// 把出现过的缩进宽度按大小排名映射成层级，这样 2 空格和 4 空格两种写法都能正确分层。
-    /// 有序列表的序号按层级各自计数，进入更深一层时从 1 重新开始。
-    private static func listItems(indents: [Int], contents: [String]) -> [Block.ListItem] {
+    /// 各层级从首项的原始序号起算，保留被段落分开的列表的起始序号。
+    /// 同层后续项仍递增，兼容每项都写成 `1.` 的 Markdown 列表。
+    private static func listItems(indents: [Int], ordinals: [Int], contents: [String]) -> [Block.ListItem] {
         let ranking = Dictionary(
             uniqueKeysWithValues: Set(indents).sorted().enumerated().map { ($1, min($0, 3)) }
         )
-        var counters: [Int] = []
+        var counters: [Int?] = []
         var items: [Block.ListItem] = []
         items.reserveCapacity(contents.count)
 
         for (offset, content) in contents.enumerated() {
             let level = ranking[indents[offset]] ?? 0
             if level >= counters.count {
-                counters.append(contentsOf: Array(repeating: 0, count: level - counters.count + 1))
+                counters.append(contentsOf: Array(repeating: nil, count: level - counters.count + 1))
             } else {
                 counters.removeSubrange((level + 1)...)
             }
-            counters[level] += 1
-            items.append(Block.ListItem(level: level, ordinal: counters[level], content: content))
+            let ordinal = counters[level].map { $0 + 1 } ?? ordinals[offset]
+            counters[level] = ordinal
+            items.append(Block.ListItem(level: level, ordinal: ordinal, content: content))
         }
         return items
     }
@@ -595,15 +599,16 @@ enum MarkdownRenderer {
         return compact.allSatisfy { $0 == first }
     }
 
-    private static func listItem(in line: String) -> (ordered: Bool, content: String)? {
+    private static func listItem(in line: String) -> (ordered: Bool, ordinal: Int, content: String)? {
         if line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("+ ") {
-            return (false, String(line.dropFirst(2)))
+            return (false, 1, String(line.dropFirst(2)))
         }
         guard let dot = line.firstIndex(of: "."), dot < line.endIndex else { return nil }
         let number = line[..<dot]
         let afterDot = line.index(after: dot)
-        guard !number.isEmpty, number.allSatisfy(\.isNumber), afterDot < line.endIndex, line[afterDot] == " " else { return nil }
-        return (true, String(line[line.index(after: afterDot)...]))
+        guard !number.isEmpty, number.count <= 9, number.allSatisfy(\.isNumber),
+              let ordinal = Int(number), afterDot < line.endIndex, line[afterDot] == " " else { return nil }
+        return (true, ordinal, String(line[line.index(after: afterDot)...]))
     }
 
     private static func tableCells(_ line: String) -> [String] {
