@@ -40,8 +40,8 @@
   },
   "fileBrowser": {
     "files": "文件",
-    "copyRelativePath": "复制相对路径",
-    "copiedRelativePath": "已复制相对路径",
+    "copyAbsolutePath": "复制绝对路径",
+    "copiedAbsolutePath": "已复制绝对路径",
     "download": "下载",
     "downloading": "下载中…"
   },

@@ -40,8 +40,8 @@
   },
   "fileBrowser": {
     "files": "Files",
-    "copyRelativePath": "Copy relative path",
-    "copiedRelativePath": "Relative path copied",
+    "copyAbsolutePath": "Copy absolute path",
+    "copiedAbsolutePath": "Absolute path copied",
     "download": "Download",
     "downloading": "Downloading…"
   },

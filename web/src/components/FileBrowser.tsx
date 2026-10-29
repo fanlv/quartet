@@ -225,19 +225,10 @@ export function FileBrowser({ rootPath, jobId, onClose, onFileSelect, selectedPa
     };
   }, [panelWidth]);
 
-  const getRelativePath = (absPath: string) => {
-    if (rootPath && absPath.startsWith(rootPath)) {
-      const rel = absPath.slice(rootPath.length);
-      return rel.startsWith('/') ? rel.slice(1) : rel;
-    }
-    return absPath;
-  };
-
-  const handleCopyRelativePath = (e: React.MouseEvent, absPath: string) => {
+  const handleCopyAbsolutePath = (e: React.MouseEvent, absPath: string) => {
     e.stopPropagation();
-    const rel = getRelativePath(absPath);
-    copyToClipboard(rel).then(() => {
-      showToast(t('fileBrowser.copiedRelativePath'));
+    copyToClipboard(absPath).then(() => {
+      showToast(t('fileBrowser.copiedAbsolutePath'));
     }).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.stack || reason.message : String(reason));
     });
@@ -278,9 +269,9 @@ export function FileBrowser({ rootPath, jobId, onClose, onFileSelect, selectedPa
                 <button
                   type="button"
                   className="fb-row-action is-hover-only"
-                  title={t('fileBrowser.copyRelativePath')}
-                  aria-label={t('fileBrowser.copyRelativePath')}
-                  onClick={(e) => handleCopyRelativePath(e, dir.path)}
+                  title={t('fileBrowser.copyAbsolutePath')}
+                  aria-label={t('fileBrowser.copyAbsolutePath')}
+                  onClick={(e) => handleCopyAbsolutePath(e, dir.path)}
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
@@ -316,9 +307,9 @@ export function FileBrowser({ rootPath, jobId, onClose, onFileSelect, selectedPa
                 <button
                   type="button"
                   className="fb-row-action is-hover-only"
-                  title={t('fileBrowser.copyRelativePath')}
-                  aria-label={t('fileBrowser.copyRelativePath')}
-                  onClick={(e) => handleCopyRelativePath(e, filePath)}
+                  title={t('fileBrowser.copyAbsolutePath')}
+                  aria-label={t('fileBrowser.copyAbsolutePath')}
+                  onClick={(e) => handleCopyAbsolutePath(e, filePath)}
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
