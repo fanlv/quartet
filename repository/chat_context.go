@@ -195,6 +195,10 @@ type chatContextRepo struct {
 // own instance for the same session.
 func NewChatContextRepo(wsID, jobID, sessionID string) (PagedChatContextRepo, error) {
 	sessionDir := path.LocalSessionDirInWorkspaceJob(wsID, jobID, sessionID)
+	return newChatContextRepoAt(sessionDir)
+}
+
+func newChatContextRepoAt(sessionDir string) (PagedChatContextRepo, error) {
 	sb := fileserver.NewLocal()
 	err := sb.MkDir(&model.MkDirRequest{
 		Path: sessionDir,

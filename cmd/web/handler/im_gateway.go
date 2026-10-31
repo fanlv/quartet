@@ -530,7 +530,10 @@ func (g *imGateway) dispatchMessage(ctx context.Context, msg *messaging.Message)
 	// 的第一条消息这两个字段为空（文档 §3.3 允许）。映射指向的 Job 已被删除时
 	// 当作"首次"处理，避免把旧 jobId 写进落盘条目。
 	if msg.ChatType == messaging.ChatTypeP2P && g.h.userInputService != nil {
-		jobID, wsID := g.lookupMappingIDs(ctx, msg)
+		jobID, wsID := "", ""
+		if g.h.personalChat == nil {
+			jobID, wsID = g.lookupMappingIDs(ctx, msg)
+		}
 		input := model.NewIMUserInput(
 			receivedAt,
 			string(msg.Platform),
@@ -1106,6 +1109,36 @@ func (g *imGateway) RemovePendingContact(platform messaging.Platform, senderID s
 }
 
 func (g *imGateway) dispatchAdminCommand(msg *messaging.Message) bool {
+	if g.h.personalChat != nil {
+		name, args := command.Parse(msg.Content)
+		switch name {
+		case "/new", "/stop", "/resume", "/status", "/help":
+			id := imClientMessageID(msg)
+			if msg.AccountID != "" {
+				sum := sha256.Sum256([]byte(msg.AccountID + "\x00" + id))
+				id = hex.EncodeToString(sum[:])
+			}
+			text, err := g.h.personalChat.IMControl("control-"+id, msg.Content, model.PersonalChatSource{Platform: string(msg.Platform), AccountID: msg.AccountID, ChatID: msg.ChatID, SenderID: msg.SenderID, MessageID: msg.MessageID})
+			if err != nil {
+				text = err.Error()
+			}
+			if err == nil && name == "/new" && strings.TrimSpace(args) != "" {
+				next := *msg
+				next.Content = args
+				g.routeToPersonalChat(g.h.rootCtx, &next)
+			}
+			g.runAsync(func(ctx context.Context) { g.replyToMessage(ctx, msg.Platform, msg.MessageID, text) })
+			return true
+		default:
+			return false
+		}
+	}
+	if g.h.personalChatError != nil {
+		g.runAsync(func(ctx context.Context) {
+			g.replyToMessage(ctx, msg.Platform, msg.MessageID, g.h.personalChatError.Error())
+		})
+		return true
+	}
 	// Only KNOWN commands are dispatched. Unknown slash text — a typo like
 	// /hlep, or a path like /etc/hosts — returns false so the caller falls
 	// through to the normal message flow and forwards it to the Agent. This
@@ -1251,6 +1284,14 @@ func appendBeforeJobLine(text, line string) string {
 }
 
 func (g *imGateway) handleGroupChat(ctx context.Context, msg *messaging.Message) {
+	if g.h.personalChatError != nil {
+		g.replyToMessage(ctx, msg.Platform, msg.MessageID, g.h.personalChatError.Error())
+		return
+	}
+	if g.h.personalChat != nil {
+		g.routeToPersonalChat(ctx, msg)
+		return
+	}
 	replyAgent := g.h.settingsService.GetGroupReplyAgent()
 	if replyAgent == nil || replyAgent.AgentID == "" {
 		g.replyToMessage(ctx, msg.Platform, msg.MessageID, "生成回复失败: 未配置群聊回复 Agent，请在设置中配置。")
@@ -1337,7 +1378,43 @@ func formatIMMentions(mentions []messaging.Mention) string {
 // that job's send queue. A queued message is sent only after the job leaves
 // the Running state (Completed/Failed/Stopped or any non-running state).
 func (g *imGateway) routeToJob(ctx context.Context, msg *messaging.Message) {
+	if g.h.personalChatError != nil {
+		g.replyToMessage(ctx, msg.Platform, msg.MessageID, g.h.personalChatError.Error())
+		return
+	}
+	if g.h.personalChat != nil {
+		g.routeToPersonalChat(ctx, msg)
+		return
+	}
 	g.enqueueRouteToJob(ctx, msg)
+}
+
+func (g *imGateway) routeToPersonalChat(ctx context.Context, msg *messaging.Message) {
+	userID := "system"
+	for _, u := range g.h.authService.ListUsers() {
+		if u.Status == "active" {
+			for _, role := range u.RoleIDs {
+				if role == "admin" {
+					userID = u.ID
+					break
+				}
+			}
+			if userID != "system" {
+				break
+			}
+		}
+	}
+	key := imClientMessageID(msg)
+	if msg.AccountID != "" {
+		sum := sha256.Sum256([]byte(msg.AccountID + "\x00" + key))
+		key = "im-" + hex.EncodeToString(sum[:])
+	}
+	req := model.PersonalChatSendRequest{ClientMessageID: key, TaskID: g.h.personalChat.TaskForSource(string(msg.Platform), msg.AccountID, msg.ChatID, msg.ParentID, msg.RootID), Content: msg.Content, Source: model.PersonalChatSource{Platform: string(msg.Platform), AccountID: msg.AccountID, ChatID: msg.ChatID, SenderID: msg.SenderID, MessageID: msg.MessageID}}
+	_, err := g.h.personalChat.Send(ctx, req, userID)
+	if err != nil {
+		logger.Errorf(ctx, "[im.personalchat] receive %s/%s: %v", msg.Platform, msg.MessageID, err)
+		g.replyToMessage(ctx, msg.Platform, msg.MessageID, err.Error())
+	}
 }
 
 // resolveJob returns the live Job bound to this chat, creating a new one via

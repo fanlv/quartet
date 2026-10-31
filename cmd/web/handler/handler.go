@@ -28,6 +28,7 @@ import (
 	imservice "github.com/fanlv/quartet/services/im"
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/services/messagepreset"
+	"github.com/fanlv/quartet/services/personalchat"
 	"github.com/fanlv/quartet/services/prompt"
 	"github.com/fanlv/quartet/services/schedule"
 	"github.com/fanlv/quartet/services/session"
@@ -97,6 +98,8 @@ func (e *sessionEntry) idleDuration() time.Duration {
 }
 
 type Handler struct {
+	personalChat      *personalchat.Service
+	personalChatError error
 	// rootCtx is derived from the process root ctx (signal-cancellable) and is
 	// used as the parent for fire-and-forget goroutines launched from request
 	// handlers. It must NOT be the per-request ctx (which is cancelled when
@@ -332,6 +335,13 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 		authService:          authSvc,
 	}
 	h.agentAuthentication = authentication.NewService(ctx, agentCatalog, ss, acpProbeCache, h.agentExecutions.acquireExecution)
+	if !startupCheck {
+		h.personalChat, err = personalchat.New(personalchat.Options{Root: ctx, ResolveHarness: h.resolvePersonalHarness, DefaultHarness: h.defaultPersonalHarness, Run: h.runPersonalACP, Summarize: h.summarizePersonalChat, Deliver: h.deliverPersonalChat, Finished: h.finishPersonalChat})
+		if err != nil {
+			h.personalChatError = fmt.Errorf("initialize personal chat: %w", err)
+			logger.Errorf(ctx, "%v", h.personalChatError)
+		}
+	}
 	h.codexAccounts, err = codexaccounts.NewService(codexaccounts.Options{
 		Root:        ctx,
 		Environment: func() map[string]string { return ss.GetACPEnvVars("codex") },
@@ -367,6 +377,13 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 		return nil, err
 	}
 	h.wechatOutbox = wechatOutbox
+	if h.personalChat != nil {
+		wechatOutbox.SetObserver(func(task model.WeChatOutboxTask) {
+			if err := h.personalChat.RecordProactive(task); err != nil {
+				logger.Errorf(h.rootCtx, "[personalchat] mirror IM outbox %s: %v", task.ID, err)
+			}
+		})
+	}
 
 	// Wire usage-stats sink into the job service so every step finalize
 	// position records counts, durations and tokens. Without this, the
@@ -453,6 +470,15 @@ func newHandler(ctx context.Context, startupCheck bool) (*Handler, error) {
 		go h.evictIdleSessionServices(h.rootCtx)
 	}
 
+	if h.personalChat != nil {
+		h.personalChat.Start()
+		go func() {
+			<-ctx.Done()
+			if err := h.personalChat.Close(); err != nil {
+				logger.Errorf(context.Background(), "[personalchat] close: %v", err)
+			}
+		}()
+	}
 	return h, nil
 }
 

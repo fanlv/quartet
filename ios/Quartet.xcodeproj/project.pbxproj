@@ -59,6 +59,8 @@
 		A10000000000000000000046 /* WorkspaceFilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000046 /* WorkspaceFilesView.swift */; };
 		A1000000000000000000004C /* WorkspaceFileEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004C /* WorkspaceFileEditorView.swift */; };
 		B10000000000000000000001 /* QuartetUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* QuartetUITests.swift */; };
+		A10000000000000000000072 /* PersonalChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000072 /* PersonalChatView.swift */; };
+		A10000000000000000000073 /* PersonalChatVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000073 /* PersonalChatVoice.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -130,6 +132,8 @@
 		B20000000000000000000001 /* QuartetUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuartetUITests.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* QuartetUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QuartetUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B72FD5EE42809703BD20FFAF /* Pods-Quartet.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Quartet.debug.xcconfig"; path = "Target Support Files/Pods-Quartet/Pods-Quartet.debug.xcconfig"; sourceTree = "<group>"; };
+		A20000000000000000000072 /* PersonalChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalChatView.swift; sourceTree = "<group>"; };
+		A20000000000000000000073 /* PersonalChatVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalChatVoice.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -338,6 +342,8 @@
 				A20000000000000000000030 /* ChatMessageViews.swift */,
 				A20000000000000000000031 /* MarkdownRendering.swift */,
 				A20000000000000000000032 /* ChatViewModel.swift */,
+				A20000000000000000000073 /* PersonalChatVoice.swift */,
+				A20000000000000000000072 /* PersonalChatView.swift */,
 				A20000000000000000000033 /* ChatComposerChips.swift */,
 				A20000000000000000000035 /* ChatWebView.swift */,
 				A2000000000000000000003D /* MessageImageViewer.swift */,
@@ -557,6 +563,8 @@
 				A10000000000000000000030 /* ChatMessageViews.swift in Sources */,
 				A10000000000000000000031 /* MarkdownRendering.swift in Sources */,
 				A10000000000000000000032 /* ChatViewModel.swift in Sources */,
+				A10000000000000000000073 /* PersonalChatVoice.swift in Sources */,
+				A10000000000000000000072 /* PersonalChatView.swift in Sources */,
 				A10000000000000000000033 /* ChatComposerChips.swift in Sources */,
 				A10000000000000000000034 /* ChatImageLoader.swift in Sources */,
 				A10000000000000000000036 /* AppLanguage.swift in Sources */,

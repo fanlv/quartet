@@ -15,7 +15,7 @@ export function useMessagePresets(workspaceId?: string, enabled = true) {
 
   const refresh = useCallback(async () => {
     const request = ++requestSequence.current;
-    if (!enabled || !workspaceId) {
+    if (!enabled) {
       setProject([]);
       setGlobal([]);
       setErrors([]);

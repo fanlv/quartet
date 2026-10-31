@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Dispatch, SetStateAction } from 'react';
-import { useTranslation } from 'react-i18next';
-import type { AgentInfo } from '../../types';
-import { useACPThoughtLevels } from '../../hooks/useACPThoughtLevels';
-import { isImageUrl, resolveIconSrc } from '../../utils/url';
+import { useEffect, useRef, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
+import { useTranslation } from "react-i18next";
+import type { AgentInfo } from "../../types";
+import { useACPThoughtLevels } from "../../hooks/useACPThoughtLevels";
+import { isImageUrl, resolveIconSrc } from "../../utils/url";
 
 // RoleConfig is the shared shape for all three agent roles. Title / group-reply
 // run through the headless `bin -p` path, which honors model_id and
@@ -22,17 +22,20 @@ interface AgentCatalogItem {
 }
 
 const emptyConfig: RoleConfig = {
-  agent_id: '',
-  model_id: '',
-  acp_mode: '',
-  acp_thought_level: '',
+  agent_id: "",
+  model_id: "",
+  acp_mode: "",
+  acp_thought_level: "",
 };
 
 async function responseData(res: Response): Promise<Record<string, unknown>> {
   const raw: unknown = await res.json().catch(() => ({}));
-  const data = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const data =
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   if (!res.ok || data.code !== 0) {
-    const detail = [data.msg, data.message, data.error].find((value): value is string => typeof value === 'string');
+    const detail = [data.msg, data.message, data.error].find(
+      (value): value is string => typeof value === "string",
+    );
     throw new Error(detail || `HTTP ${res.status}`);
   }
   return data;
@@ -40,9 +43,16 @@ async function responseData(res: Response): Promise<Record<string, unknown>> {
 
 function optionIcon(iconUrl: string | undefined) {
   if (!iconUrl) return null;
-  return isImageUrl(iconUrl)
-    ? <img src={resolveIconSrc(iconUrl)} alt="" className="model-dropdown-icon" referrerPolicy="no-referrer" />
-    : <span className="model-dropdown-emoji">{iconUrl}</span>;
+  return isImageUrl(iconUrl) ? (
+    <img
+      src={resolveIconSrc(iconUrl)}
+      alt=""
+      className="model-dropdown-icon"
+      referrerPolicy="no-referrer"
+    />
+  ) : (
+    <span className="model-dropdown-emoji">{iconUrl}</span>
+  );
 }
 
 interface PillOption {
@@ -70,10 +80,11 @@ function PillSelect({ value, options, onSelect, withIcons }: PillSelectProps) {
   useEffect(() => {
     if (!open) return;
     const handler = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(event.target as Node))
+        setOpen(false);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
   const current = options.find((option) => option.value === value);
@@ -82,8 +93,18 @@ function PillSelect({ value, options, onSelect, withIcons }: PillSelectProps) {
     <div className="settings-model-selector" ref={ref}>
       <div className="settings-model-tag" onClick={() => setOpen(!open)}>
         {withIcons && optionIcon(current?.iconUrl)}
-        <span className="settings-model-tag-text">{current?.label ?? value}</span>
-        <svg className="settings-model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <span className="settings-model-tag-text">
+          {current?.label ?? value}
+        </span>
+        <svg
+          className="settings-model-tag-arrow"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
           <path d="M6 9l6 6 6-6" />
         </svg>
       </div>
@@ -93,16 +114,33 @@ function PillSelect({ value, options, onSelect, withIcons }: PillSelectProps) {
             const isActive = option.value === value;
             return (
               <div
-                key={option.value || '__empty__'}
-                className={`settings-model-dropdown-item${isActive ? ' active' : ''}`}
-                onClick={() => { onSelect(option.value); setOpen(false); }}
+                key={option.value || "__empty__"}
+                className={`settings-model-dropdown-item${isActive ? " active" : ""}`}
+                onClick={() => {
+                  onSelect(option.value);
+                  setOpen(false);
+                }}
               >
-                {withIcons && option.value !== '' && (optionIcon(option.iconUrl) ?? <div className="model-dropdown-icon-placeholder" />)}
+                {withIcons &&
+                  option.value !== "" &&
+                  (optionIcon(option.iconUrl) ?? (
+                    <div className="model-dropdown-icon-placeholder" />
+                  ))}
                 <div className="settings-model-dropdown-info">
-                  <span className="settings-model-dropdown-name">{option.label}</span>
+                  <span className="settings-model-dropdown-name">
+                    {option.label}
+                  </span>
                 </div>
                 {isActive && (
-                  <svg className="settings-model-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg
+                    className="settings-model-dropdown-check"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
                     <path d="M20 6L9 17l-5-5" />
                   </svg>
                 )}
@@ -126,15 +164,25 @@ interface RoleAgentSelectorProps {
 // RoleAgentSelector renders the agent picker plus the model / (optional) mode /
 // thought-level selectors for one role. It owns the model-linked thought-level
 // refresh so each role can select an agent+model pair independently.
-function RoleAgentSelector({ label, agentPool, config, onChange, showMode }: RoleAgentSelectorProps) {
+function RoleAgentSelector({
+  label,
+  agentPool,
+  config,
+  onChange,
+  showMode,
+}: RoleAgentSelectorProps) {
   const { t } = useTranslation();
-  const selectedAgent = agentPool.find((agent) => agent.agent_id === config.agent_id);
-  const modelID = config.model_id || selectedAgent?.models?.currentModelId || '';
+  const selectedAgent = agentPool.find(
+    (agent) => agent.agent_id === config.agent_id,
+  );
+  const modelID =
+    config.model_id || selectedAgent?.models?.currentModelId || "";
   const thoughtLevelLink = useACPThoughtLevels(
-    selectedAgent?.type || '',
+    selectedAgent?.type || "",
     modelID,
     Boolean(selectedAgent?.models),
-    !config.model_id || config.model_id === selectedAgent?.models?.currentModelId
+    !config.model_id ||
+      config.model_id === selectedAgent?.models?.currentModelId
       ? selectedAgent?.thoughtLevels || null
       : null,
   );
@@ -158,12 +206,18 @@ function RoleAgentSelector({ label, agentPool, config, onChange, showMode }: Rol
 
   const selectAgent = (agentID: string) => {
     const selected = agentPool.find((agent) => agent.agent_id === agentID);
-    onChange(selected ? {
-      agent_id: agentID,
-      model_id: selected.models?.currentModelId || selected.model_id || '',
-      acp_mode: showMode ? (selected.modes?.currentModeId || '') : '',
-      acp_thought_level: selected.thoughtLevels?.currentThoughtLevelId || '',
-    } : { ...emptyConfig, agent_id: agentID });
+    onChange(
+      selected
+        ? {
+            agent_id: agentID,
+            model_id:
+              selected.models?.currentModelId || selected.model_id || "",
+            acp_mode: showMode ? selected.modes?.currentModeId || "" : "",
+            acp_thought_level:
+              selected.thoughtLevels?.currentThoughtLevelId || "",
+          }
+        : { ...emptyConfig, agent_id: agentID },
+    );
   };
 
   const models = selectedAgent?.models?.availableModels || [];
@@ -171,9 +225,10 @@ function RoleAgentSelector({ label, agentPool, config, onChange, showMode }: Rol
   const thoughtLevels = thoughtLevelLink.state?.availableThoughtLevels || [];
 
   const agentOptions: PillOption[] = [
-    { value: '', label: t('common.notSet') },
+    { value: "", label: t("common.notSet") },
     // Preserve a saved-but-unavailable selection so it stays visible.
-    ...(config.agent_id && !agentPool.some((agent) => agent.agent_id === config.agent_id)
+    ...(config.agent_id &&
+    !agentPool.some((agent) => agent.agent_id === config.agent_id)
       ? [{ value: config.agent_id, label: config.agent_id }]
       : []),
     ...agentPool.map((agent) => ({
@@ -197,12 +252,17 @@ function RoleAgentSelector({ label, agentPool, config, onChange, showMode }: Rol
         {selectedAgent && models.length > 0 && (
           <PillSelect
             value={modelID}
-            options={models.map((model) => ({ value: model.modelId, label: model.name }))}
-            onSelect={(value) => onChange((current) => ({
-              ...current,
-              model_id: value,
-              acp_thought_level: '',
+            options={models.map((model) => ({
+              value: model.modelId,
+              label: model.name,
             }))}
+            onSelect={(value) =>
+              onChange((current) => ({
+                ...current,
+                model_id: value,
+                acp_thought_level: "",
+              }))
+            }
           />
         )}
 
@@ -210,10 +270,12 @@ function RoleAgentSelector({ label, agentPool, config, onChange, showMode }: Rol
           <PillSelect
             value={config.acp_mode}
             options={[
-              { value: '', label: t('common.default') },
+              { value: "", label: t("common.default") },
               ...modes.map((mode) => ({ value: mode.id, label: mode.name })),
             ]}
-            onSelect={(value) => onChange((current) => ({ ...current, acp_mode: value }))}
+            onSelect={(value) =>
+              onChange((current) => ({ ...current, acp_mode: value }))
+            }
           />
         )}
 
@@ -221,178 +283,137 @@ function RoleAgentSelector({ label, agentPool, config, onChange, showMode }: Rol
           <PillSelect
             value={config.acp_thought_level}
             options={[
-              { value: '', label: t('common.default') },
-              ...thoughtLevels.map((level) => ({ value: level.id, label: level.name })),
+              { value: "", label: t("common.default") },
+              ...thoughtLevels.map((level) => ({
+                value: level.id,
+                label: level.name,
+              })),
             ]}
-            onSelect={(value) => onChange((current) => ({
-              ...current,
-              acp_thought_level: value,
-            }))}
+            onSelect={(value) =>
+              onChange((current) => ({
+                ...current,
+                acp_thought_level: value,
+              }))
+            }
           />
         )}
       </div>
-      {thoughtLevelLink.loading && <span className="settings-switch-desc">{t('common.loading')}</span>}
+      {thoughtLevelLink.loading && (
+        <span className="settings-switch-desc">{t("common.loading")}</span>
+      )}
       {thoughtLevelLink.error && (
-        <div className="settings-message error" role="alert">{thoughtLevelLink.error}</div>
+        <div className="settings-message error" role="alert">
+          {thoughtLevelLink.error}
+        </div>
       )}
     </div>
   );
 }
 
-function toRoleConfig(config: Partial<RoleConfig> | null | undefined): RoleConfig {
+function toRoleConfig(
+  config: Partial<RoleConfig> | null | undefined,
+): RoleConfig {
   return {
-    agent_id: config?.agent_id || '',
-    model_id: config?.model_id || '',
-    acp_mode: config?.acp_mode || '',
-    acp_thought_level: config?.acp_thought_level || '',
+    agent_id: config?.agent_id || "",
+    model_id: config?.model_id || "",
+    acp_mode: config?.acp_mode || "",
+    acp_thought_level: config?.acp_thought_level || "",
   };
 }
 
-// AgentRoleSettings renders the title / group-reply / IM-session role pickers
-// and persists all three through its own save button.
+// Title generation and personal Session summaries share this execution selection.
 export function AgentRoleSettings() {
   const { t } = useTranslation();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [headlessAgentIDs, setHeadlessAgentIDs] = useState<Set<string>>(new Set());
   const [titleConfig, setTitleConfig] = useState<RoleConfig>(emptyConfig);
-  const [groupConfig, setGroupConfig] = useState<RoleConfig>(emptyConfig);
-  const [imConfig, setIMConfig] = useState<RoleConfig>(emptyConfig);
-  const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
-  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  const oneShotAgents = useMemo(
-    () => agents.filter((agent) => headlessAgentIDs.has(agent.agent_id)),
-    [agents, headlessAgentIDs],
-  );
-
+  const [message, setMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   useEffect(() => {
-    const load = async () => {
-      try {
-        const [agentRes, catalogRes, titleRes, groupRes, imRes] = await Promise.all([
-          fetch('/api/v1/agent/list'),
-          fetch('/api/v1/agent/catalog'),
-          fetch('/api/v1/config/settings/title-generation-agent'),
-          fetch('/api/v1/config/settings/group-reply-agent'),
-          fetch('/api/v1/config/settings/im-session-agent'),
-        ]);
-        const [agentData, catalogData, titleData, groupData, imData] = await Promise.all([
-          responseData(agentRes),
-          responseData(catalogRes),
-          responseData(titleRes),
-          responseData(groupRes),
-          responseData(imRes),
-        ]);
-        const agentList = Array.isArray(agentData.agent_list)
-          ? (agentData.agent_list as AgentInfo[]).filter((agent) => agent.available !== false)
-          : [];
-        const catalogItems = Array.isArray(catalogData.agents) ? catalogData.agents as AgentCatalogItem[] : [];
-        setAgents(agentList);
-        setHeadlessAgentIDs(new Set(
-          catalogItems
-            .filter((agent) => agent.supports_headless_print)
-            .map((agent) => agent.agent_id),
-        ));
-        setTitleConfig(toRoleConfig(titleData.config as Partial<RoleConfig> | null | undefined));
-        setGroupConfig(toRoleConfig(groupData.config as Partial<RoleConfig> | null | undefined));
-        setIMConfig(toRoleConfig(imData.config as Partial<RoleConfig> | null | undefined));
+    let alive = true;
+    void Promise.all([
+      fetch("/api/v1/agent/list").then(responseData),
+      fetch("/api/v1/agent/catalog").then(responseData),
+      fetch("/api/v1/config/settings/title-generation-agent").then(
+        responseData,
+      ),
+    ])
+      .then(([list, catalog, role]) => {
+        if (!alive) return;
+        const supported = new Set(
+          ((catalog.agents as AgentCatalogItem[]) || [])
+            .filter((a) => a.supports_headless_print)
+            .map((a) => a.agent_id),
+        );
+        setAgents(
+          ((list.agent_list as AgentInfo[]) || []).filter(
+            (a) => a.available !== false && supported.has(a.agent_id),
+          ),
+        );
+        setTitleConfig(
+          toRoleConfig(role.config as Partial<RoleConfig> | null | undefined),
+        );
         setLoaded(true);
-      } catch (err) {
-        setLoadError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setLoading(false);
-      }
+      })
+      .catch((e) => {
+        if (alive) setMessage({ type: "error", text: String(e) });
+      });
+    return () => {
+      alive = false;
     };
-    void load();
   }, []);
-
-  const handleSave = async () => {
-    if (!loaded) return;
+  const save = async () => {
     setSaving(true);
-    setMessage(null);
-    const requests: Array<[string, object]> = [
-      ['/api/v1/config/settings/title-generation-agent', {
-        agent_id: titleConfig.agent_id,
-        model_id: titleConfig.model_id,
-        acp_thought_level: titleConfig.acp_thought_level,
-      }],
-      ['/api/v1/config/settings/group-reply-agent', {
-        agent_id: groupConfig.agent_id,
-        model_id: groupConfig.model_id,
-        acp_thought_level: groupConfig.acp_thought_level,
-      }],
-      ['/api/v1/config/settings/im-session-agent', imConfig],
-    ];
-    const errors: string[] = [];
-    for (const [url, body] of requests) {
-      try {
-        const res = await fetch(url, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        await responseData(res);
-      } catch (err) {
-        errors.push(`${url}: ${err instanceof Error ? err.message : String(err)}`);
-      }
+    try {
+      await fetch("/api/v1/config/settings/title-generation-agent", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_id: titleConfig.agent_id,
+          model_id: titleConfig.model_id,
+          acp_thought_level: titleConfig.acp_thought_level,
+        }),
+      }).then(responseData);
+      setMessage({ type: "success", text: t("common.saveSuccess") });
+    } catch (e) {
+      setMessage({ type: "error", text: String(e) });
+    } finally {
+      setSaving(false);
     }
-    if (errors.length > 0) {
-      setMessage({ type: 'error', text: errors.join('\n') });
-    } else {
-      setMessage({ type: 'success', text: t('common.saveSuccess') });
-    }
-    setSaving(false);
   };
-
-  if (loading) {
-    return <div className="account-settings"><section className="settings-section"><p>{t('common.loading')}</p></section></div>;
-  }
-
   return (
     <div className="account-settings" data-testid="agent-role-settings">
       <section className="settings-section">
-        <h3 className="settings-section-title">{t('settings.general.agentRoles')}</h3>
-
-        {loadError && <div className="settings-message error" role="alert">{loadError}</div>}
-
-        <RoleAgentSelector
-          label={t('settings.general.titleGenerationAgent')}
-          agentPool={oneShotAgents}
-          config={titleConfig}
-          onChange={setTitleConfig}
-          showMode={false}
-        />
-
-        <RoleAgentSelector
-          label={t('settings.general.groupReplyAgent')}
-          agentPool={oneShotAgents}
-          config={groupConfig}
-          onChange={setGroupConfig}
-          showMode={false}
-        />
-
-        <RoleAgentSelector
-          label={t('settings.general.imSessionAgent')}
-          agentPool={agents}
-          config={imConfig}
-          onChange={setIMConfig}
-          showMode
-        />
-
-        {message && (
-          <div className={`settings-message ${message.type}`}>{message.text}</div>
+        <h3 className="settings-section-title">
+          {t("settings.general.agentRoles")}
+        </h3>
+        {loaded ? (
+          <RoleAgentSelector
+            label={t("settings.general.titleGenerationAgent")}
+            agentPool={agents}
+            config={titleConfig}
+            onChange={setTitleConfig}
+            showMode={false}
+          />
+        ) : (
+          !message && <p>{t("common.loading")}</p>
         )}
-
+        {message && (
+          <pre className={`settings-message ${message.type}`}>
+            {message.text}
+          </pre>
+        )}
         <div className="settings-btn-group">
           <button
             className="settings-btn settings-btn-primary"
-            onClick={handleSave}
-            disabled={saving}
+            disabled={!loaded || saving}
+            onClick={() => void save()}
             data-testid="agent-role-save-button"
           >
-            {saving ? t('common.saving') : t('common.save')}
+            {t("common.save")}
           </button>
         </div>
       </section>

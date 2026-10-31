@@ -1,0 +1,222 @@
+/* Home uses the same chat surfaces, bubbles and composer controls as JobChat.
+   A 228px navigation column leaves a fluid conversation; message and composer
+   share an 880px content column with equal 24px gutters. */
+.personal-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--fg);
+  background: var(--canvas);
+  overflow: hidden;
+}
+.personal-layout { display: flex; flex: 1; min-height: 0; position: relative; }
+.personal-sidebar {
+  width: 228px;
+  flex-shrink: 0;
+  padding: 20px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  overflow-y: auto;
+}
+.personal-sidebar h2 { margin: 24px 10px 10px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.personal-sidebar-heading { display: flex; align-items: center; justify-content: space-between; padding-right: 4px; margin-bottom: 6px; }
+.personal-sidebar-heading h2 { margin: 0 10px; }
+.personal-sidebar button { border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.personal-sidebar-heading > button, .personal-agent-edit { width: 32px; height: 32px; border-radius: 8px; }
+.personal-sidebar button:hover { background: var(--elevated); }
+.personal-agent-row { display: flex; align-items: center; gap: 4px; border-radius: 10px; margin-bottom: 4px; padding-right: 4px; }
+.personal-agent-row.selected, .personal-task-row .selected { background: var(--elevated); }
+.personal-agent-name { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 10px; text-align: left; border-radius: 10px; font-size: 14px !important; }
+.personal-agent-name > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.personal-agent-mark { display: grid; place-items: center; width: 28px; height: 28px; flex: 0 0 28px; font-size: 12px; font-weight: 600; border: 1px solid var(--border); background: var(--surface); border-radius: 8px; color: var(--accent-deep); }
+.personal-agent-edit { flex-shrink: 0; color: var(--muted) !important; }
+.personal-task-row { display: flex; align-items: center; gap: 4px; font-size: 12px; min-height: 38px; }
+.personal-task-row > button:first-child { flex: 1; min-width: 0; padding: 10px; border-radius: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.personal-task-row > span { font-variant-numeric: tabular-nums; color: var(--muted); }
+.personal-sidebar-bottom { margin-top: auto; padding-top: 24px; }
+.personal-sidebar-bottom button { padding: 10px; width: 100%; text-align: left; border-radius: 8px; font-size: 13px; color: var(--muted); }
+.personal-sidebar-mobile-heading, .personal-sidebar-scrim { display: none; }
+.personal-conversation { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.personal-room-header { display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.personal-room-title { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.personal-room-title h1 { margin: 0; font-size: 15px; font-weight: 600; }
+.personal-room-title > span { color: var(--muted); font-size: 12px; }
+.personal-room-settings { margin-left: auto; background: transparent; color: var(--muted); border: 0; padding: 6px 0 6px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.personal-mobile-menu { display: none; }
+.personal-timeline { flex: 1; min-height: 0; overflow-y: auto; padding: 24px max(24px, calc((100% - 880px) / 2)); scrollbar-gutter: stable; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.personal-message { max-width: 880px; margin: 0 auto 20px; min-width: 0; }
+.personal-message-main { min-width: 0; width: 100%; }
+.personal-message-user { display: flex; justify-content: flex-end; }
+.personal-message-user .personal-message-main { width: fit-content; max-width: 85%; margin-left: auto; }
+.personal-message-user .personal-message-body { --user-bubble-pad-y: 12px; --user-bubble-pad-x: 16px; margin-left: auto; }
+.personal-message-byline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.personal-message-byline strong { font-weight: 600; color: var(--fg); font-size: 13px; }
+.personal-message-byline time { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; }
+.personal-message-user .personal-message-byline { color: #bbcdc0; margin-bottom: 6px; }
+.personal-message-user .personal-message-byline strong { color: #e5eee8; font-size: 12px; }
+.personal-message-identity { width: 20px; height: 20px; border-radius: 5px; font-size: 11px; }
+.personal-message .assistant-bubble-header { color: var(--muted); }
+.personal-message .assistant-bubble { color: var(--fg); border-color: var(--border); }
+.personal-markdown { font-size: 14px; line-height: 1.75; overflow-wrap: anywhere; }
+.personal-markdown p { margin: 0 0 12px; }
+.personal-markdown > :last-child { margin-bottom: 0; }
+.personal-markdown > :first-child { margin-top: 0; }
+.personal-markdown ul, .personal-markdown ol { padding-left: 22px; }
+.personal-markdown a { color: var(--accent-deep); text-decoration: underline; text-underline-offset: 3px; }
+.personal-message-user .personal-markdown a { color: #c4e9ce; }
+.personal-markdown img { display: block; max-width: 100%; max-height: 360px; border-radius: 10px; object-fit: contain; margin: 8px 0; }
+.personal-markdown pre, .personal-details pre, .personal-raw { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; border: 1px solid var(--border); background: var(--elevated); border-radius: 8px; padding: 12px; font-size: 12px; line-height: 1.7; }
+.personal-markdown code { font-size: 0.9em; }
+.personal-message-user .personal-raw, .personal-message-user .personal-markdown pre { background: #24362a; border-color: #405346; color: #f1f6f2; }
+.personal-markdown table { border-collapse: collapse; max-width: 100%; display: block; overflow-x: auto; font-size: 13px; }
+.personal-markdown th, .personal-markdown td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+.personal-message-actions { display: flex; align-items: center; gap: 4px; padding: 5px 2px 0; color: var(--muted); }
+.personal-message-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 0; background: transparent; color: inherit; font: inherit; font-size: 12px; min-width: 28px; min-height: 28px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+.personal-message-actions button:hover { color: var(--fg); background: var(--elevated); }
+.personal-message-actions button[aria-expanded="true"] > svg { transform: rotate(90deg); }
+.personal-message-actions button[aria-expanded] { margin-left: 4px; }
+.personal-message-user .personal-message-actions { justify-content: flex-end; }
+.personal-details { margin-top: 8px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; font-size: 12px; }
+.personal-details > span { color: var(--muted); overflow-wrap: anywhere; }
+.personal-details h3 { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+.personal-details details { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+.personal-details summary { cursor: pointer; line-height: 1.6; }
+.personal-pending { color: var(--muted); font-size: 13px; margin: 0; }
+.personal-state { font-size: 11px; }
+.personal-state-running, .personal-state-stopping { color: var(--running); }
+.personal-state-failed, .personal-state-interrupted { color: var(--danger); }
+.personal-internal { color: var(--muted); font-size: 11px; }
+.personal-error { color: var(--danger); font-size: 12px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.personal-diagnostics { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 4px 14px; margin: 0 auto 20px; max-width: 880px; }
+.personal-error-banner { display: flex; gap: 12px; max-height: 180px; overflow-y: auto; align-items: flex-start; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 10px 12px; margin-bottom: 10px; }
+.personal-error-banner pre { flex: 1; min-width: 0; margin: 0; color: var(--danger); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }
+.personal-error-banner button { border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.personal-empty { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 32px 16px; }
+.personal-empty h2 { font-size: 24px; font-weight: 600; line-height: 1.4; margin: 18px 0 8px; }
+.personal-empty p { max-width: 400px; font-size: 14px; line-height: 1.8; color: var(--muted); }
+.personal-wordmark { color: var(--accent-deep); font-size: 28px; font-weight: 600; }
+.personal-composer-area { padding: 8px 24px 14px; max-width: 928px; width: 100%; align-self: center; flex-shrink: 0; min-width: 0; box-sizing: border-box; }
+.personal-composer { position: relative; }
+.personal-composer > textarea { display: block; width: 100%; box-sizing: border-box; resize: none; min-height: 64px; max-height: 180px; border: 0; outline: none; background: transparent; color: var(--fg); font: inherit; font-size: 14px; line-height: 1.6; padding: 14px 16px; border-radius: 12px 12px 0 0; }
+.personal-composer > textarea::placeholder { color: var(--muted); }
+.personal-composer-controls { min-width: 0; }
+.personal-runtime-controls { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; min-width: 0; }
+.personal-runtime-controls label.model-tag { position: relative; min-width: 0; max-width: 190px; gap: 5px; padding: 4px 6px; }
+.personal-runtime-controls select { min-width: 0; max-width: 155px; width: auto; border: 0; background: transparent; color: inherit; font: inherit; font-size: 11px; padding: 2px 0; cursor: pointer; outline-offset: 2px; }
+.personal-send-controls { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-left: auto; }
+.personal-independent { display: inline-flex; align-items: center; gap: 4px; margin: 0; white-space: nowrap; min-height: 28px; font-size: 11px; padding: 4px 6px; }
+.personal-independent input { accent-color: var(--accent-deep); margin: 0 2px 0 0; }
+.personal-send-controls .personal-stop:has(span) { width: auto; gap: 5px; padding: 0 10px; font-size: 12px; }
+.personal-send-controls .personal-send, .personal-send-controls .personal-stop { flex-shrink: 0; }
+.personal-composer-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 3px 0; min-height: 24px; font-size: 11px; color: var(--muted); }
+.personal-composer-meta .agent-usage-card { margin: 0 0 0 auto; }
+.personal-reply-context { display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin-bottom: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--muted); }
+.personal-reply-context > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.personal-reply-context button { border: 0; color: var(--accent-deep); background: transparent; cursor: pointer; font: inherit; flex-shrink: 0; }
+.personal-plain-button { display: flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px; padding: 6px; cursor: pointer; }
+.personal-panel { width: 340px; flex-shrink: 0; min-height: 0; padding: 20px; overflow-y: auto; border-left: 1px solid var(--border); background: var(--surface); }
+.personal-panel > header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 24px; }
+.personal-panel h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.personal-panel button, .personal-preferences button { border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--fg); padding: 9px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.personal-panel header button { border: 0; background: transparent; padding: 4px; min-width: 28px; min-height: 28px; font-size: 20px; color: var(--muted); }
+.personal-agent-form, .personal-preferences { display: flex; flex-direction: column; gap: 18px; }
+.personal-agent-form label, .personal-preferences label, .personal-history label { display: flex; flex-direction: column; gap: 8px; font-size: 13px; font-weight: 500; }
+.personal-agent-form input, .personal-agent-form textarea, .personal-agent-form select, .personal-preferences input, .personal-preferences select, .personal-history input { width: 100%; min-width: 0; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; font-weight: 400; font-size: 14px; padding: 10px; box-sizing: border-box; }
+.personal-agent-form textarea { resize: vertical; line-height: 1.6; }
+.personal-preferences p { color: var(--muted); font-size: 12px; line-height: 1.7; margin: -8px 0 0; }
+.personal-primary { background: #142019 !important; color: #fff !important; border-color: #142019 !important; }
+.personal-primary:disabled { background: #cdd9d0 !important; color: #526158 !important; border-color: #cdd9d0 !important; cursor: not-allowed; }
+.personal-history form { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+.personal-history .personal-hit { display: block; width: 100%; text-align: left; border: 0; border-radius: 0; border-bottom: 1px solid var(--border); padding: 14px 0; background: transparent; }
+.personal-hit span { color: var(--muted); font-size: 11px; }
+.personal-hit p { white-space: pre-wrap; font-size: 13px; line-height: 1.7; margin: 8px 0 0; overflow-wrap: anywhere; }
+.personal-history article { border-top: 1px solid var(--border); padding: 16px 0; font-size: 13px; }
+.personal-history article pre { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.personal-load-older { display: block; margin: 0 auto 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; }
+.personal-mentions { max-height: 240px; min-width: 200px; bottom: calc(100% + 8px); left: 0; }
+.personal-mentions button { display: block; width: 100%; background: transparent; border: 0; color: var(--fg); text-align: left; padding: 12px; font: inherit; font-size: 13px; border-radius: 6px; cursor: pointer; }
+.personal-mentions button:hover, .personal-mentions button:focus-visible { background: var(--elevated); }
+.personal-file { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; margin: 0 0 10px 12px; max-width: calc(100% - 24px); background: var(--elevated); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.personal-file button { flex-shrink: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.personal-chat button:focus-visible, .personal-chat select:focus-visible, .personal-chat input:focus-visible, .personal-chat summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 1100px) {
+  .personal-sidebar { width: 200px; }
+  .personal-panel { position: absolute; inset: 0 0 0 auto; width: min(380px, 100%); z-index: 40; box-shadow: -12px 0 32px rgb(16 35 22 / 8%); }
+}
+@media (max-width: 760px) {
+  .personal-sidebar { display: none; }
+  .personal-sidebar.is-open { display: flex; position: absolute; inset: 0 auto 0 0; z-index: 45; width: min(300px, 86%); }
+  .personal-sidebar-mobile-heading { display: flex; align-items: center; justify-content: space-between; margin: -8px 0 16px; padding: 0 10px; font-size: 15px; }
+  .personal-sidebar-mobile-heading button { min-width: 44px; min-height: 44px; font-size: 22px; }
+  .personal-sidebar-scrim { display: block; position: absolute; inset: 0; z-index: 44; background: rgb(16 35 22 / 28%); border: 0; }
+  .personal-sidebar-heading > button, .personal-agent-edit { min-width: 44px; min-height: 44px; }
+  .personal-agent-name, .personal-task-row > button { min-height: 44px; }
+  .personal-room-header { min-height: 54px; padding: 4px 12px; gap: 8px; }
+  .personal-mobile-menu { display: flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--muted); width: 44px; height: 44px; cursor: pointer; margin-left: -8px; }
+  .personal-room-settings { min-height: 44px; }
+  .personal-timeline { padding: 16px 12px; }
+  .personal-message { margin-bottom: 16px; }
+  .personal-message-user .personal-message-main { max-width: 92%; }
+  .personal-message .assistant-bubble { padding: 14px 16px; }
+  .personal-message-actions button { min-width: 36px; min-height: 36px; }
+  .personal-composer-area { padding: 6px 12px max(10px, env(safe-area-inset-bottom)); }
+  .personal-composer-controls { padding: 8px; gap: 8px; }
+  .personal-runtime-controls { flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 3px; }
+  .personal-runtime-controls label.model-tag { max-width: 180px; flex-shrink: 0; min-height: 36px; }
+  .personal-runtime-controls select { font-size: 12px; max-width: 150px; }
+  .personal-send-controls { width: 100%; }
+  .personal-send-controls .upload-btn { margin-right: auto; }
+  .personal-send-controls .chat-btn { width: 40px; height: 40px; }
+  .personal-independent { font-size: 12px; min-height: 36px; }
+  .personal-composer-meta > span { display: none; }
+  .personal-plain-button > span { display: none; }
+  .personal-plain-button { width: 32px; justify-content: center; }
+  .personal-panel { width: 100%; box-shadow: none; }
+  .personal-panel header button { min-width: 44px; min-height: 44px; }
+  .personal-panel button, .personal-preferences button { min-height: 44px; }
+  .personal-empty h2 { font-size: 22px; }
+}
+.personal-history select { width: 100%; min-width: 0; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; padding: 10px; }
+.personal-history-dates { display: flex; flex-direction: column; gap: 10px; }
+.personal-search-summary { color: var(--muted); font-size: 12px; line-height: 1.7; }
+.personal-message-user .personal-message-byline, .personal-message-user .personal-message-byline strong { color: var(--accent-fg); }
+.personal-runtime-controls { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.personal-runtime-controls label.model-tag { flex-shrink: 0; }
+/* Keep the established green bubble and card shape; use the existing deeper
+   accent token so white message text and timestamps remain readable. */
+#root .personal-chat .user-bubble { background: var(--accent-deep); box-shadow: 0 1px 3px rgb(0 0 0 / 4%); }
+.personal-message-user .personal-state { color: inherit; }
+.personal-runtime-controls select { font-size: 12px; }
+@media (max-width: 760px) {
+  .personal-room-header { padding-right: 16px; }
+  .personal-composer-meta { padding-left: 4px; padding-right: 4px; }
+}
+.personal-schedules > .personal-primary { width: 100%; margin-bottom: 16px; }
+.personal-schedule { padding: 14px 0; border-bottom: 1px solid var(--border); }
+.personal-schedule .personal-schedule-name { display: flex; flex-direction: column; gap: 6px; text-align: left; width: 100%; padding: 0; border: 0; background: transparent; }
+.personal-schedule-name strong { color: var(--fg); font-size: 14px; overflow-wrap: anywhere; }
+.personal-schedule-name span { color: var(--muted); font-size: 12px; }
+.personal-schedule-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.personal-schedule-actions button { padding: 5px 8px; font-size: 12px; }
+@media (min-width: 761px) and (max-width: 1000px) {
+  .personal-sidebar { display: none; }
+  .personal-sidebar.is-open { display: flex; position: absolute; inset: 0 auto 0 0; z-index: 45; width: 300px; }
+  .personal-sidebar-mobile-heading { display: flex; justify-content: space-between; align-items: center; margin: -8px 0 16px; padding: 0 10px; }
+  .personal-sidebar-mobile-heading button { width: 44px; height: 44px; font-size: 22px; }
+  .personal-sidebar-scrim { display: block; position: absolute; inset: 0; z-index: 44; background: rgb(16 35 22 / 28%); border: 0; }
+  .personal-mobile-menu { display: flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--muted); width: 44px; height: 44px; margin-left: -8px; cursor: pointer; }
+}
+
+.personal-runtime-controls .personal-agent-control select { max-width: 90px; }
+.personal-runtime-controls .personal-harness-control select { max-width: 90px; }
+.personal-runtime-controls .personal-model-control select { max-width: 130px; }
+.personal-runtime-controls .personal-mode-control select { max-width: 100px; }
+.personal-runtime-controls .personal-thought-control select { max-width: 80px; }
+.personal-history .personal-search-tools { flex-direction: row; align-items: center; gap: 8px; font-size: 12px; }
+.personal-search-tools input { width: auto; accent-color: var(--accent-deep); }
+#root .personal-chat .assistant-bubble-header { color: var(--muted); }
+.personal-message-source { overflow-wrap: anywhere; max-width: 100%; }
+#root .personal-chat .usage-inline-ver { color: var(--muted); opacity: 1; }

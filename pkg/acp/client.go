@@ -238,7 +238,7 @@ func (c *sdkClient) handleSessionUpdate(ctx context.Context, params acp.SessionN
 				status = agentstream.ToolCallStatusFailed
 			}
 			if status.IsTerminal() {
-				content := extractToolCallContent(tc.Content)
+				content := extractToolCallResult(tc.Content, tc.RawOutput)
 				// Mirrors the update branch's terminal log so delivery
 				// latency for one-shot completed tool_calls is traceable too.
 				logger.Debugf(ctx, "[ACP] tool_call_terminal: sid=%s toolID=%s status=%s contentLen=%d (one-shot tool_call)",
@@ -279,7 +279,7 @@ func (c *sdkClient) handleSessionUpdate(ctx context.Context, params acp.SessionN
 			return
 		}
 
-		content := extractToolCallContent(tcu.Content)
+		content := extractToolCallResult(tcu.Content, tcu.RawOutput)
 		// Log terminal tool call updates at Debug level to help trace delivery
 		// latency (the builder's "late terminal stitch" uses these timestamps).
 		if status == agentstream.ToolCallStatusCompleted || status == agentstream.ToolCallStatusFailed {
@@ -369,4 +369,29 @@ func extractToolCallContent(contents []acp.ToolCallContent) string {
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+// ACP permits terminal results in rawOutput without a content collection.
+// CodeBuddy uses a text block here; other adapters may return a JSON string or
+// structured data. Keep the complete payload when it has no text projection.
+func extractToolCallResult(contents []acp.ToolCallContent, raw stdjson.RawMessage) string {
+	if content := extractToolCallContent(contents); content != "" {
+		return content
+	}
+	value := strings.TrimSpace(string(raw))
+	if value == "" || value == "null" {
+		return ""
+	}
+	var text string
+	if err := stdjson.Unmarshal(raw, &text); err == nil {
+		return text
+	}
+	var block struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := stdjson.Unmarshal(raw, &block); err == nil && block.Type == "text" {
+		return block.Text
+	}
+	return value
 }

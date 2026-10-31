@@ -421,3 +421,12 @@ func sendText(ctx context.Context, client *ilink.Client, toUserID, content, cont
 	logger.Debugf(ctx, "[wechat/replier] sent reply to %s (%d chars)", toUserID, len(content))
 	return nil
 }
+
+// CheckAccount prevents an old execution from replying through a replacement account.
+func (r *Replier) CheckAccount(account string) error {
+	id := primaryBotID(r.credsProvider())
+	if account != "" && id != account {
+		return fmt.Errorf("wechat account changed: original=%s current=%s", account, id)
+	}
+	return nil
+}

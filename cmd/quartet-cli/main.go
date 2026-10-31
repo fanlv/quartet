@@ -54,7 +54,9 @@ Groups:
   schedule   Manage cron-scheduled graph-workflow runs
   workspace  List workspaces (read-only)
   job        Inspect and stop jobs
-  agent      List installed ACP agents (read-only)
+  harness    List installed ACP Harness Clients (read-only)
+  agent      Alias for harness (legacy Graph tooling)
+  chat       Business Agents, Session history, and asynchronous delegation
   wechat     WeChat helpers (send proactive messages via the backend)
   auth       Login, inspect, or clear the current user session
 
@@ -86,6 +88,10 @@ func main() {
 		err = runJobGroup(args)
 	case "agent":
 		err = runAgentGroup(args)
+	case "harness":
+		err = runAgentGroup(args)
+	case "chat":
+		err = runChatGroup(args)
 	case "wechat", "wx":
 		err = runWeChatGroup(args)
 	case "auth":

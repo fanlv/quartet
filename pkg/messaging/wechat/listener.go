@@ -203,6 +203,7 @@ func (l *Listener) handleIncoming(ctx context.Context, client *ilink.Client, bot
 
 	out := &messaging.Message{
 		Platform:    messaging.PlatformWeChat,
+		AccountID:   botID,
 		MessageID:   messageIDStr,
 		ChatID:      msg.FromUserID, // P2P only; no separate group ID.
 		ChatType:    messaging.ChatTypeP2P,

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { normalizeLanguage, saveLanguagePreference } from '../../utils/languagePreference';
+import { PersonalChatSettings } from './PersonalChatSettings';
 
 interface GeneralSettingsProps {
   onSettingsChanged?: () => void;
@@ -115,6 +116,7 @@ export function GeneralSettings({ onSettingsChanged }: GeneralSettingsProps) {
 
   return (
     <div className="account-settings" data-testid="general-settings">
+      <PersonalChatSettings />
       <section className="settings-section">
         <h3 className="settings-section-title">{t('settings.general.sectionTitle')}</h3>
 

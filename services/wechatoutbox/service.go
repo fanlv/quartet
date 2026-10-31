@@ -33,6 +33,7 @@ type Service struct {
 	wake           chan struct{}
 	startOnce      sync.Once
 	nextSendAt     time.Time
+	observer       func(model.WeChatOutboxTask)
 }
 
 func NewService(senderResolver SenderResolver) (*Service, error) {
@@ -90,7 +91,7 @@ func (s *Service) Enqueue(ctx context.Context, req *model.WeChatSendMessageReque
 				CreatedAt:      now,
 				UpdatedAt:      now,
 			}
-			if err := s.repo.Save(ctx, task); err != nil {
+			if err := s.save(ctx, task); err != nil {
 				return nil, err
 			}
 		default:
@@ -112,6 +113,16 @@ func (s *Service) GetResult(ctx context.Context, taskID string) (*model.WeChatSe
 }
 
 func (s *Service) run(ctx context.Context) {
+	if s.observer != nil {
+		tasks, err := s.repo.List(ctx)
+		if err != nil {
+			logger.Errorf(ctx, "[wechat/outbox] restore home projections: %v", err)
+		} else {
+			for _, task := range tasks {
+				s.observer(*task)
+			}
+		}
+	}
 	logger.Infof(ctx, "[wechat/outbox] worker started")
 	for {
 		task, wait, err := s.nextTask(ctx)
@@ -179,7 +190,7 @@ func (s *Service) processOne(ctx context.Context, task *model.WeChatOutboxTask) 
 		task.UpdatedAt = now
 		task.LastError = ""
 		task.NextAttemptAt = nil
-		if err := s.repo.Save(ctx, task); err != nil {
+		if err := s.save(ctx, task); err != nil {
 			logger.Errorf(ctx, "[wechat/outbox] finalize task failed: task=%s err=%v", task.ID, err)
 		}
 		return
@@ -187,7 +198,7 @@ func (s *Service) processOne(ctx context.Context, task *model.WeChatOutboxTask) 
 
 	task.Status = model.WeChatOutboxStatusSending
 	task.UpdatedAt = time.Now()
-	if err := s.repo.Save(ctx, task); err != nil {
+	if err := s.save(ctx, task); err != nil {
 		logger.Errorf(ctx, "[wechat/outbox] mark sending failed: task=%s err=%v", task.ID, err)
 		return
 	}
@@ -207,7 +218,7 @@ func (s *Service) processOne(ctx context.Context, task *model.WeChatOutboxTask) 
 		task.LastError = sendErr.Error()
 		task.NextAttemptAt = &next
 		task.UpdatedAt = time.Now()
-		if err := s.repo.Save(ctx, task); err != nil {
+		if err := s.save(ctx, task); err != nil {
 			logger.Errorf(ctx, "[wechat/outbox] persist retry failed: task=%s err=%v original=%v", task.ID, err, sendErr)
 			return
 		}
@@ -230,7 +241,7 @@ func (s *Service) processOne(ctx context.Context, task *model.WeChatOutboxTask) 
 	} else {
 		task.Status = model.WeChatOutboxStatusQueued
 	}
-	if err := s.repo.Save(ctx, task); err != nil {
+	if err := s.save(ctx, task); err != nil {
 		logger.Errorf(ctx, "[wechat/outbox] persist chunk progress failed: task=%s chunk=%d/%d err=%v",
 			task.ID, task.NextChunk, len(chunks), err)
 		return
@@ -312,4 +323,16 @@ func splitContent(content string, maxBytes int) []string {
 		chunks = append(chunks, content)
 	}
 	return chunks
+}
+
+// SetObserver is installed before Start; notifications never change send semantics.
+func (s *Service) SetObserver(observer func(model.WeChatOutboxTask)) { s.observer = observer }
+func (s *Service) save(ctx context.Context, task *model.WeChatOutboxTask) error {
+	if err := s.repo.Save(ctx, task); err != nil {
+		return err
+	}
+	if s.observer != nil {
+		s.observer(*task)
+	}
+	return nil
 }

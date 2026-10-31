@@ -5,6 +5,9 @@ import UIKit
 /// 文件浏览 tab：导航栏按运行台的方式切换工作空间，逐级下钻工作空间目录，
 /// 点击文件打开全屏的文件浮层——默认是后端的 Web 预览页，可切换成 App 内的文本编辑器。
 struct WorkspaceFilesView: View {
+    var usesHome = false
+    @State private var homeDirectory: String?
+
     @EnvironmentObject private var model: AppModel
     @Environment(\.mainTabBarInset) private var mainTabBarInset
 
@@ -21,7 +24,7 @@ struct WorkspaceFilesView: View {
     }
 
     private var workspaceRoot: String {
-        selectedWorkspace?.workdir.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        usesHome ? (homeDirectory ?? "") : (selectedWorkspace?.workdir.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
     }
 
     private var selectedWorkspaceTitle: String {
@@ -44,7 +47,7 @@ struct WorkspaceFilesView: View {
                 }
                 .toolbar {
                     ToolbarItem(placement: .principal) {
-                        workspaceSelector
+                        if usesHome { Text("Home").font(.quartet(.regular,weight:.semibold)) } else { workspaceSelector }
                     }
                 }
                 .sheet(isPresented: $presentsWorkspaceSelector) {
@@ -72,8 +75,14 @@ struct WorkspaceFilesView: View {
             }
             .quartetSheetStyle()
         }
-        .onAppear { resolveWorkspaceIfNeeded() }
-        .onChange(of: model.workspaces.map(\.id)) { _, _ in resolveWorkspaceIfNeeded() }
+        .task(id: "\(model.serverAddress)|\(model.username)") {
+            guard usesHome else { return }
+            homeDirectory=nil;routes=[]
+            do { let snapshot=try await model.apiClient().personalChat();guard !Task.isCancelled else{return};homeDirectory=snapshot.workdir }
+            catch { if !Task.isCancelled { model.present(error) } }
+        }
+        .onAppear { if !usesHome { resolveWorkspaceIfNeeded() } }
+        .onChange(of: model.workspaces.map(\.id)) { _, _ in if !usesHome { resolveWorkspaceIfNeeded() } }
     }
 
     private var workspaceSelector: some View {
@@ -108,6 +117,8 @@ struct WorkspaceFilesView: View {
             ) {
                 EmptyView()
             }
+        } else if usesHome {
+            if let homeDirectory { WorkspaceDirectoryView(directory:homeDirectory,onOpenFile:openFile).id(homeDirectory) } else { ProgressView() }
         } else if model.workspaces.isEmpty {
             unavailableState(
                 title: "没有可用的工作空间",

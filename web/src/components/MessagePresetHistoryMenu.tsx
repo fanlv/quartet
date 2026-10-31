@@ -16,6 +16,7 @@ export interface SentMessageHistoryItem {
 interface Props {
   workspaceId?: string;
   disabled?: boolean;
+  loadPresets?: boolean;
   isMobile: boolean;
   currentInput: string;
   historyItems: SentMessageHistoryItem[];
@@ -31,6 +32,7 @@ function previewText(content: string) {
 export function MessagePresetHistoryMenu({
   workspaceId,
   disabled = false,
+  loadPresets = true,
   isMobile,
   currentInput,
   historyItems,
@@ -41,7 +43,7 @@ export function MessagePresetHistoryMenu({
   const [open, setOpen] = useState(false);
   const [pendingPreset, setPendingPreset] = useState<MessagePreset | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const presets = useMessagePresets(workspaceId, open && !!workspaceId && !disabled);
+  const presets = useMessagePresets(workspaceId, open && !disabled && loadPresets);
 
   useEffect(() => {
     if (!open) return;
@@ -98,7 +100,7 @@ export function MessagePresetHistoryMenu({
     {presets.loading && <div className="chat-history-empty">{t('common.loading')}</div>}
     {presets.errors.map((error) => <div className="chat-history-error" key={`${error.scope}:${error.file}:${error.error}`}>{error.file ? `${error.file}: ` : ''}{error.error}</div>)}
     {renderPresetGroup(t('chat.currentProjectPresets'), presets.project, 'project')}
-    {renderPresetGroup(t('chat.globalPresets'), presets.global, 'global')}
+    {renderPresetGroup(t(workspaceId ? 'chat.globalPresets' : 'personal.globalPresets'), presets.global, 'global')}
     {historyItems.length > 0 && <section className="chat-history-group" aria-label={t('chat.recentSent')}>
       <div className="chat-history-group-title">{t('chat.recentSent')}</div>
       {historyItems.map((item) => {

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -37,7 +38,7 @@ type sessionStore struct {
 }
 
 func newClient() *client {
-	base := strings.TrimRight(os.Getenv("QUARTET_BASE_URL"), "/")
+	base := strings.TrimRight(os.Getenv(consts.EnvKeyBackendBaseURL), "/")
 	if base == "" {
 		base = defaultBaseURL
 	}
@@ -49,7 +50,16 @@ func newClient() *client {
 // an error carrying the full response body, so backend validation/auth errors
 // reach the user verbatim (per the repo "show errors in full" convention).
 func (c *client) do(ctx context.Context, method, path string, body any) ([]byte, error) {
-	if c.credentialErr != nil {
+	toolToken := os.Getenv(consts.EnvKeyPersonalChatToken)
+	toolRequest := toolToken != "" && (strings.HasPrefix(path, "/api/v1/chat/") || path == "/api/v1/agent/list")
+	if toolRequest {
+		if path == "/api/v1/agent/list" {
+			path = "/api/v1/chat/tools/harnesses"
+		} else {
+			path = strings.Replace(path, "/api/v1/chat/", "/api/v1/chat/tools/", 1)
+		}
+	}
+	if c.credentialErr != nil && !toolRequest {
 		return nil, c.credentialErr
 	}
 	var reader io.Reader
@@ -67,6 +77,10 @@ func (c *client) do(ctx context.Context, method, path string, body any) ([]byte,
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if toolRequest {
+		req.Header.Set("X-Quartet-Chat-Token", toolToken)
+		req.Header.Set("X-Quartet-Chat-Session", os.Getenv(consts.EnvKeyPersonalChatSession))
 	}
 	if c.sessionCookie != "" {
 		req.AddCookie(&http.Cookie{Name: "quartet_session", Value: c.sessionCookie})

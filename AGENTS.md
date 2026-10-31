@@ -2,6 +2,12 @@
 
 This file documents the current architecture and development conventions for this repository.
 
+## 测试服务
+
+ssh root@ryofan-any3.devcloud.woa.com -p 36000
+
+feature/personal_agent 分支代码，不能部署在当前机器（21.6.184.213）上，只能部署到 root@ryofan-any3.devcloud.woa.com  机器上。
+
 ## 代码规范
 
 1. 目前项目还在开发中，然后重构的时候不用考虑兼容性问题.

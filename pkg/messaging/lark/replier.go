@@ -127,3 +127,12 @@ func buildPostContent(content string) (string, error) {
 	}
 	return string(data), nil
 }
+
+// CheckAccount prevents an old execution from replying through a replacement account.
+func (r *Replier) CheckAccount(account string) error {
+	id, _ := r.configFn()
+	if account != "" && id != account {
+		return fmt.Errorf("lark account changed: original=%s current=%s", account, id)
+	}
+	return nil
+}

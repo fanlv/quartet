@@ -50,7 +50,13 @@ export async function responseError(response: Response): Promise<string> {
   }
 }
 
-export async function fetchEffectiveMessagePresets(workspaceId: string): Promise<EffectiveMessagePresetsResponse> {
+export async function fetchEffectiveMessagePresets(workspaceId?: string): Promise<EffectiveMessagePresetsResponse> {
+  if (!workspaceId) {
+    const response = await fetch('/api/v1/config/message-presets/global', { cache: 'no-store' });
+    if (!response.ok) throw new Error(await responseError(response));
+    const value = await response.json() as MessagePresetScopeResponse;
+    return { code: value.code, workspaceId: '', project: [], global: value.config.messages || [], errors: [] };
+  }
   const response = await fetch(`/api/v1/config/message-presets/effective?workspaceId=${encodeURIComponent(workspaceId)}`, { cache: 'no-store' });
   if (!response.ok) throw new Error(await responseError(response));
   return response.json() as Promise<EffectiveMessagePresetsResponse>;

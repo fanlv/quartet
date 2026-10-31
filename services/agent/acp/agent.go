@@ -2,6 +2,7 @@ package acp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -209,7 +210,14 @@ func NewACPAgent(ctx context.Context, store SessionStore, sessionID, agentType, 
 		// and orphan the previous ACP session id.
 		return nil, fmt.Errorf("load persisted ACP session id failed: %w", err)
 	}
-	chatContextRepo, err := repository.NewChatContextRepo(wsID, jobID, sessionID)
+	var chatContextRepo repository.ChatContextRepo
+	if provider, ok := store.(interface {
+		ChatContextRepo(string) (repository.ChatContextRepo, error)
+	}); ok {
+		chatContextRepo, err = provider.ChatContextRepo(sessionID)
+	} else {
+		chatContextRepo, err = repository.NewChatContextRepo(wsID, jobID, sessionID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chat context repo: %w", err)
 	}
@@ -669,7 +677,17 @@ type PhaseReporter func(phase, detail string)
 // jobID is threaded into the round builder's log label so WARN lines
 // ([round] eager flush superseded / drop terminal ...) can be traced back
 // to the concrete job, not just the session pair.
-func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler, jobID string, report PhaseReporter) (retErr error) {
+func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler, jobID string, report PhaseReporter) error {
+	return a.run(ctx, userMessages, handler, jobID, report, false)
+}
+
+// RunWithCancelConfirmation is used by personal task queues; Graph retains its
+// existing Run semantics and lifecycle.
+func (a *ACPAgent) RunWithCancelConfirmation(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler, jobID string, report PhaseReporter) error {
+	return a.run(ctx, userMessages, handler, jobID, report, true)
+}
+
+func (a *ACPAgent) run(ctx context.Context, userMessages []*schema.Message, handler agui.EventHandler, jobID string, report PhaseReporter, confirmCancellation bool) (retErr error) {
 	if report == nil {
 		report = func(string, string) {}
 	}
@@ -1064,9 +1082,17 @@ func (a *ACPAgent) Run(ctx context.Context, userMessages []*schema.Message, hand
 	// Send the prompt on the held slot. Serialization across sessions on
 	// this subprocess and active-session tracking are the slot's job; we
 	// just send the text and wait for the turn to finish.
-	promptResult, err := slot.SendPrompt(runCtx, prompt)
+	var promptResult pkgacp.PromptResult
+	if confirmCancellation {
+		promptResult, err = slot.SendPromptWithCancelConfirmation(runCtx, prompt)
+	} else {
+		promptResult, err = slot.SendPrompt(runCtx, prompt)
+	}
 	reportPromptUsage(a.sessionID, handler, a.takePromptUsageDelta(acpSession, promptResult.Usage))
 	if err != nil {
+		if errors.Is(err, pkgacp.ErrCancellationUnconfirmed) {
+			return err
+		}
 		if runCtx.Err() != nil {
 			return runCtx.Err()
 		}

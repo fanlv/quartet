@@ -2894,3 +2894,96 @@ struct AgentRoleConfigResponse: Decodable, Sendable {
         case config
     }
 }
+
+// Personal Agent home: business identities and ACP Harness Clients are separate.
+struct PersonalAgent: Codable, Identifiable, Sendable {
+    var id: String
+    var name: String
+    var systemPrompt: String
+    var harnessId: String? = nil
+    var main: Bool = false
+    var revision: Int64 = 0
+    var deleted: Bool? = nil
+}
+struct PersonalChatSettings: Codable, Sendable {
+    var idleMinutes: Int
+    var debug: Bool
+    var maxConcurrent: Int
+}
+struct PersonalChatTask: Decodable, Identifiable, Sendable {
+    let awaitingInput: Bool?
+    let waitReason: String?
+    let id, agentId, title: String
+    let sessionId, parentTaskId, parentRunId: String?
+    let queue: [String]
+    let paused: Bool
+}
+struct PersonalChatRun: Decodable, Identifiable, Sendable {
+    let id, messageId, replyId, taskId, sessionId, agentId, state: String
+    let error, deliveryError: String?
+}
+struct PersonalChatSession: Decodable, Identifiable, Sendable {
+    let id, taskId, agentId, harnessId: String
+    let summary, summaryError: String?
+    let meta: Runtime
+    struct Runtime: Decodable, Sendable {
+        let model_id, acp_mode, acp_thought_level: String?
+    }
+}
+struct PersonalChatMessage: Decodable, Identifiable, Sendable {
+    let id, role, agentId, taskId, sessionId, runId, content, state: String
+    let order, revision: UInt64
+    let createdAt: Int64
+    let rawContent, thought, error: String?
+    let toolCount: Int
+    let tools: [Tool]?
+    let `internal`: Bool?
+    let source: Source
+    struct Tool: Decodable, Identifiable, Sendable {
+        let id, name, args, result, status: String
+    }
+    struct Source: Decodable, Sendable { let platform, senderId, chatId: String? }
+}
+struct PersonalChatSnapshot: Decodable, Sendable {
+    let epoch:String
+    let workdir: String
+    let defaultHarnessId: String?
+    let code: Int
+    let seq, before: UInt64
+    let hasMore: Bool
+    let agents: [PersonalAgent]
+    let tasks: [PersonalChatTask]
+    let sessions: [PersonalChatSession]
+    let runs: [PersonalChatRun]
+    let messages: [PersonalChatMessage]
+    let settings: PersonalChatSettings
+    let warnings: [String]
+}
+struct PersonalChatSend: Encodable, Equatable, Sendable {
+    var clientMessageId = UUID().uuidString
+    var content: String
+    var agentId = "main"
+    var taskId: String? = nil
+    var harnessId: String? = nil
+    var modelId: String? = nil
+    var mode: String? = nil
+    var thoughtLevel: String? = nil
+    var independent = false
+    var stopAndSend = false
+}
+struct PersonalChatRunResponse: Decodable, Sendable { let code: Int; let run: PersonalChatRun }
+struct PersonalChatMessageResponse: Decodable, Sendable { let code: Int; let message: PersonalChatMessage }
+struct PersonalChatSettingsResponse: Decodable, Sendable { let code: Int; let settings: PersonalChatSettings }
+struct PersonalChatAgentResponse: Decodable, Sendable { let code: Int; let agent: PersonalAgent }
+struct PersonalChatControl: Encodable, Sendable { let taskId, action: String; var runId: String? = nil }
+struct PersonalChatChange: Decodable, Sendable { let seq: UInt64 }
+struct PersonalChatSearch: Decodable, Sendable {
+    let code, total: Int
+    let hits: [Hit]
+    struct Hit: Decodable, Identifiable, Sendable {
+        let sessionId, messageId, agentId, role, excerpt: String
+        let createdAt: Int64
+        var id: String { messageId }
+    }
+}
+struct PersonalChatHistory: Decodable, Sendable { let code: Int; let messages: [PersonalChatMessage] }

@@ -33,6 +33,7 @@ type Mention struct {
 	TenantKey     string
 }
 type Message struct {
+	AccountID   string
 	Platform    Platform
 	MessageID   string
 	ParentID    string

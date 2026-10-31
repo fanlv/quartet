@@ -230,7 +230,12 @@ func (l *Listener) handleIMMessage(ctx context.Context, raw *rawEvent) {
 	receivedAt := time.Now()
 	content := l.decodeMessageContent(ctx, ev.Message.MessageID, ev.Message.MessageType, ev.Message.Content, ev.Message.Mentions)
 
+	appID := ""
+	if l.configProvider != nil {
+		appID, _ = l.configProvider()
+	}
 	msg := &messaging.Message{
+		AccountID:   appID,
 		Platform:    messaging.PlatformLark,
 		MessageID:   ev.Message.MessageID,
 		ParentID:    ev.Message.ParentID,

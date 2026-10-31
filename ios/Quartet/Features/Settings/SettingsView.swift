@@ -48,7 +48,7 @@ struct SettingsView: View {
 
                     if model.can("agent.read") {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("Agent 管理")
+                            Text("Harness Client 管理")
                                 .font(.quartet(.detail, weight: .bold))
                                 .foregroundStyle(QuartetTheme.secondaryText)
                                 .padding(.horizontal, 4)
@@ -101,30 +101,13 @@ struct SettingsView: View {
                                 .padding(.horizontal, 4)
 
                             VStack(spacing: 0) {
+                                agentManagementLink(title: "首页聊天设置", icon: "bubble.left.and.bubble.right", identifier: "settings-personal-chat") { PersonalChatSettingsView() }
+                                settingsDivider
                                 agentManagementLink(
                                     title: "预置消息",
                                     icon: "text.bubble",
                                     identifier: "settings-message-presets"
                                 ) { MessagePresetSettingsView() }
-                            }
-                            .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
-                            .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))
-                        }
-                    }
-
-                    if model.can("workspace.read") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("项目")
-                                .font(.quartet(.detail, weight: .bold))
-                                .foregroundStyle(QuartetTheme.secondaryText)
-                                .padding(.horizontal, 4)
-
-                            VStack(spacing: 0) {
-                                agentManagementLink(
-                                    title: "工作空间",
-                                    icon: "folder.badge.gearshape",
-                                    identifier: "settings-workspaces"
-                                ) { WorkspaceSettingsView() }
                             }
                             .background(QuartetTheme.surface, in: RoundedRectangle(cornerRadius: 18))
                             .overlay(RoundedRectangle(cornerRadius: 18).stroke(QuartetTheme.divider))

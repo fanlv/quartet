@@ -1088,14 +1088,16 @@ struct APIClient: @unchecked Sendable {
 
     private func streamSSE<Event: Decodable & Sendable>(
         path: String,
+        query: [URLQueryItem] = [],
         lastEventID: UInt64,
         eventType: Event.Type,
         onOpen: @escaping @MainActor () async -> Void,
         onEvent: @escaping @MainActor (Event, UInt64?) async -> Void
     ) async throws {
-        let endpoint = endpointURL(path: path, query: [])
+        let endpoint = endpointURL(path: path, query: query)
         var request = URLRequest(url: endpoint)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.setValue("ios", forHTTPHeaderField: "X-Quartet-Client")
         request.setValue(String(lastEventID), forHTTPHeaderField: "Last-Event-ID")
 
         let bytes: URLSession.AsyncBytes
@@ -1541,3 +1543,37 @@ private struct ReadFileRequest: Encodable, Sendable { let path: String }
 private struct WriteFileRequest: Encodable, Sendable { let path: String; let content: String }
 private struct WriteFileResponse: Decodable, Sendable { let code: Int }
 private struct EmptyRequest: Encodable, Sendable {}
+
+extension APIClient {
+    func personalChat(before: UInt64? = nil, since:UInt64=0,taskID:String?=nil,windowStart:UInt64=0) async throws -> PersonalChatSnapshot {
+        var query=[URLQueryItem(name:"since",value:String(since)),URLQueryItem(name:"windowStart",value:String(windowStart))]
+        if let before{query.append(URLQueryItem(name:"before",value:String(before)))}
+        if let taskID{query.append(URLQueryItem(name:"taskId",value:taskID))}
+        return try await request(path:"api/v1/chat",query:query)
+    }
+    func personalChatSend(_ body: PersonalChatSend) async throws -> PersonalChatRunResponse {
+        try await request(path: "api/v1/chat/messages", method: "POST", body: body)
+    }
+    func personalChatControl(_ body: PersonalChatControl) async throws {
+        let _: StatusResponse = try await request(path: "api/v1/chat/tasks/control", method: "POST", body: body)
+    }
+    func personalChatMessage(_ id: String) async throws -> PersonalChatMessageResponse {
+        try await request(path: "api/v1/chat/messages/\(id)")
+    }
+    func personalChatSettings(_ body: PersonalChatSettings? = nil) async throws -> PersonalChatSettingsResponse {
+        if let body { return try await request(path: "api/v1/chat/settings", method: "PUT", body: body) }
+        return try await request(path: "api/v1/chat/settings")
+    }
+    func personalChatAgent(_ body: PersonalAgent) async throws -> PersonalChatAgentResponse {
+        try await request(path: "api/v1/chat/agents", method: "POST", body: body)
+    }
+    func personalChatSearch(_ query: String, offset: Int = 0) async throws -> PersonalChatSearch {
+        try await request(path: "api/v1/chat/search", query: [URLQueryItem(name: "query", value: query),URLQueryItem(name:"offset",value:String(offset))])
+    }
+    func personalChatHistory(sessionID: String, messageID: String) async throws -> PersonalChatHistory {
+        try await request(path: "api/v1/chat/history", query: [URLQueryItem(name:"sessionId",value:sessionID),URLQueryItem(name:"messageId",value:messageID)])
+    }
+    func personalChatEvents(lastEventID: UInt64, viewerID: String, taskID: String, onOpen: @escaping @MainActor () async -> Void, onChange: @escaping @MainActor (PersonalChatChange, UInt64?) async -> Void) async throws {
+        try await streamSSE(path:"api/v1/chat/events", query:[URLQueryItem(name:"viewerId",value:viewerID),URLQueryItem(name:"taskId",value:taskID)], lastEventID:lastEventID, eventType:PersonalChatChange.self, onOpen:onOpen, onEvent:onChange)
+    }
+}

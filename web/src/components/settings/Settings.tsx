@@ -7,7 +7,6 @@ import { PromptSettings } from './PromptSettings';
 import { SkillSettings } from './SkillSettings';
 import { AgentManagement } from './AgentManagement';
 import { IMSettings } from './IMSettings';
-import { WorkspacesSettings } from './WorkspacesSettings';
 import { LogsSettings } from './LogsSettings';
 import { MessagePresetSettings } from './MessagePresetSettings';
 import { useAuthPrincipal } from '../../auth';
@@ -29,7 +28,6 @@ interface SettingsProps {
 
 const tabDefs: { key: SettingsNavTab; labelKey: string; icon: string; permission?: string; anyPermissions?: string[] }[] = [
   { key: 'general', labelKey: 'settings.tabs.general', icon: '⚙️', permission: 'config.write' },
-  { key: 'workspace', labelKey: 'settings.tabs.workspace', icon: '🗂️', permission: 'workspace.write' },
   { key: 'message-presets', labelKey: 'settings.tabs.messagePresets', icon: '💬', anyPermissions: ['config.read', 'workspace.read'] },
   { key: 'account', labelKey: 'settings.tabs.accountManagement', icon: '👤' },
   { key: 'eino', labelKey: 'settings.tabs.eino', icon: '🤖', permission: 'config.write' },
@@ -148,8 +146,6 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general', w
     switch (activeTab) {
       case 'general':
         return <GeneralSettings onSettingsChanged={onSettingsChanged} />;
-      case 'workspace':
-        return <WorkspacesSettings />;
       case 'message-presets':
         return <MessagePresetSettings onDirtyChange={setMessagePresetsDirty} />;
       case 'account':

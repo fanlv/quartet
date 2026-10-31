@@ -35,6 +35,10 @@
     <string>Connect to your personal Quartet service on the local network.</string>
     <key>NSCameraUsageDescription</key>
     <string>Take photos to send in the current conversation.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Record your voice and send the final transcript to the selected Agent.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Convert your speech to text for the selected Agent.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Choose photos to send in the current conversation.</string>
     <key>UILaunchScreen</key>

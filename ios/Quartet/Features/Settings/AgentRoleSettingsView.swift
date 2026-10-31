@@ -7,11 +7,12 @@ private enum AgentRole: String, CaseIterable, Identifiable {
     case groupReply
     case imSession
 
+    static let allCases: [AgentRole] = [.title]
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .title: "标题生成 Agent"
+        case .title: "标题与历史摘要 Harness Client"
         case .groupReply: "群聊回复 Agent"
         case .imSession: "IM 会话 Agent"
         }
@@ -19,7 +20,7 @@ private enum AgentRole: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .title: "为新对话生成标题，走一次性无会话执行。"
+        case .title: "生成标题，并使用独立 Session 维护聊天历史摘要。"
         case .groupReply: "群聊里被 @ 时回复，走一次性无会话执行。"
         case .imSession: "IM 私聊创建或续接交互式 Job 时使用。"
         }

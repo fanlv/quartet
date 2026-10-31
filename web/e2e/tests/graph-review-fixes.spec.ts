@@ -1032,8 +1032,9 @@ test('graph review #42: schedule modal surfaces graph workflow list warnings', a
     localStorage.setItem('quartet-language', 'en')
   })
   await page.goto(`/?workspaceId=${workspace.workspaceId}`)
+  await page.getByRole('button', { name: 'Scheduled tasks', exact: true }).click()
   await expect(page.getByTestId('auth-gate')).toHaveCount(0)
-  await expect(page.getByTestId('home-content')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('personal-chat')).toBeVisible({ timeout: 10_000 })
 
   await page.getByRole('button', { name: /New Task/ }).click()
   await expect(page.getByRole('heading', { name: 'New Scheduled Task' })).toBeVisible()
@@ -2606,7 +2607,8 @@ test('graph review #49: schedule modal displays full save and trigger errors', a
     })
   })
   await page.goto(`/?workspaceId=${workspace.workspaceId}`)
-  await expect(page.getByTestId('home-content')).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: 'Scheduled tasks', exact: true }).click()
+  await expect(page.getByTestId('personal-chat')).toBeVisible({ timeout: 10_000 })
   await page.getByRole('button', { name: /New Task/ }).click()
   await expect(page.getByRole('heading', { name: 'New Scheduled Task' })).toBeVisible()
   await page.locator('.schedule-select').first().selectOption(workflow.id)
@@ -2633,6 +2635,7 @@ test('graph review #49: schedule modal displays full save and trigger errors', a
   const schedule = (await createSchedule.json()).schedule as { id: string; name: string }
 
   await page.goto(`/?workspaceId=${workspace.workspaceId}`)
+  await page.getByRole('button', { name: 'Scheduled tasks', exact: true }).click()
   await expect(page.getByText(schedule.name)).toBeVisible({ timeout: 10_000 })
   await page.getByText(schedule.name).click()
   await expect(page.getByRole('heading', { name: 'Edit Scheduled Task' })).toBeVisible()
@@ -2682,6 +2685,7 @@ test('graph review #49b: schedule Trigger Now is disabled while the request is p
   })
 
   await page.goto(`/?workspaceId=${workspace.workspaceId}`)
+  await page.getByRole('button', { name: 'Scheduled tasks', exact: true }).click()
   await expect(page.getByText(schedule.name)).toBeVisible({ timeout: 10_000 })
   await page.getByText(schedule.name).click()
   await expect(page.getByRole('heading', { name: 'Edit Scheduled Task' })).toBeVisible()

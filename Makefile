@@ -54,7 +54,7 @@ SKILL_NAME ?= quartet-workflow
 SKILL_SOURCE ?= $(CURDIR)/skill
 SKILLS_CLI ?= npx --yes skills
 SKILL_AGENTS ?= claude-code codex opencode trae trae-cn
-PROJECT_SKILL_NAMES := quartet-workflow quartet-schedule quartet-wechat
+PROJECT_SKILL_NAMES := quartet-workflow quartet-schedule quartet-wechat quartet-personal
 SKILL_AGENT_FLAGS = $(foreach agent,$(SKILL_AGENTS),--agent "$(agent)")
 SKILL_COPY_FLAG ?=
 

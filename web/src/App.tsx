@@ -27,8 +27,8 @@ import './App.css';
 const JobChat = lazy(() =>
   import('./components/JobChat').then((module) => ({ default: module.JobChat })),
 );
-const ChatPage = lazy(() =>
-  import('./components/ChatPage').then((module) => ({ default: module.ChatPage })),
+const PersonalChat = lazy(() =>
+  import('./components/PersonalChat').then((module) => ({ default: module.PersonalChat })),
 );
 const GraphWorkflowPage = lazy(() =>
   import('./components/GraphWorkflowPage').then((module) => ({ default: module.GraphWorkflowPage })),
@@ -1050,7 +1050,7 @@ function WorkspaceApp() {
       ) : (
         <div className="app-main">
           <Suspense fallback={<LazyPageFallback />}>
-            <ChatPage
+            <PersonalChat
               onStartChat={handleStartChat}
               isInitializing={isInitializing}
               refreshKey={homeRefreshKey}
@@ -1087,7 +1087,7 @@ function App() {
   const isPublicShare = !!getShareTokenFromUrl();
   const params = new URLSearchParams(window.location.search);
   const requestedView = params.get('view');
-  const canOpenRequestedView = principal?.permissions.includes('workspace.read')
+  const canOpenRequestedView = principal?.permissions.includes('job.read')
     || (requestedView === 'stats' && principal?.permissions.includes('stats.read'))
     || (requestedView === 'graph' && principal?.permissions.includes('workflow.read'))
     || (!!params.get('jobId') && principal?.permissions.includes('job.read'));

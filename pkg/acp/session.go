@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	acp "github.com/eino-contrib/acp"
 	acptransport "github.com/eino-contrib/acp/transport"
@@ -386,6 +387,45 @@ func (s *PromptSlot) SendPrompt(ctx context.Context, text string) (PromptResult,
 		result.Usage = promptUsageFromError(err)
 	}
 	return result, err
+}
+
+// ErrCancellationUnconfirmed means the peer did not acknowledge the original
+// prompt's termination. Callers must pause dependent work.
+var ErrCancellationUnconfirmed = errors.New("ACP cancellation was not confirmed")
+
+// SendPromptWithCancelConfirmation retains the prompt response waiter after a
+// local cancellation, so the next task cannot overtake an unacknowledged turn.
+func (s *PromptSlot) SendPromptWithCancelConfirmation(ctx context.Context, text string) (PromptResult, error) {
+	if err := ctx.Err(); err != nil {
+		return PromptResult{}, err
+	}
+	promptCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
+	defer stop()
+	type response struct {
+		result PromptResult
+		err    error
+	}
+	completed := make(chan response, 1)
+	go func() { r, e := s.SendPrompt(promptCtx, text); completed <- response{r, e} }()
+	select {
+	case r := <-completed:
+		return r.result, r.err
+	case <-ctx.Done():
+	}
+	cancelCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	cancelErr := s.conn.CancelSession(cancelCtx, s.sid)
+	cancel()
+	timer := time.NewTimer(30 * time.Second)
+	defer timer.Stop()
+	select {
+	case r := <-completed:
+		return r.result, errors.Join(ctx.Err(), r.err, cancelErr)
+	case <-timer.C:
+		// This runtime is dedicated to one personal Session. Terminate the
+		// unresponsive peer while retaining its persisted transcript.
+		s.conn.Close()
+		return PromptResult{}, fmt.Errorf("%w after 30 seconds; the unresponsive Harness Client was terminated and the task queue remains paused: %v", ErrCancellationUnconfirmed, errors.Join(ctx.Err(), cancelErr))
+	}
 }
 
 func promptUsageFromACP(usage *acp.Usage) *PromptUsage {

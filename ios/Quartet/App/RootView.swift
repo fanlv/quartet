@@ -151,13 +151,13 @@ private struct MainView: View {
                     case 1:
                         ScheduledTasksView(showsMainTabBar: $showsTabBar)
                     case 2:
-                        WorkspaceFilesView()
+                        WorkspaceFilesView(usesHome: true)
                     case 3:
                         StatsView()
                     case 4:
                         SettingsView()
                     default:
-                        JobsView(showsMainTabBar: $showsTabBar)
+                        PersonalChatView(showsMainTabBar: $showsTabBar)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -209,7 +209,7 @@ private struct MainTabBar: View {
     let bottomSafeAreaHeight: CGFloat
 
     private let items = [
-        TabItem(id: 0, title: "最近任务", systemImage: "clock.arrow.circlepath"),
+        TabItem(id: 0, title: "首页", systemImage: "bubble.left.and.bubble.right"),
         TabItem(id: 1, title: "定时任务", systemImage: "calendar.badge.clock"),
         TabItem(id: 2, title: "文件", systemImage: "folder"),
         TabItem(id: 3, title: "统计", systemImage: "chart.xyaxis.line"),
