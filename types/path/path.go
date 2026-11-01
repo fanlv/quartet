@@ -122,9 +122,11 @@ func QuartetDataDir() (string, error) {
 	return filepath.Join(dir, quartetDataDir), nil
 }
 
-// CodexAccountsFile stores private Codex profiles and interrupted file swaps.
+// CodexAccountsFile stores private Codex profiles and interrupted file swaps
+// under human-owned configuration so the Memory repository can carry them to
+// other machines.
 func CodexAccountsFile() (string, error) {
-	dir, err := QuartetDataDir()
+	dir, err := QuartetConfigDir()
 	if err != nil {
 		return "", err
 	}
