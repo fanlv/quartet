@@ -45,8 +45,9 @@ type StepResult struct {
 	DurationMs int64
 }
 
-// RunSteps executes the given preset steps sequentially with a per-step
-// timeout, stopping at the first failed step. It returns the results of every
+// RunSteps executes the given preset steps sequentially without imposing an
+// execution timeout, stopping at the first failed step. The caller's context
+// can still cancel execution. It returns the results of every
 // step that was started. ErrInstallInFlight is returned (without results) when
 // another install is already running.
 //
@@ -55,7 +56,7 @@ type StepResult struct {
 // environment, and internal steps use it for their own outbound requests, so
 // an agent that needs a proxy to reach its vendor can also be installed and
 // upgraded through that proxy.
-func RunSteps(ctx context.Context, steps []InstallStep, perStepTimeout time.Duration, env map[string]string) ([]StepResult, error) {
+func RunSteps(ctx context.Context, steps []InstallStep, env map[string]string) ([]StepResult, error) {
 	if !installMu.TryLock() {
 		return nil, ErrInstallInFlight
 	}
@@ -63,7 +64,7 @@ func RunSteps(ctx context.Context, steps []InstallStep, perStepTimeout time.Dura
 
 	results := make([]StepResult, 0, len(steps))
 	for _, step := range steps {
-		result := runStep(ctx, step, perStepTimeout, env)
+		result := runStep(ctx, step, env)
 		results = append(results, result)
 		if result.Error != "" || result.TimedOut || result.ExitCode != 0 {
 			break
@@ -72,10 +73,10 @@ func RunSteps(ctx context.Context, steps []InstallStep, perStepTimeout time.Dura
 	return results, nil
 }
 
-func runStep(ctx context.Context, step InstallStep, timeout time.Duration, env map[string]string) (result StepResult) {
+func runStep(ctx context.Context, step InstallStep, env map[string]string) (result StepResult) {
 	result = StepResult{Display: step.Display, ExitCode: -1}
 	started := time.Now()
-	stepCtx, cancel := context.WithTimeout(ctx, timeout)
+	stepCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if step.IfMissingExecutable != "" {
 		if path, err := executil.LookPath(step.IfMissingExecutable); err == nil {
@@ -85,7 +86,7 @@ func runStep(ctx context.Context, step InstallStep, timeout time.Duration, env m
 		}
 	}
 	if strings.HasPrefix(step.Program, "quartet-internal:") {
-		return runInternalStep(stepCtx, step, started, timeout, env)
+		return runInternalStep(stepCtx, step, started, env)
 	}
 
 	cmd := commandForStep(step.Program, step.Args...)
@@ -103,7 +104,7 @@ func runStep(ctx context.Context, step InstallStep, timeout time.Duration, env m
 		}
 	}()
 	// This is a final guard for a child that deliberately leaves the managed
-	// process tree but keeps stdout/stderr open. Normal timeout cleanup kills
+	// process tree but keeps stdout/stderr open. Normal cancellation cleanup kills
 	// the whole tree immediately; WaitDelay keeps Wait itself bounded if the
 	// process violates that ownership contract.
 	cmd.WaitDelay = processTreeWaitDelay
@@ -113,7 +114,7 @@ func runStep(ctx context.Context, step InstallStep, timeout time.Duration, env m
 
 	if err := stepCtx.Err(); err != nil {
 		result.DurationMs = time.Since(started).Milliseconds()
-		setStepContextError(&result, err, timeout)
+		setStepContextError(&result, err)
 		return result
 	}
 	if err := cmd.Start(); err != nil {
@@ -178,7 +179,7 @@ func runStep(ctx context.Context, step InstallStep, timeout time.Duration, env m
 		result.ExitCode = cmd.ProcessState.ExitCode()
 	}
 	if canceled {
-		setStepContextError(&result, stepCtx.Err(), timeout)
+		setStepContextError(&result, stepCtx.Err())
 		if cleanupErr != nil {
 			result.Error += fmt.Sprintf("; terminate install process tree failed: %v", cleanupErr)
 		}
@@ -203,7 +204,7 @@ func commandForStep(program string, args ...string) *exec.Cmd {
 	return executil.Command(program, args...)
 }
 
-func runInternalStep(ctx context.Context, step InstallStep, started time.Time, timeout time.Duration, env map[string]string) StepResult {
+func runInternalStep(ctx context.Context, step InstallStep, started time.Time, env map[string]string) StepResult {
 	result := StepResult{Display: step.Display, ExitCode: -1}
 	var err error
 	switch step.Program {
@@ -221,12 +222,8 @@ func runInternalStep(ctx context.Context, step InstallStep, started time.Time, t
 		result.ExitCode = 0
 		return result
 	}
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		setStepContextError(&result, ctx.Err(), timeout)
-		return result
-	}
-	if errors.Is(ctx.Err(), context.Canceled) {
-		setStepContextError(&result, ctx.Err(), timeout)
+	if ctx.Err() != nil {
+		setStepContextError(&result, ctx.Err())
 		return result
 	}
 	result.Error = err.Error()
@@ -372,10 +369,10 @@ func environWith(values map[string]string) []string {
 	return out
 }
 
-func setStepContextError(result *StepResult, err error, timeout time.Duration) {
+func setStepContextError(result *StepResult, err error) {
 	if errors.Is(err, context.DeadlineExceeded) {
 		result.TimedOut = true
-		result.Error = fmt.Sprintf("install step timed out after %s", timeout)
+		result.Error = fmt.Sprintf("install step interrupted by caller deadline: %v", err)
 		return
 	}
 	result.Error = fmt.Sprintf("install step canceled: %v", err)

@@ -4,17 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/services/agent/catalog"
 	agentinstall "github.com/fanlv/quartet/services/agent/install"
 	"github.com/fanlv/quartet/types/model"
 )
-
-// installStepTimeout bounds every single preset install step so a hanging
-// installer can't block the request indefinitely.
-const installStepTimeout = 10 * time.Minute
 
 // Sentinel errors of the built-in install flow; the HTTP layer maps them with
 // errors.Is. Messages are wrapped with full context before reaching users.
@@ -95,7 +90,7 @@ func (s *CacheService) runBuiltinAgentInstall(ctx context.Context, agentID strin
 		if upgrade {
 			stepsToRun = def.Install.StepsForUpgradePath(platform, precheck.Bin.ResolvedPath)
 		}
-		steps, err := agentinstall.RunSteps(ctx, stepsToRun, installStepTimeout, s.installEnv(def))
+		steps, err := agentinstall.RunSteps(ctx, stepsToRun, s.installEnv(def))
 		if err != nil {
 			return nil, err
 		}
@@ -171,7 +166,7 @@ func (s *CacheService) UninstallBuiltinAgent(ctx context.Context, agentID string
 	definition := agentinstall.Definition{Bin: def.Bin, ACPProgram: def.ACPProgram}
 	result := &model.AgentInstallResult{AgentID: agentID, Steps: []model.AgentInstallStepResult{}}
 
-	steps, err := agentinstall.RunSteps(ctx, def.Install.StepsForUninstall(platform), installStepTimeout, s.installEnv(def))
+	steps, err := agentinstall.RunSteps(ctx, def.Install.StepsForUninstall(platform), s.installEnv(def))
 	if err != nil {
 		return nil, err
 	}
