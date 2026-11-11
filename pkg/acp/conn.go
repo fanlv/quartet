@@ -409,7 +409,7 @@ func newConn(ctx context.Context, agentType, workdir string, options connOptions
 		args = parts[1:]
 	}
 	cmd := executil.Command(program, args...)
-	releaseCreation, err := beginRuntimeCreation(envKey)
+	ctx, releaseCreation, err := beginRuntimeCreation(ctx, envKey)
 	if err != nil {
 		return nil, err
 	}
@@ -535,6 +535,14 @@ func newConn(ctx context.Context, agentType, workdir string, options connOptions
 		agentType, initResp.AgentCapabilities != nil && initResp.AgentCapabilities.LoadSession, c.supportsResume)
 
 	runtimeMaintenance.Lock()
+	if runtimeMaintenance.blocked[envKey] || ctx.Err() != nil {
+		runtimeMaintenance.Unlock()
+		c.Close()
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("ACP runtime %q process startup cancelled: %w", envKey, err)
+		}
+		return nil, fmt.Errorf("ACP runtime %q process startup interrupted by credential/configuration replacement", envKey)
+	}
 	runtimeMaintenance.conns[c] = options.noBrowser
 	runtimeMaintenance.Unlock()
 	return c, nil

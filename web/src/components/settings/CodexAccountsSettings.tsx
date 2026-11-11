@@ -33,6 +33,7 @@ export function CodexAccountsSettings({ onChanged }: { onChanged?: () => void })
   const [form, setForm] = useState<AccountForm | null>(null);
   const [switching, setSwitching] = useState<CodexAccount | null>(null);
   const [applyConfig, setApplyConfig] = useState(false);
+  const [forceSwitch, setForceSwitch] = useState(false);
   const [login, setLogin] = useState<CodexLogin | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginError, setLoginError] = useState('');
@@ -224,7 +225,7 @@ export function CodexAccountsSettings({ onChanged }: { onChanged?: () => void })
           <p className="codex-account-detail">{label(account.has_config ? 'withConfig' : 'authOnly')}{account.model ? ` · ${account.model}` : ''}{account.provider ? ` · ${account.provider}` : ''}</p>
           <p className="codex-account-detail">{label('updated')}: {time(account.updated_at)} · {label('lastUsed')}: {time(account.last_used_at)}</p>
           <div className="codex-account-actions">
-            {(data.current.managed_id !== account.id || account.has_config) && <button className="codex-account-primary" disabled={busy} onClick={() => { intentState.current = data; setSwitching(account); setApplyConfig(data.current.managed_id === account.id); setDialogError(''); }}>{label(data.current.managed_id === account.id ? 'apply' : 'activate')}</button>}
+            {(data.current.managed_id !== account.id || account.has_config) && <button className="codex-account-primary" disabled={busy} onClick={() => { intentState.current = data; setSwitching(account); setApplyConfig(data.current.managed_id === account.id); setForceSwitch(false); setDialogError(''); }}>{label(data.current.managed_id === account.id ? 'apply' : 'activate')}</button>}
             <button disabled={busy} onClick={() => openForm('update', account)}>{label('edit')}</button>
             <button className="codex-account-danger" disabled={busy} onClick={() => { if (window.confirm(label(data.current.managed_id === account.id ? 'deleteActiveConfirm' : 'deleteConfirm'))) void run('delete', account.id); }}>{label('delete')}</button>
           </div>
@@ -259,8 +260,10 @@ export function CodexAccountsSettings({ onChanged }: { onChanged?: () => void })
         <p className="codex-account-hint">{label('switchHint')}</p>
         {switching.has_config && <label className="codex-account-check"><input type="checkbox" checked={applyConfig} disabled={busy} onChange={(event) => setApplyConfig(event.target.checked)} />{label('applyConfig')}</label>}
         <p className="codex-account-hint">{label(applyConfig ? 'replaceConfigHint' : 'keepConfigHint')}</p>
+        <label className="codex-account-check"><input type="checkbox" checked={forceSwitch} disabled={busy} onChange={(event) => setForceSwitch(event.target.checked)} />{label('forceActivate')}</label>
+        {forceSwitch && <p className="codex-account-hint">{label('forceActivateHint')}</p>}
         {dialogError && <pre className="codex-account-error" role="alert">{dialogError}</pre>}
-        <div className="codex-account-dialog-footer"><button disabled={busy} onClick={closeDialog}>{label('close')}</button><button className="codex-account-primary" disabled={busy} onClick={() => { void run('activate', switching.id, { apply_config: applyConfig }); }}>{label(busy ? 'working' : 'activate')}</button></div>
+        <div className="codex-account-dialog-footer"><button disabled={busy} onClick={closeDialog}>{label('close')}</button><button className="codex-account-primary" disabled={busy} onClick={() => { void run('activate', switching.id, { apply_config: applyConfig, force: forceSwitch }); }}>{label(busy ? 'working' : forceSwitch ? 'forceActivate' : 'activate')}</button></div>
       </>}
       {loginOpen && login && <>
         <p>{label(`loginStatus.${login.status}`)}</p>

@@ -66,6 +66,7 @@ type CodexAccountMutation struct {
 	ConfigTOML   *string `json:"config_toml,omitempty"`
 	RemoveConfig bool    `json:"remove_config,omitempty"`
 	ApplyConfig  bool    `json:"apply_config,omitempty"`
+	Force        bool    `json:"force,omitempty"`
 }
 
 type CodexAccountLogin struct {

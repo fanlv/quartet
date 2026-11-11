@@ -208,7 +208,7 @@ func (h *Handler) acquireAgentSettingWrite(c *app.RequestContext, agentID string
 	if agentID == "" {
 		return func() {}, true
 	}
-	release, ok := h.agentExecutions.acquireExecution(agentID)
+	release, ok := h.agentExecutions.acquireManagement(agentID)
 	if !ok {
 		httputil.Conflict(c, "AgentID "+agentID+" is deleting or updating credentials/configuration; settings update was rejected")
 		return nil, false

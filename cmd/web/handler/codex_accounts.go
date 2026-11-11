@@ -14,12 +14,18 @@ import (
 	"github.com/fanlv/quartet/types/model"
 )
 
-func (h *Handler) acquireCodexAccountUpdate(ctx context.Context) (func(), error) {
-	release, err := h.agentExecutions.beginMaintenance("codex")
+func (h *Handler) acquireCodexAccountUpdate(ctx context.Context, force bool) (func(), error) {
+	release, err := h.agentExecutions.beginMaintenance("codex", force)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", codexaccounts.ErrConflict, err)
 	}
-	releaseRuntime, err := pkgacp.BeginRuntimeMaintenance("codex")
+	if force && h.agentAuthentication != nil {
+		if err := h.agentAuthentication.CancelAgent(ctx, "codex"); err != nil {
+			release()
+			return nil, fmt.Errorf("%w: %v", codexaccounts.ErrConflict, err)
+		}
+	}
+	releaseRuntime, err := pkgacp.BeginRuntimeMaintenance(ctx, "codex", force)
 	if err != nil {
 		release()
 		return nil, fmt.Errorf("%w: %v", codexaccounts.ErrConflict, err)

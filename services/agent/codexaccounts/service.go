@@ -28,7 +28,7 @@ var ErrConflict = errors.New("Codex account state conflict")
 type Options struct {
 	Root        context.Context
 	Environment func() map[string]string
-	Acquire     func(context.Context) (func(), error)
+	Acquire     func(ctx context.Context, force bool) (func(), error)
 	Invalidate  func(context.Context) error
 }
 
@@ -57,7 +57,7 @@ func (s *Service) Initialize(ctx context.Context) error {
 	state, err := s.repo.Load()
 	if err != nil {
 		if s.recoveryRelease == nil {
-			if release, acquireErr := s.options.Acquire(ctx); acquireErr == nil {
+			if release, acquireErr := s.options.Acquire(ctx, false); acquireErr == nil {
 				s.recoveryRelease = release
 			}
 		}
@@ -67,7 +67,7 @@ func (s *Service) Initialize(ctx context.Context) error {
 	if state.Pending == nil {
 		return nil
 	}
-	release, err := s.options.Acquire(ctx)
+	release, err := s.options.Acquire(ctx, false)
 	if err != nil {
 		return err
 	}
@@ -219,6 +219,9 @@ func (s *Service) reconcile(state *repository.CodexAccountStore, files repositor
 func (s *Service) Mutate(ctx context.Context, action, id string, request model.CodexAccountMutation) (*model.CodexAccountResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if request.Force && action != "activate" {
+		return nil, fmt.Errorf("force is only supported when activating a Codex account")
+	}
 	if _, err := uuid.Parse(request.OperationID); err != nil {
 		return nil, fmt.Errorf("operation_id must be a UUID: %w", err)
 	}
@@ -253,7 +256,7 @@ func (s *Service) Mutate(ctx context.Context, action, id string, request model.C
 			return nil, fmt.Errorf("%w: interrupted replacement requires recovery", ErrConflict)
 		}
 		if s.recoveryRelease == nil {
-			s.recoveryRelease, err = s.options.Acquire(ctx)
+			s.recoveryRelease, err = s.options.Acquire(ctx, false)
 			if err != nil {
 				return nil, err
 			}
@@ -345,7 +348,23 @@ func (s *Service) Mutate(ctx context.Context, action, id string, request model.C
 	currentID := s.response(state, files, env).Current.ManagedID
 	filesChanged := action == "activate" || action == "restore" || action == "update" && id != "" && id == currentID && (request.AuthJSON != nil || request.ConfigTOML != nil || request.RemoveConfig)
 	if filesChanged {
-		release, err := s.options.Acquire(ctx)
+		if request.Force {
+			// Reject an unusable target before interrupting active operations.
+			config := files.Config
+			if request.ApplyConfig {
+				if candidate.Config == nil {
+					return nil, fmt.Errorf("this account has no config.toml; choose login-only switching")
+				}
+				config = candidate.Config
+			}
+			if err := applicationConflict(config, env); err != nil {
+				return nil, err
+			}
+			if _, _, err := describe(candidate.Auth, config); err != nil {
+				return nil, err
+			}
+		}
+		release, err := s.options.Acquire(ctx, request.Force)
 		if err != nil {
 			return nil, err
 		}
@@ -362,8 +381,19 @@ func (s *Service) Mutate(ctx context.Context, action, id string, request model.C
 			return nil, err
 		}
 		if latest.Revision() != files.Revision() {
-			return nil, fmt.Errorf("%w: Codex files changed while acquiring execution access; refresh and retry", ErrConflict)
+			conflict := fmt.Errorf("%w: Codex files changed while acquiring execution access; refresh and retry", ErrConflict)
+			if !request.Force || files.Auth == nil || latest.Auth == nil || !sameText(files.Config, latest.Config) {
+				return nil, conflict
+			}
+			_, previousIdentity, previousErr := describe(*files.Auth, files.Config)
+			_, latestIdentity, latestErr := describe(*latest.Auth, latest.Config)
+			if previousErr != nil || latestErr != nil || previousIdentity != latestIdentity {
+				return nil, errors.Join(conflict, previousErr, latestErr)
+			}
 		}
+		// A forced stop may flush the old process's final token rotation.
+		// Preserve those latest files in the account and recovery snapshot.
+		files = latest
 		s.reconcile(state, files)
 		if action == "activate" {
 			candidate = state.Accounts[index]
