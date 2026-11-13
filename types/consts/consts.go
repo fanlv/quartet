@@ -39,6 +39,7 @@ const (
 	EnvKeyNoBrowser               = "NO_BROWSER"                 // disable automatic browser login in ACP probes and web authentication
 	EnvKeyBrowser                 = "BROWSER"                    // browser command used by agents; probes replace it with a no-op
 	EnvKeyGeminiAPIKey            = "GEMINI_API_KEY"             // Gemini API-key authentication
+	EnvKeyGeminiCLIHome           = "GEMINI_CLI_HOME"            // Gemini/Antigravity CLI configuration and credential root (default ~/.gemini)
 	EnvKeyOpenAIAPIKey            = "OPENAI_API_KEY"             // OpenAI API-key authentication
 )
 

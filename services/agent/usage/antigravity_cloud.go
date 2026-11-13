@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -23,8 +22,6 @@ import (
 
 const (
 	antigravityOAuthTokenURL = "https://oauth2.googleapis.com/token"
-	antigravityOAuthFileRel  = "antigravity-cli/antigravity-oauth-token"
-	antigravityRefreshLeeway = 60 * time.Second
 	antigravityCloudTimeout  = 25 * time.Second
 )
 
@@ -43,66 +40,30 @@ var antigravityCloudHosts = []string{
 	"https://cloudcode-pa.googleapis.com",
 }
 
-type antigravityOAuthFile struct {
-	Token      antigravityOAuthToken `json:"token"`
-	AuthMethod string                `json:"auth_method,omitempty"`
-}
-
-type antigravityOAuthToken struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token,omitempty"`
-	TokenType    string `json:"token_type,omitempty"`
-	Expiry       string `json:"expiry,omitempty"`
-}
-
-func (t antigravityOAuthToken) expired() bool {
-	if t.AccessToken == "" {
-		return true
-	}
-	if t.Expiry == "" {
-		return false
-	}
-	exp, err := time.Parse(time.RFC3339Nano, t.Expiry)
-	if err != nil {
-		exp, err = time.Parse(time.RFC3339, t.Expiry)
-	}
-	if err != nil {
-		return false
-	}
-	return time.Now().After(exp.Add(-antigravityRefreshLeeway))
-}
-
-func antigravityOAuthPath() string {
-	root := strings.TrimSpace(os.Getenv("GEMINI_CLI_HOME"))
-	if root == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		root = filepath.Join(home, ".gemini")
-	}
-	return filepath.Join(root, antigravityOAuthFileRel)
-}
-
 // cloudCodeAntigravityUsage reads the local agy OAuth token, refreshes it when
 // needed, and calls Cloud Code RetrieveUserQuotaSummary. This is the path that
 // works for agy 1.2+ when the loopback language server requires a CSRF token
 // that is never exposed on the process command line.
 func (s *serviceImpl) cloudCodeAntigravityUsage(ctx context.Context) (*model.AntigravityUsage, error) {
+	// Serialize credential reads and refreshes so concurrent usage polls cannot
+	// overwrite a newly refreshed token with an older credential snapshot.
+	s.agyOAuthMu.Lock()
+	defer s.agyOAuthMu.Unlock()
+
 	client := &http.Client{
 		Timeout:   antigravityCloudTimeout,
 		Transport: s.antigravityCloudTransport(ctx),
 	}
-	path, creds, err := loadAntigravityOAuth()
+	creds, err := loadAntigravityOAuth(ctx)
 	if err != nil {
 		return nil, err
 	}
 	token := creds.Token.AccessToken
 	if creds.Token.expired() {
 		if creds.Token.RefreshToken == "" {
-			return nil, fmt.Errorf("agy Cloud Code token expired and has no refresh token (path %s)", path)
+			return nil, fmt.Errorf("agy Cloud Code token expired and has no refresh token (source %s)", creds.source)
 		}
-		token, err = refreshAntigravityOAuth(ctx, client, path, creds)
+		token, err = refreshAntigravityOAuth(ctx, client, creds)
 		if err != nil {
 			return nil, err
 		}
@@ -110,7 +71,7 @@ func (s *serviceImpl) cloudCodeAntigravityUsage(ctx context.Context) (*model.Ant
 
 	body, err := fetchAntigravityCloudQuota(ctx, client, token)
 	if err != nil && isAntigravityUnauthorized(err) && creds.Token.RefreshToken != "" {
-		token, err = refreshAntigravityOAuth(ctx, client, path, creds)
+		token, err = refreshAntigravityOAuth(ctx, client, creds)
 		if err != nil {
 			return nil, err
 		}
@@ -122,26 +83,7 @@ func (s *serviceImpl) cloudCodeAntigravityUsage(ctx context.Context) (*model.Ant
 	return parseAntigravityQuota(body)
 }
 
-func loadAntigravityOAuth() (string, *antigravityOAuthFile, error) {
-	path := antigravityOAuthPath()
-	if path == "" {
-		return "", nil, fmt.Errorf("resolve agy OAuth token path failed")
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return "", nil, fmt.Errorf("read %s failed (run `agy` and sign in): %w", path, err)
-	}
-	var creds antigravityOAuthFile
-	if err := json.Unmarshal(raw, &creds); err != nil {
-		return "", nil, fmt.Errorf("parse %s failed: %w", path, err)
-	}
-	if creds.Token.AccessToken == "" && creds.Token.RefreshToken == "" {
-		return "", nil, fmt.Errorf("%s has no access_token or refresh_token (run `agy` and sign in)", path)
-	}
-	return path, &creds, nil
-}
-
-func refreshAntigravityOAuth(ctx context.Context, client *http.Client, path string, creds *antigravityOAuthFile) (string, error) {
+func refreshAntigravityOAuth(ctx context.Context, client *http.Client, creds *antigravityOAuthCredentials) (string, error) {
 	clientIDs, clientSecrets, err := agyOAuthClients()
 	if err != nil {
 		return "", err
@@ -207,8 +149,9 @@ func refreshAntigravityOAuth(ctx context.Context, client *http.Client, path stri
 	creds.Token.RefreshToken = tok.RefreshToken
 	creds.Token.TokenType = tok.TokenType
 	creds.Token.Expiry = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second).Format(time.RFC3339Nano)
-	if raw, err := json.MarshalIndent(creds, "", "  "); err == nil {
-		_ = os.WriteFile(path, raw, 0o600)
+	creds.Token.ExpiresIn = tok.ExpiresIn
+	if err := creds.saveToken(ctx); err != nil {
+		return "", fmt.Errorf("save refreshed agy OAuth token to %s failed: %w", creds.source, err)
 	}
 	return tok.AccessToken, nil
 }

@@ -59,6 +59,7 @@ type serviceImpl struct {
 	agyMu       sync.Mutex
 	agyCache    *model.AntigravityUsage
 	agyCachedAt time.Time
+	agyOAuthMu  sync.Mutex
 
 	// CodeBuddy quota changes slowly (a monthly cumulative spend), so
 	// CodeBuddyUsage caches the last successful snapshot for a short TTL
