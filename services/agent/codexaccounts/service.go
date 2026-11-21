@@ -186,19 +186,9 @@ func (s *Service) reconcile(state *repository.CodexAccountStore, files repositor
 			continue
 		}
 		changed := false
-		previous := account.Auth
-		if previous != *files.Auth {
-			account.Auth = *files.Auth
-			account.Info.UpdatedAt = time.Now().UnixMilli()
+		if account.Auth != *files.Auth && !olderCredentials(*files.Auth, account.Auth) {
+			s.replaceAccountAuth(state, i, *files.Auth)
 			changed = true
-			previousRefresh := refreshToken(previous)
-			for j := range state.Accounts {
-				other := &state.Accounts[j]
-				if other.Info.ID != account.Info.ID && other.Identity == identity && previousRefresh != "" && refreshToken(other.Auth) == previousRefresh {
-					other.Auth = *files.Auth
-					other.Info.UpdatedAt = account.Info.UpdatedAt
-				}
-			}
 		}
 		if state.ConfigApplied && !sameText(account.Config, files.Config) {
 			account.Config = files.Config
@@ -214,6 +204,23 @@ func (s *Service) reconcile(state *repository.CodexAccountStore, files repositor
 		return changed
 	}
 	return false
+}
+
+func (s *Service) replaceAccountAuth(state *repository.CodexAccountStore, index int, auth string) {
+	account := &state.Accounts[index]
+	previousRefresh := refreshToken(account.Auth)
+	account.Auth = auth
+	account.Info.UpdatedAt = time.Now().UnixMilli()
+	if previousRefresh == "" {
+		return
+	}
+	for i := range state.Accounts {
+		other := &state.Accounts[i]
+		if i != index && other.Identity == account.Identity && refreshToken(other.Auth) == previousRefresh && !olderCredentials(auth, other.Auth) {
+			other.Auth = auth
+			other.Info.UpdatedAt = account.Info.UpdatedAt
+		}
+	}
 }
 
 func (s *Service) Mutate(ctx context.Context, action, id string, request model.CodexAccountMutation) (*model.CodexAccountResponse, error) {
@@ -280,7 +287,7 @@ func (s *Service) Mutate(ctx context.Context, action, id string, request model.C
 	if state.OperationHashes == nil {
 		state.OperationHashes = map[string]string{}
 	}
-	state.OperationHashes[request.OperationID] = mutationHash(action, id, request)
+	requestHash := mutationHash(action, id, request)
 	index := -1
 	for i := range state.Accounts {
 		if state.Accounts[i].Info.ID == id {
@@ -429,12 +436,21 @@ func (s *Service) Mutate(ctx context.Context, action, id string, request model.C
 				return nil, err
 			}
 		}
+		if action == "activate" && accessTokenExpired(*after.Auth) {
+			if err := s.prepareExpiredAccount(ctx, state, index, files, &after, env); err != nil {
+				return nil, err
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
 		before := repository.CodexAccountBackup{Files: files, ManagedID: state.ActiveID, ConfigApplied: state.ConfigApplied}
 		if s.response(state, files, env).Current.ManagedID == "" {
 			before.ManagedID = ""
 		}
 		transaction := &repository.CodexAccountTransaction{Before: before, After: after, Operation: operation}
 		state.Pending = transaction
+		state.OperationHashes[request.OperationID] = requestHash
 		state.Revision++
 		if err := s.repo.Save(state); err != nil {
 			return nil, err
@@ -484,6 +500,7 @@ func (s *Service) Mutate(ctx context.Context, action, id string, request model.C
 		}
 	}
 	state.Revision++
+	state.OperationHashes[request.OperationID] = requestHash
 	appendOperation(state, operation)
 	if err := s.repo.Save(state); err != nil {
 		if filesChanged {
@@ -556,14 +573,48 @@ func (s *Service) failedTransaction(cause error) error {
 
 func sameText(a, b *string) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }
 
+type codexAuthFile struct {
+	Mode        string          `json:"auth_mode"`
+	APIKey      string          `json:"OPENAI_API_KEY"`
+	LastRefresh json.RawMessage `json:"last_refresh"`
+	Tokens      *struct {
+		Access  string `json:"access_token"`
+		Refresh string `json:"refresh_token"`
+		ID      string `json:"id_token"`
+		Account string `json:"account_id"`
+	} `json:"tokens"`
+}
+
 func refreshToken(raw string) string {
-	var auth struct {
-		Tokens struct {
-			Refresh string `json:"refresh_token"`
-		} `json:"tokens"`
+	var auth codexAuthFile
+	if err := json.Unmarshal([]byte(raw), &auth); err != nil || auth.Tokens == nil {
+		return ""
 	}
-	_ = json.Unmarshal([]byte(raw), &auth)
 	return auth.Tokens.Refresh
+}
+
+func olderCredentials(candidate, current string) bool {
+	var candidateAuth, currentAuth codexAuthFile
+	if json.Unmarshal([]byte(candidate), &candidateAuth) != nil || json.Unmarshal([]byte(current), &currentAuth) != nil {
+		return false
+	}
+	var candidateTime, currentTime time.Time
+	if candidateTime.UnmarshalJSON(candidateAuth.LastRefresh) != nil || currentTime.UnmarshalJSON(currentAuth.LastRefresh) != nil {
+		return false
+	}
+	return !candidateTime.IsZero() && !currentTime.IsZero() && candidateTime.Before(currentTime)
+}
+
+func decodeClaims(token string, claims any) error {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return fmt.Errorf("expected a JWT")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(payload, claims)
 }
 
 func describe(auth string, config *string) (model.CodexAccount, string, error) {
@@ -576,16 +627,7 @@ func describe(auth string, config *string) (model.CodexAccount, string, error) {
 		info.Model, _ = parsed["model"].(string)
 		info.Provider, _ = parsed["model_provider"].(string)
 	}
-	var parsed struct {
-		Mode   string `json:"auth_mode"`
-		APIKey string `json:"OPENAI_API_KEY"`
-		Tokens *struct {
-			Access  string `json:"access_token"`
-			Refresh string `json:"refresh_token"`
-			ID      string `json:"id_token"`
-			Account string `json:"account_id"`
-		} `json:"tokens"`
-	}
+	var parsed codexAuthFile
 	if err := json.Unmarshal([]byte(auth), &parsed); err != nil {
 		return info, "", fmt.Errorf("parse auth.json: %w", err)
 	}
@@ -600,14 +642,6 @@ func describe(auth string, config *string) (model.CodexAccount, string, error) {
 	if parsed.Mode != "" && parsed.Mode != "chatgpt" {
 		return info, "", fmt.Errorf("unsupported file authentication mode %q; managed ChatGPT or API-key credentials are required", parsed.Mode)
 	}
-	parts := strings.Split(parsed.Tokens.ID, ".")
-	if len(parts) != 3 {
-		return info, "", fmt.Errorf("auth.json tokens.id_token must be a JWT")
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
-	if err != nil {
-		return info, "", fmt.Errorf("decode auth.json ID-token claims: %w", err)
-	}
 	var claims struct {
 		Subject string `json:"sub"`
 		Email   string `json:"email"`
@@ -616,7 +650,7 @@ func describe(auth string, config *string) (model.CodexAccount, string, error) {
 			Account string `json:"chatgpt_account_id"`
 		} `json:"https://api.openai.com/auth"`
 	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
+	if err := decodeClaims(parsed.Tokens.ID, &claims); err != nil {
 		return info, "", fmt.Errorf("parse auth.json ID-token claims: %w", err)
 	}
 	user := claims.Auth.User

@@ -87,7 +87,7 @@ func (s *Service) Login(request model.CodexAccountMutation) (model.CodexAccountL
 	ctx, cancel := context.WithTimeout(root, 10*time.Minute)
 	attempt := &loginAttempt{view: model.CodexAccountLogin{ID: request.OperationID, Name: name, Status: "running"}, note: request.Note, cancel: cancel}
 	cmd := executil.CommandContext(ctx, program, "login", "--device-auth")
-	configureLoginProcess(cmd)
+	configureCodexProcess(cmd)
 	cmd.Dir = home
 	cmd.Env = os.Environ()
 	for key, value := range env {

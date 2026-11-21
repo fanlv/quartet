@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func configureLoginProcess(cmd *exec.Cmd) {
+func configureCodexProcess(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = 3 * time.Second
 	cmd.Cancel = func() error {
