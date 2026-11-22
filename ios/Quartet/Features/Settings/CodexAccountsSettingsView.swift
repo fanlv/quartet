@@ -6,14 +6,16 @@ import UIKit
 struct CodexAccountsSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var snapshot: CodexAccountsResponse?
+    @State private var scrollPosition = ScrollPosition()
     @State private var isLoading = true
     @State private var isBusy = false
     @State private var generation = 0
     @State private var errorDetail = ""
     @State private var message: AgentSettingsMessage?
-    @State private var showsSheet = false
-    @State private var page: SheetPage = .form("import", nil)
+    @State private var page: SheetPage?
     @State private var name = ""
     @State private var note = ""
     @State private var authText: String?
@@ -33,12 +35,16 @@ struct CodexAccountsSettingsView: View {
     @State private var login: CodexAccountLogin?
     @State private var loginRetry = 0
 
-    private enum SheetPage {
+    private enum SheetPage: Identifiable {
+        case currentDetails(CodexAccountCurrent)
         case actions(CodexAccount)
         case form(String, CodexAccount?)
-        case activate(CodexAccount)
+        case activate(CodexAccount, from: CodexAccountCurrent, appliesCurrentConfig: Bool)
         case login
         case error
+
+        // Steps share one presentation, including transitions from actions to confirmation.
+        var id: Int { 0 }
     }
 
     var body: some View {
@@ -56,8 +62,11 @@ struct CodexAccountsSettingsView: View {
             generation += 1
             snapshot = nil
             login = nil
+            message = nil
+            errorDetail = ""
             clearFiles()
-            showsSheet = false
+            page = nil
+            isLoading = true
             isBusy = false
             await load()
         }
@@ -73,7 +82,9 @@ struct CodexAccountsSettingsView: View {
                 if scenePhase == .active { await load() }
             }
         }
-        .sheet(isPresented: $showsSheet, onDismiss: { clearFiles() }) { sheet }
+        .sheet(item: $page, onDismiss: { clearFiles() }) { presentedPage in
+            sheet(for: page ?? presentedPage)
+        }
         .alert("恢复登录态", isPresented: $confirmsRestore) {
             Button("关闭", role: .cancel) {}
             Button("恢复登录态", role: .destructive) { Task { await mutate("restore") } }
@@ -87,11 +98,12 @@ struct CodexAccountsSettingsView: View {
             VStack(spacing: 16) {
                 if let message { AgentSettingsMessageView(message) }
                 if let current = snapshot?.current { currentCard(current) }
+                if let snapshot { savedAccounts(snapshot) }
                 AgentSettingsCard {
                     action("导入账号", icon: "square.and.arrow.down", id: "codex-account-import") { openForm("import") }
                     agentSettingsDivider()
                     action(login?.status == "running" ? "设备码登录" : "登录新账号", icon: "person.badge.plus", id: "codex-account-login") {
-                        if login?.status == "running" { page = .login; showsSheet = true; loginRetry += 1 }
+                        if login?.status == "running" { page = .login; loginRetry += 1 }
                         else { openForm("login") }
                     }
                     agentSettingsDivider()
@@ -102,18 +114,10 @@ struct CodexAccountsSettingsView: View {
                         action("恢复上次切换前状态", icon: "arrow.uturn.backward", id: "codex-account-restore") { freezeIntent(); confirmsRestore = true }
                     }
                 }
-                if snapshot?.accounts.isEmpty == true {
-                    AgentSettingsCard {
-                        agentSettingsFieldLabel("还没有保存的账号")
-                        agentSettingsHint("上传 auth.json、直接登录，或保存后端本机的当前账号。config.toml 可以按需附带。")
-                    }
-                }
-                ForEach(snapshot?.accounts ?? []) { account in
-                    accountCard(account)
-                }
             }
             .padding(18)
         }
+        .scrollPosition($scrollPosition)
         .refreshable { await load() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -126,97 +130,242 @@ struct CodexAccountsSettingsView: View {
                     .accessibilityLabel("刷新状态".localizedForApp)
                     .accessibilityIdentifier("codex-account-refresh")
             }
+            .sharedBackgroundVisibility(.hidden)
         }
     }
 
     private func currentCard(_ current: CodexAccountCurrent) -> some View {
-        AgentSettingsCard("后端当前账号", systemImage: "person.crop.circle") {
-            Text(current.account?.name ?? current.account?.email ?? "本机账号".localizedForApp)
-                .font(.quartet(.control, weight: .semibold))
-                .foregroundStyle(QuartetTheme.primaryText)
-            agentSettingsHint(statusTitle(current.status))
-            if let email = current.account?.email { detail(email) }
+        let errors = [current.error, current.blockedReason, current.validationError].compactMap { $0 }
+        return AgentSettingsCard("当前 Codex 账号", systemImage: "person.crop.circle") {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    currentIdentity(current)
+                    if current.status == "external" { agentSettingsHint(statusTitle(current.status)) }
+                    if !current.availability.isEmpty {
+                        agentSettingsHint(availabilityTitle(current.availability))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                iconButton("info.circle", label: "状态详情".localizedForApp, id: "codex-account-current-details") {
+                    page = .currentDetails(current)
+                }
+            }
+            if !errors.isEmpty {
+                errorButton(errors.joined(separator: "\n\n"), title: "查看错误详情".localizedForApp)
+            }
+        }
+    }
+
+    private func savedAccounts(_ snapshot: CodexAccountsResponse) -> some View {
+        AgentSettingsCard("已保存的账号") {
+            if snapshot.accounts.isEmpty {
+                agentSettingsHint("登录、导入或保存当前账号后，可在这里切换。")
+            } else {
+                VStack(spacing: 6) {
+                    ForEach(Array(snapshot.accounts.enumerated()), id: \.element.id) { index, account in
+                        if index > 0 { agentSettingsDivider() }
+                        accountRow(account, snapshot: snapshot)
+                    }
+                }
+            }
+        }
+    }
+
+    private func accountRow(_ account: CodexAccount, snapshot: CodexAccountsResponse) -> some View {
+        let isCurrent = account.id == snapshot.current.managedId
+        let sharesNameAndEmail = snapshot.accounts.contains {
+            $0.id != account.id && $0.name == account.name && $0.email == account.email
+        }
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+            : AnyLayout(HStackLayout(spacing: 8))
+
+        return layout {
+            accountIdentity(account, showsWorkspace: sharesNameAndEmail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 4) {
+                if isCurrent {
+                    Label("当前使用", systemImage: "checkmark")
+                        .font(.quartet(.detail, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.accent)
+                        .accessibilityIdentifier("codex-account-active-\(account.id)")
+                } else {
+                    Button {
+                        openActivation(account, from: snapshot.current)
+                    } label: {
+                        Text("切换")
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.accent)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(QuartetTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isBusy)
+                    .accessibilityLabel(AppLanguage.localizedFormat("切换到 %@", accountTitle(account)))
+                    .accessibilityIdentifier("codex-account-switch-\(account.id)")
+                }
+                iconButton(
+                    "ellipsis",
+                    label: AppLanguage.localizedFormat("%@ 的账号操作", accountTitle(account)),
+                    id: "codex-account-actions-\(account.id)"
+                ) {
+                    freezeIntent()
+                    page = .actions(account)
+                }
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    @ViewBuilder
+    private func currentIdentity(_ current: CodexAccountCurrent, showsWorkspace: Bool = false) -> some View {
+        if let account = current.account {
+            accountIdentity(account, showsWorkspace: showsWorkspace)
+        } else {
+            identityTitle(statusTitle(current.status).localizedForApp)
+        }
+    }
+
+    private func accountIdentity(_ account: CodexAccount, showsWorkspace: Bool = false) -> some View {
+        let title = accountTitle(account)
+        return VStack(alignment: .leading, spacing: 4) {
+            identityTitle(title)
+            if let email = account.email, !email.isEmpty, email.caseInsensitiveCompare(title) != .orderedSame {
+                agentSettingsHint(email)
+            }
+            if showsWorkspace {
+                if !account.note.isEmpty { agentSettingsHint(account.note) }
+                if let workspace = account.workspaceId { AgentSettingsMonoRow(label: "ChatGPT 工作空间", value: workspace) }
+            }
+        }
+    }
+
+    private func accountTitle(_ account: CodexAccount) -> String {
+        if !account.name.isEmpty { return account.name }
+        if let email = account.email, !email.isEmpty { return email }
+        return (account.authType == "api_key" ? "API Key 登录" : "ChatGPT 登录").localizedForApp
+    }
+
+    private func identityTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.quartet(.control, weight: .semibold))
+            .foregroundStyle(QuartetTheme.primaryText)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func currentDetails(_ current: CodexAccountCurrent) -> some View {
+        AgentSettingsCard {
+            currentIdentity(current)
+            if current.account != nil { agentSettingsHint(statusTitle(current.status)) }
             AgentSettingsMonoRow(label: "目录", value: current.home)
             detail("auth.json: \((current.hasAuth ? "已存在" : "缺失").localizedForApp) · config.toml: \((current.hasConfig ? "已存在" : "缺失").localizedForApp)")
             detail("\("Agent 可用性".localizedForApp): \(availabilityTitle(current.availability).localizedForApp)")
-            if let value = current.error { errorButton(value) }
-            if let value = current.blockedReason { errorButton(value) }
-            if let value = current.validationError { errorButton(value) }
             agentSettingsHint("账号库由此 Quartet 后端共享。切换影响后续 Codex 执行；请先退出使用同一目录的外部 Codex CLI 或 IDE 会话。")
         }
     }
 
-    private func accountCard(_ account: CodexAccount) -> some View {
-        AgentSettingsCard {
-            HStack(alignment: .firstTextBaseline) {
-                Text(account.name).font(.quartet(.control, weight: .semibold)).foregroundStyle(QuartetTheme.primaryText)
-                Spacer(minLength: 8)
-                if snapshot?.current.managedId == account.id {
-                    Text("当前使用").font(.quartet(.detail, weight: .semibold)).foregroundStyle(QuartetTheme.accent)
-                }
-            }
-            detail(account.email ?? (account.authType == "api_key" ? "API Key 登录" : "ChatGPT 登录").localizedForApp)
-            if let workspace = account.workspaceId { AgentSettingsMonoRow(label: "ChatGPT 工作空间", value: workspace) }
-            if !account.note.isEmpty { detail(account.note) }
+    private func accountDetails(_ account: CodexAccount) -> some View {
+        AgentSettingsCard("账号详情") {
+            accountIdentity(account, showsWorkspace: true)
+            agentSettingsHint(account.authType == "api_key" ? "API Key 登录" : "ChatGPT 登录")
             agentSettingsHint(account.hasConfig ? "附带 config.toml" : "仅登录态")
             if let selectedModel = account.model { detail(selectedModel) }
             if let provider = account.provider { detail(provider) }
             detail("\("更新时间".localizedForApp): \(formattedDate(account.updatedAt))")
             detail("\("最近使用".localizedForApp): \(account.lastUsedAt.map(formattedDate) ?? "尚未使用".localizedForApp)")
-            action("账号操作", icon: "ellipsis", id: "codex-account-actions-\(account.id)") {
-                freezeIntent(); page = .actions(account); showsSheet = true
+        }
+    }
+
+    private func activationContent(_ account: CodexAccount, from current: CodexAccountCurrent, appliesCurrentConfig: Bool) -> some View {
+        let showsWorkspace = current.account.map {
+            accountTitle($0) == accountTitle(account) || ($0.email != nil && $0.email == account.email)
+        } ?? false
+
+        return AgentSettingsCard {
+            if appliesCurrentConfig {
+                accountIdentity(account)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    agentSettingsFieldLabel("当前账号")
+                    currentIdentity(current, showsWorkspace: showsWorkspace)
+                }
+                agentSettingsDivider()
+                VStack(alignment: .leading, spacing: 4) {
+                    agentSettingsFieldLabel("目标账号")
+                    accountIdentity(account, showsWorkspace: showsWorkspace)
+                }
+                agentSettingsHint("切换后，此服务器新启动的 Codex 任务会使用所选账号。")
+            }
+            if account.hasConfig && !appliesCurrentConfig {
+                agentSettingsDivider()
+                Toggle("同时应用此账号的配置", isOn: $applyConfig)
+                    .toggleStyle(QuartetCheckmarkToggleStyle())
+                    .font(.quartet(.control))
+                    .frame(minHeight: 44)
+                    .disabled(isBusy)
+                    .accessibilityIdentifier("codex-account-apply-config")
+            }
+            agentSettingsHint(applyConfig ? "将整份替换用户级配置，包括模型、MCP 和权限设置。" : "仅应用此账号的登录状态。")
+            primaryButton(
+                appliesCurrentConfig ? "应用账号配置" : "确认切换",
+                id: "codex-account-confirm-switch",
+                busyTitle: appliesCurrentConfig ? "正在处理…" : "正在切换账号…"
+            ) {
+                Task { await mutate("activate", account: account, appliesCurrentConfig: appliesCurrentConfig) }
             }
         }
     }
 
-    @ViewBuilder private var sheet: some View {
+    @ViewBuilder private func sheet(for page: SheetPage) -> some View {
         if case .error = page {
             AgentSettingsErrorSheet(error: PresentedError(title: "操作失败", detail: errorDetail))
+                .quartetSheetStyle()
         } else {
+            let title = sheetTitle(for: page)
             NavigationStack {
                 ScrollView {
                     VStack(spacing: 16) {
                         switch page {
+                        case .currentDetails(let current):
+                            currentDetails(current)
                         case .actions(let account):
                             AgentSettingsCard {
-                                if snapshot?.current.managedId != account.id || account.hasConfig {
-                                    action(snapshot?.current.managedId == account.id ? "应用账号配置" : "切换到此账号", icon: "arrow.left.arrow.right", id: "codex-account-activate") { applyConfig = snapshot?.current.managedId == account.id; page = .activate(account) }
+                                if let current = snapshot?.current, current.managedId == account.id, account.hasConfig {
+                                    action("应用账号配置", icon: "slider.horizontal.3", id: "codex-account-activate") {
+                                        openActivation(account, from: current, appliesCurrentConfig: true)
+                                    }
                                     agentSettingsDivider()
                                 }
                                 action("编辑与更新文件", icon: "square.and.pencil", id: "codex-account-edit") { openForm("update", account: account) }
                                 agentSettingsDivider()
                                 action("删除", icon: "trash", id: "codex-account-delete") { deleteAccount = account; confirmsDelete = true }
                             }
+                            accountDetails(account)
                         case .form(let mode, let account):
                             formContent(mode, account: account)
-                        case .activate(let account):
-                            AgentSettingsCard {
-                                detail(account.name)
-                                agentSettingsHint("先保存当前最新登录态并保留恢复快照，再应用新账号。执行中的 Codex 任务、登录或验证会阻止切换。")
-                                if account.hasConfig {
-                                    Toggle("同时应用此账号的 config.toml", isOn: $applyConfig)
-                                        .toggleStyle(QuartetCheckmarkToggleStyle())
-                                        .font(.quartet(.control))
-                                        .accessibilityIdentifier("codex-account-apply-config")
-                                }
-                                agentSettingsHint(applyConfig ? "将整份替换用户级配置，包括模型、MCP 和权限设置。" : "仅替换 auth.json，保留本机当前 config.toml。")
-                                primaryButton("切换到此账号", id: "codex-account-confirm-switch") { Task { await mutate("activate", account: account) } }
-                            }
+                        case .activate(let account, let current, let appliesCurrentConfig):
+                            activationContent(account, from: current, appliesCurrentConfig: appliesCurrentConfig)
                         case .login: loginContent
                         case .error: EmptyView()
                         }
-                    }.padding(18)
+                    }
+                    .padding(18)
+                    .animation(reduceMotion ? nil : .snappy, value: title)
                 }
                 .background(QuartetTheme.canvas)
-                .quartetNavigationTitle(sheetTitle)
+                .quartetNavigationTitle(title)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button { showsSheet = false } label: { Image(systemName: "xmark") }
+                        Button { self.page = nil } label: { Image(systemName: "xmark") }
                             .buttonStyle(.plain).font(.quartet(.control)).foregroundStyle(QuartetTheme.accent)
                             .frame(minHeight: 44).disabled(isBusy)
                             .accessibilityLabel("关闭".localizedForApp)
                             .accessibilityIdentifier("codex-account-close")
                     }
+                    .sharedBackgroundVisibility(.hidden)
                 }
             }
             .quartetSheetStyle()
@@ -287,10 +436,11 @@ struct CodexAccountsSettingsView: View {
         }
     }
 
-    private var sheetTitle: String {
+    private func sheetTitle(for page: SheetPage) -> String {
         switch page {
+        case .currentDetails: "状态详情"
         case .actions: "账号操作"
-        case .activate: "切换账号"
+        case .activate(_, _, let appliesCurrentConfig): appliesCurrentConfig ? "应用账号配置" : "切换账号"
         case .login: "设备码登录"
         case .error: "操作失败"
         case .form(let mode, _): mode == "login" ? "登录新账号" : mode == "capture" ? "保存本机当前账号" : mode == "update" ? "编辑账号" : "导入账号"
@@ -309,19 +459,49 @@ struct CodexAccountsSettingsView: View {
         }.buttonStyle(.plain).disabled(isBusy).accessibilityIdentifier(id)
     }
 
-    private func primaryButton(_ title: String, id: String, perform: @escaping () -> Void) -> some View {
+    private func iconButton(_ systemImage: String, label: String, id: String, perform: @escaping () -> Void) -> some View {
         Button(action: perform) {
-            HStack { if isBusy { ProgressView().tint(QuartetTheme.onAccent) }; Text(LocalizedStringKey(isBusy ? "正在处理…" : title)) }
-                .font(.quartet(.control, weight: .semibold)).foregroundStyle(QuartetTheme.onAccent)
-                .frame(maxWidth: .infinity, minHeight: 48)
-                .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 14))
+            Image(systemName: systemImage)
+                .font(.quartet(.control, weight: .semibold))
+                .foregroundStyle(QuartetTheme.secondaryText)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(id)
+    }
+
+    private func primaryButton(_ title: String, id: String, busyTitle: String = "正在处理…", perform: @escaping () -> Void) -> some View {
+        Button(action: perform) {
+            HStack {
+                if isBusy { ProgressView().tint(QuartetTheme.onAccent) }
+                Text(LocalizedStringKey(isBusy ? busyTitle : title))
+            }
+            .font(.quartet(.control, weight: .semibold))
+            .foregroundStyle(QuartetTheme.onAccent)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(QuartetTheme.accent, in: RoundedRectangle(cornerRadius: 14))
         }.buttonStyle(.plain).disabled(isBusy).accessibilityIdentifier(id)
     }
 
-    private func errorButton(_ detail: String) -> some View {
-        Button { errorDetail = detail; page = .error; showsSheet = true } label: {
-            Text(detail).font(.quartet(.detail)).foregroundStyle(QuartetTheme.failed).multilineTextAlignment(.leading)
+    private func errorButton(_ detail: String, title: String? = nil) -> some View {
+        Button { showError(detail) } label: {
+            Label(title ?? detail, systemImage: "exclamationmark.triangle")
+                .font(.quartet(.detail))
+                .foregroundStyle(QuartetTheme.failed)
+                .multilineTextAlignment(.leading)
         }.buttonStyle(.plain).frame(minHeight: 44).accessibilityIdentifier("codex-account-error")
+    }
+
+    private func showError(_ detail: String) {
+        if case .error? = page {
+            if !errorDetail.contains(detail) { errorDetail += "\n\n" + detail }
+        } else {
+            errorDetail = detail
+        }
+        page = .error
     }
 
     private func freezeIntent() {
@@ -332,7 +512,14 @@ struct CodexAccountsSettingsView: View {
     private func openForm(_ mode: String, account: CodexAccount? = nil) {
         clearFiles(); freezeIntent()
         name = account?.name ?? ""; note = account?.note ?? ""
-        page = .form(mode, account); showsSheet = true
+        page = .form(mode, account)
+    }
+
+    private func openActivation(_ account: CodexAccount, from current: CodexAccountCurrent, appliesCurrentConfig: Bool = false) {
+        clearFiles()
+        freezeIntent()
+        applyConfig = appliesCurrentConfig
+        page = .activate(account, from: current, appliesCurrentConfig: appliesCurrentConfig)
     }
 
     private func clearFiles() {
@@ -352,12 +539,14 @@ struct CodexAccountsSettingsView: View {
             snapshot = result; isLoading = false
         } catch {
             guard requestGeneration == generation, server == model.serverAddress, !Task.isCancelled else { return }
-            isLoading = false; errorDetail = (error as? APIError)?.detail ?? String(describing: error)
-            if snapshot != nil { page = .error; showsSheet = true }
+            isLoading = false
+            let detail = (error as? APIError)?.detail ?? String(describing: error)
+            if snapshot != nil { showError(detail) }
+            else { errorDetail = detail }
         }
     }
 
-    private func mutate(_ action: String, account: CodexAccount? = nil) async {
+    private func mutate(_ action: String, account: CodexAccount? = nil, appliesCurrentConfig: Bool = false) async {
         guard !isBusy, let snapshot else { return }
         isBusy = true; generation += 1
         let server = model.serverAddress
@@ -366,7 +555,7 @@ struct CodexAccountsSettingsView: View {
             revision: intentRevision.isEmpty ? snapshot.revision : intentRevision,
             liveRevision: intentLiveRevision.isEmpty ? snapshot.liveRevision : intentLiveRevision,
             name: name, note: note, authJson: authText, configToml: configText,
-            removeConfig: removeConfig, applyConfig: applyConfig
+            removeConfig: removeConfig, applyConfig: action == "activate" && applyConfig
         )
         do {
             let result = try await model.apiClient().mutateCodexAccount(action: action, accountID: account?.id, body: body)
@@ -376,12 +565,20 @@ struct CodexAccountsSettingsView: View {
                 model.codexAccountDidChange()
                 Task { await model.refreshAgentCatalog() }
             }
-            message = .success(result.warning ?? (action == "activate" || action == "restore" ? "文件已应用，Agent 可用性将重新检查。" : "账号记录已保存。").localizedForApp)
-            showsSheet = false; clearFiles()
+            if action == "activate", let account, !appliesCurrentConfig {
+                let confirmation = AppLanguage.localizedFormat("已切换到 %@。", accountTitle(account))
+                message = .success([confirmation, result.warning].compactMap { $0 }.joined(separator: "\n"))
+            } else {
+                message = .success(result.warning ?? (action == "activate" || action == "restore" ? "文件已应用，Agent 可用性将重新检查。" : "账号记录已保存。").localizedForApp)
+            }
+            page = nil
+            if action == "activate" || action == "restore" {
+                scrollPosition.scrollTo(edge: .top)
+            }
+            clearFiles()
         } catch {
             guard server == model.serverAddress, operationGeneration == generation else { return }
-            errorDetail = (error as? APIError)?.detail ?? String(describing: error)
-            page = .error; showsSheet = true
+            showError((error as? APIError)?.detail ?? String(describing: error))
         }
         guard server == model.serverAddress, operationGeneration == generation else { return }
         isBusy = false
@@ -403,13 +600,12 @@ struct CodexAccountsSettingsView: View {
                 }
                 return text
             }.value
-            guard server == model.serverAddress, requestFileGeneration == fileGeneration, showsSheet else { return }
+            guard server == model.serverAddress, requestFileGeneration == fileGeneration, page != nil else { return }
             if isConfig { configText = value; configFileName = url.lastPathComponent; removeConfig = false }
             else { authText = value; authFileName = url.lastPathComponent }
         } catch {
-            guard server == model.serverAddress, requestFileGeneration == fileGeneration, showsSheet else { return }
-            errorDetail = (error as? APIError)?.detail ?? String(describing: error)
-            page = .error; showsSheet = true
+            guard server == model.serverAddress, requestFileGeneration == fileGeneration, page != nil else { return }
+            showError((error as? APIError)?.detail ?? String(describing: error))
         }
     }
 
@@ -420,10 +616,12 @@ struct CodexAccountsSettingsView: View {
         do {
             let result = try await model.apiClient().startCodexAccountLogin(CodexAccountMutation(name: name, note: note))
             guard server == model.serverAddress else { return }
-            login = result.login; page = .login; clearFiles()
+            login = result.login
+            if page != nil { page = .login }
+            clearFiles()
         } catch {
             guard server == model.serverAddress else { return }
-            errorDetail = (error as? APIError)?.detail ?? String(describing: error); page = .error
+            showError((error as? APIError)?.detail ?? String(describing: error))
         }
         if server == model.serverAddress { isBusy = false }
     }
@@ -441,7 +639,7 @@ struct CodexAccountsSettingsView: View {
                 if result.login.status == "saved" { message = .success("新账号已保存，可在列表中选择切换。".localizedForApp); await load() }
             } catch {
                 guard server == model.serverAddress, !Task.isCancelled else { return }
-                errorDetail = (error as? APIError)?.detail ?? String(describing: error); page = .error; showsSheet = true
+                showError((error as? APIError)?.detail ?? String(describing: error))
                 return
             }
         }
@@ -453,7 +651,7 @@ struct CodexAccountsSettingsView: View {
         do { try await model.apiClient().cancelCodexAccountLogin(id: login.id) }
         catch {
             guard server == model.serverAddress else { return }
-            errorDetail = (error as? APIError)?.detail ?? String(describing: error); page = .error
+            showError((error as? APIError)?.detail ?? String(describing: error))
         }
     }
 
