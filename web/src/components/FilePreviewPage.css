@@ -703,6 +703,21 @@
   background: var(--surface);
 }
 
+.file-preview-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 12px;
+}
+
+.file-preview-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  -webkit-touch-callout: default;
+}
+
 .file-preview-pdf-frame {
   display: block;
   width: 100%;

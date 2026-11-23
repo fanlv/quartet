@@ -10,7 +10,7 @@ export interface FileContent {
   binary: boolean;
 }
 
-const imageExts = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico']);
+const imageExts = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico', '.avif', '.heic', '.heif']);
 
 export function isImageFile(name: string): boolean {
   const dot = name.lastIndexOf('.');
@@ -28,8 +28,21 @@ export function isPdfFile(name: string): boolean {
 // refused there, so they cannot be embedded either.
 export const maxEmbeddedFileSize = 10 * 1024 * 1024;
 
-export function buildServeFileUrl(path: string): string {
-  return `/api/v1/serve-file?path=${encodeURIComponent(path)}`;
+export function buildServeFileUrl(path: string, fileShareToken?: string): string {
+  const query = `path=${encodeURIComponent(path)}`;
+  return fileShareToken
+    ? `/api/v1/public/file-preview/serve-file?${query}&fileShareToken=${encodeURIComponent(fileShareToken)}`
+    : `/api/v1/serve-file?${query}`;
+}
+
+// File APIs take literal paths. A Markdown destination or a path pasted
+// from a URL can contain percent escapes, including encoded spaces.
+export function decodePathTarget(target: string): string {
+  try {
+    return decodeURIComponent(target);
+  } catch {
+    return target;
+  }
 }
 
 // Authenticated save. download=1 streams the file as an attachment with no
@@ -73,6 +86,7 @@ export function buildFilePreviewUrl(path: string, jobId?: string): string {
   url.searchParams.set('view', 'file-preview');
   url.searchParams.set('path', path);
   if (jobId) url.searchParams.set('jobId', jobId);
+  url.hash = '';
   return url.toString();
 }
 

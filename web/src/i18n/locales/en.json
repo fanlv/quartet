@@ -63,6 +63,11 @@
     "discardChanges": "Discard unsaved changes?",
     "saveFailed": "Could not save the file. Your changes are still in the editor.",
     "refreshFailed": "The file was saved, but could not be reloaded.",
+    "imageLoading": "Loading image…",
+    "imageLoadFailed": "Could not load the image",
+    "imageTooLarge": "This image is larger than 10 MB and cannot be embedded",
+    "supportedFormats": "This page supports images, PDF, HTML, Markdown, and UTF-8 text files.",
+    "preview": "Preview",
     "pdfTooLarge": "This PDF is larger than 10 MB and cannot be embedded",
     "pdfTooLargeHint": "Use the Download button in the top-right corner to view it locally.",
     "pdfFrameTitle": "{{name}} PDF preview"

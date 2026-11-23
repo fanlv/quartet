@@ -63,6 +63,11 @@
     "discardChanges": "放弃未保存的修改？",
     "saveFailed": "文件保存失败，修改仍保留在编辑器中。",
     "refreshFailed": "文件已保存，但重新读取失败。",
+    "imageLoading": "正在加载图片…",
+    "imageLoadFailed": "图片加载失败",
+    "imageTooLarge": "图片超过 10 MB，无法内嵌预览",
+    "supportedFormats": "此页面支持图片、PDF、HTML、Markdown 和 UTF-8 文本文件。",
+    "preview": "预览",
     "pdfTooLarge": "PDF 文件超过 10 MB，无法内嵌预览",
     "pdfTooLargeHint": "请使用右上角的“下载”按钮下载后查看。",
     "pdfFrameTitle": "{{name}} PDF 预览"

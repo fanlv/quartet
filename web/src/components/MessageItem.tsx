@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
 import { Message, UserMessage, AssistantMessage, ToolMessage, SystemMessage, MessageRoleEnum, MessageStatusEnum, ToolCallStatusEnum, type CommandSystemMessageEvent, type FileAttachment } from '../types';
 import { copyToClipboard } from '../utils/clipboard';
+import { buildFilePreviewUrl, decodePathTarget, fileNameFromPath } from '../utils/file';
 import { formatMessageTime } from '../utils/time';
 import { showToast } from '../utils/toast';
 import { useFileViewer } from '../hooks/useFileViewer';
@@ -16,9 +17,12 @@ import { AgentIdentityIcon } from './AgentIdentityIcon';
 import { MermaidDiagram } from './MermaidDiagram';
 import './MessageItem.css';
 
-type OpenFileViewerFn = (filePath: string, line?: number, endLine?: number) => void;
-const FileViewerContext = createContext<OpenFileViewerFn | null>(null);
+const FileViewerContext = createContext<{
+  jobId?: string;
+  open: (filePath: string, line?: number, endLine?: number) => void;
+} | null>(null);
 const WorkdirContext = createContext<string>('');
+const InsideMarkdownLinkContext = createContext(false);
 type OpenImageViewerFn = (image: { src: string; alt?: string }) => void;
 const ImageViewerContext = createContext<OpenImageViewerFn | null>(null);
 
@@ -104,6 +108,8 @@ interface MessageItemProps {
   shareToken?: string;
 }
 
+const FILE_LOCATION_SUFFIX = /#L(\d+)(?:-L?(\d+))?(?:C\d+)?$|:(\d+)(?:-(\d+))?(?::\d+)?$/;
+
 /**
  * Check whether a string looks like a local file path that should be rendered as a FileChip.
  *
@@ -120,20 +126,19 @@ interface MessageItemProps {
  * Examples that DON'T:    v2.1.96, 1.4K, 18:32:46, Makefile (no ext, no dot prefix)
  */
 function isLocalFileTarget(target: string): boolean {
-  // strip line/column/anchor suffixes before checking
-  const clean = target.replace(/[#:].*$/, '');
+  const clean = target.replace(FILE_LOCATION_SUFFIX, '');
+  if (clean.startsWith('//') || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(clean)) return false;
   const basename = clean.split('/').pop() || '';
   // Rule A: name.ext with letter-starting extension
   // Rule B: dotfile like .gitignore, .env
   const isDotfile = /^\.[a-zA-Z][\w.-]*$/.test(basename);
   const hasFileExt = /^.+\.[a-zA-Z]\w*$/.test(basename);
   if (!hasFileExt && !isDotfile) return false;
-  if (target.startsWith('/') && !target.startsWith('//')) return true;
-  if (target.startsWith('./') || target.startsWith('../')) return true;
+  if (clean.startsWith('/') || clean.startsWith('./') || clean.startsWith('../')) return true;
   // bare dotfile (e.g. .gitignore, .env)
   if (isDotfile) return true;
   // bare relative with file extension (e.g. src/foo.go, foo.ts:10)
-  if (/^[\w][\w./_-]*\.[a-zA-Z]+/.test(clean)) return true;
+  if (/^[\p{L}\p{M}\p{N}_%][\p{L}\p{M}\p{N}_./%+-]*\.[a-zA-Z]/u.test(clean)) return true;
   return false;
 }
 
@@ -148,16 +153,10 @@ function localFileTargetFromUrl(target: string): string | null {
   const host = url.hostname.toLowerCase();
   if (host && host !== 'localhost') return null;
 
-  let filePath: string;
-  try {
-    filePath = decodeURIComponent(url.pathname);
-  } catch {
-    return null;
-  }
-  if (!filePath.startsWith('/')) return null;
+  if (!url.pathname.startsWith('/')) return null;
 
   const lineSuffix = /^#L\d+(?:-L?\d+)?(?:C\d+)?$/.test(url.hash) ? url.hash : '';
-  return filePath + lineSuffix;
+  return url.pathname + lineSuffix;
 }
 
 function messageMarkdownUrlTransform(url: string, key: string): string {
@@ -165,30 +164,15 @@ function messageMarkdownUrlTransform(url: string, key: string): string {
   return defaultUrlTransform(url);
 }
 
-function parseLocalFileTarget(target: string): { filePath: string; line?: number; endLine?: number; column?: number } {
-  const hashMatch = target.match(/^(.*?)#L(\d+)(?:-L?(\d+))?(?:C(\d+))?$/);
-  if (hashMatch) {
-    return {
-      filePath: hashMatch[1],
-      line: Number(hashMatch[2]),
-      endLine: hashMatch[3] ? Number(hashMatch[3]) : undefined,
-      column: hashMatch[4] ? Number(hashMatch[4]) : undefined,
-    };
-  }
-  const colonMatch = target.match(/^(.*?):(\d+)(?:-(\d+))?(?::(\d+))?$/);
-  if (colonMatch) {
-    return {
-      filePath: colonMatch[1],
-      line: Number(colonMatch[2]),
-      endLine: colonMatch[3] ? Number(colonMatch[3]) : undefined,
-      column: colonMatch[4] ? Number(colonMatch[4]) : undefined,
-    };
-  }
-  return { filePath: target };
-}
-
-function normalizeLocalFileTarget(target: string): string {
-  return target.replace(/#L\d+(-L?\d+)?(C\d+)?$/, '').replace(/:\d+(-\d+)?(:\d+)?$/, '');
+function parseLocalFileTarget(target: string): { filePath: string; line?: number; endLine?: number } {
+  const location = FILE_LOCATION_SUFFIX.exec(target);
+  if (!location) return { filePath: decodePathTarget(target) };
+  const endLine = location[2] ?? location[4];
+  return {
+    filePath: decodePathTarget(target.slice(0, location.index)),
+    line: Number(location[1] ?? location[3]),
+    endLine: endLine === undefined ? undefined : Number(endLine),
+  };
 }
 
 function resolveFilePath(filePath: string, workdir: string): string {
@@ -196,12 +180,6 @@ function resolveFilePath(filePath: string, workdir: string): string {
   if (!workdir) return filePath;
   const base = workdir.endsWith('/') ? workdir : workdir + '/';
   return base + filePath;
-}
-
-function extractFileName(target: string): string {
-  const normalized = normalizeLocalFileTarget(target);
-  const segments = normalized.split('/').filter(Boolean);
-  return segments[segments.length - 1] || normalized;
 }
 
 function UserMessageContent({ message }: { message: UserMessage }) {
@@ -1179,10 +1157,9 @@ function isSafeLinkUrl(url: string): boolean {
   return SAFE_LINK_SCHEMES.has(match[1].toLowerCase());
 }
 
-// Bare file-path regex (same shape as the previous custom parser).
-// Walks a plain-text node and emits <FileChip> for literal paths like
-// `src/foo.go:10-20` or `/abs/path#L5`.
-const LOCAL_PATH_RE = /((?:\.{1,2}\/)?(?:\/)?(?:[\w./_-]+\.[a-zA-Z][\w]*|[\w./_-]*\.[a-zA-Z][\w.-]*)(?::\d+(?:-\d+)?(?::\d+)?)?(?:#L\d+(?:-L?\d+)?(?:C\d+)?)?)/g;
+// Keep Unicode and percent escapes within the path, and avoid matching
+// intermediate segments ending in a dot extension (e.g. gitee.com/).
+const LOCAL_PATH_RE = /(?<![\p{L}\p{M}\p{N}_./%+-])[\p{L}\p{M}\p{N}_./%+-]*\.[a-zA-Z][\w-]*(?::\d+(?:-\d+)?(?::\d+)?|#L\d+(?:-L?\d+)?(?:C\d+)?)?(?![\p{L}\p{M}\p{N}_/%+-]|\.[\p{L}\p{M}\p{N}_/%+-])/gu;
 
 function splitTextForFilePaths(text: string, keyPrefix: string): React.ReactNode[] {
   const out: React.ReactNode[] = [];
@@ -1191,17 +1168,15 @@ function splitTextForFilePaths(text: string, keyPrefix: string): React.ReactNode
   LOCAL_PATH_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = LOCAL_PATH_RE.exec(text)) !== null) {
-    const raw = m[1];
+    const raw = m[0];
     if (!isLocalFileTarget(raw)) continue;
     if (m.index > lastIndex) out.push(text.slice(lastIndex, m.index));
-    const filePath = normalizeLocalFileTarget(raw);
-    const fileName = extractFileName(raw);
-    const { line, endLine } = parseLocalFileTarget(raw);
+    const { filePath, line, endLine } = parseLocalFileTarget(raw);
     out.push(
       <FileChip
         key={`${keyPrefix}-fpath-${chipIdx++}`}
         filePath={filePath}
-        fileName={fileName}
+        fileName={fileNameFromPath(filePath)}
         rawText={raw}
         line={line}
         endLine={endLine}
@@ -1243,15 +1218,14 @@ const MD_COMPONENTS: Components = {
     const url = String(href || '').replace(/\\\//g, '/');
     const localTarget = localFileTargetFromUrl(url) ?? (isLocalFileTarget(url) ? url : null);
     if (localTarget) {
-      const filePath = normalizeLocalFileTarget(localTarget);
-      const { line, endLine } = parseLocalFileTarget(localTarget);
-      const fileName = extractLinkText(children) || extractFileName(localTarget);
+      const { filePath, line, endLine } = parseLocalFileTarget(localTarget);
+      const fileName = extractLinkText(children) || fileNameFromPath(filePath);
       return <FileChip filePath={filePath} fileName={fileName} rawText={url} line={line} endLine={endLine} />;
     }
     if (!isSafeLinkUrl(url)) return <span>{children}</span>;
     return (
       <a href={url} target="_blank" rel="noopener noreferrer" className="inline-link">
-        {children}
+        <InsideMarkdownLinkContext.Provider value={true}>{children}</InsideMarkdownLinkContext.Provider>
       </a>
     );
   },
@@ -1305,53 +1279,46 @@ function renderMarkdown(content: string): React.ReactElement {
 }
 
 function FileChip({ filePath, fileName, rawText, line, endLine }: { filePath: string; fileName: string; rawText: string; line?: number; endLine?: number }) {
-  const openFileViewer = useContext(FileViewerContext);
+  const fileViewer = useContext(FileViewerContext);
   const workdir = useContext(WorkdirContext);
   const shareInfo = useContext(ShareInfoContext);
+  const insideLink = useContext(InsideMarkdownLinkContext);
   const resolvedPath = resolveFilePath(filePath, workdir);
-  const isAbsolute = resolvedPath.startsWith('/');
-  const [exists, setExists] = useState<boolean | null>(null);
+  const canCheckPath = !insideLink && !shareInfo && resolvedPath.startsWith('/');
+  const [existingPath, setExistingPath] = useState('');
 
   useEffect(() => {
-    // In share mode, file-exists API is not available — render as plain text.
-    if (shareInfo) return;
-    // A relative path means workdir was empty so resolveFilePath could not
-    // produce an absolute path. The backend file APIs reject relative paths
-    // (400 "path must be absolute"), so don't probe — render as plain text
-    // instead of firing a request that can only fail.
-    if (!isAbsolute) return;
+    if (!canCheckPath) return;
     let cancelled = false;
     checkFileExists(resolvedPath).then(ok => {
-      if (!cancelled) setExists(ok);
+      if (!cancelled) setExistingPath(ok ? resolvedPath : '');
     });
     return () => { cancelled = true; };
-  }, [resolvedPath, isAbsolute, shareInfo]);
+  }, [resolvedPath, canCheckPath]);
 
   // While loading, render as plain text to avoid flash; if not a file, stay as
   // text. Render the full path the user typed (rawText), not just the basename,
   // so a non-existent file still shows its complete relative/absolute path.
-  if (exists !== true) return <>{rawText}</>;
+  if (!canCheckPath || existingPath !== resolvedPath) return <>{rawText}</>;
 
   return (
-    <button
-      type="button"
+    <a
       className="file-link-chip"
+      href={buildFilePreviewUrl(resolvedPath, fileViewer?.jobId)}
       title={resolvedPath}
-      onClick={() => {
-        if (openFileViewer) {
-          openFileViewer(resolvedPath, line, endLine);
-        } else {
-          copyToClipboard(resolvedPath).then(() => showToast(`已复制路径: ${fileName}`)).catch(() => showToast('复制路径失败'));
-        }
+      onClick={(event) => {
+        if (!fileViewer || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        fileViewer.open(resolvedPath, line, endLine);
       }}
     >
-      <span className="file-link-icon">
+      <span className="file-link-icon" aria-hidden="true">
         <svg viewBox="0 0 16 16" width="1em" height="1em" fill="currentColor">
           <path d="M3.5 1A1.5 1.5 0 0 0 2 2.5v11A1.5 1.5 0 0 0 3.5 15h9a1.5 1.5 0 0 0 1.5-1.5V5.414a1 1 0 0 0-.293-.707l-3.414-3.414A1 1 0 0 0 9.586 1H3.5Zm0 1h5.586L13 5.914V13.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5Z"/>
         </svg>
       </span>
       <span className="file-link-label">{fileName}</span>
-    </button>
+    </a>
   );
 }
 
@@ -1363,9 +1330,12 @@ export const MessageItem = memo(function MessageItem({ message, agentIconUrl, ag
   const { file: viewingFile, open: openFile, close: closeFile } = useFileViewer(jobId);
   const [viewingImage, setViewingImage] = useState<{ src: string; alt?: string } | null>(null);
 
-  const openFileViewer: OpenFileViewerFn = useCallback((filePath: string, line?: number, endLine?: number) => {
-    void openFile(filePath, { line, endLine });
-  }, [openFile]);
+  const fileViewer = useMemo(() => ({
+    jobId,
+    open(filePath: string, line?: number, endLine?: number) {
+      void openFile(filePath, { line, endLine });
+    },
+  }), [jobId, openFile]);
   const openImageViewer: OpenImageViewerFn = useCallback((image) => {
     setViewingImage(image);
   }, []);
@@ -1373,7 +1343,7 @@ export const MessageItem = memo(function MessageItem({ message, agentIconUrl, ag
   const content = (
     <ShareInfoContext.Provider value={shareInfo}>
     <WorkdirContext.Provider value={workdir || ''}>
-    <FileViewerContext.Provider value={openFileViewer}>
+    <FileViewerContext.Provider value={fileViewer}>
     <ImageViewerContext.Provider value={openImageViewer}>
       {(() => {
         switch (message.role) {

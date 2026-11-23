@@ -28,8 +28,7 @@ export function FileViewer({ file, jobId, className, onClose, onBack }: FileView
 
   // Text actions are meaningless for images/PDFs/binaries/failed loads.
   const hasText = !file.loading && !file.error && !file.isImage && !file.isPdf && !file.binary;
-  // PDFs render inline, but the standalone page also offers a download button.
-  const canOpenStandalone = hasText || (!file.loading && !file.error && file.isPdf);
+  const canOpenStandalone = hasText || (!file.loading && !file.error && (file.isPdf || !!file.imageUrl));
 
   const handleCopyPath = () => {
     copyToClipboard(file.path).then(() => {

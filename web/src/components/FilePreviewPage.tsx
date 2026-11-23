@@ -7,7 +7,7 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
 import { copyToClipboard } from '../utils/clipboard';
-import { isPdfFile, maxEmbeddedFileSize, writeFile } from '../utils/file';
+import { buildFilePreviewUrl, buildServeFileUrl, decodePathTarget, fileNameFromPath, formatFileSize, isImageFile, isPdfFile, maxEmbeddedFileSize, readFile, writeFile, type FileContent } from '../utils/file';
 import { detectLanguage, getLanguageLabel } from '../utils/syntaxHighlight';
 import { useAuthPrincipal } from '../auth';
 import { useIsMobile } from '../hooks/useIsMobile';
@@ -16,13 +16,6 @@ import { FileBrowser } from './FileBrowser';
 import { MermaidDiagram } from './MermaidDiagram';
 import { SourceCode } from './FileViewer/SourceCode';
 import './FilePreviewPage.css';
-
-interface FilePreviewData {
-  content: string;
-  size: number;
-  truncated: boolean;
-  binary: boolean;
-}
 
 interface MarkdownOutlineItem {
   id: string;
@@ -41,10 +34,6 @@ const markdownSanitizeSchema = {
     p: [...(defaultSchema.attributes?.p || []), ['align', 'center', 'left', 'right']],
   },
 };
-function fileNameFromPath(path: string): string {
-  return path.split('/').filter(Boolean).pop() || path || '未命名文件';
-}
-
 function extensionFromPath(path: string): string {
   const name = fileNameFromPath(path);
   const dot = name.lastIndexOf('.');
@@ -57,24 +46,6 @@ function isMarkdownPath(path: string): boolean {
 
 function isHtmlPath(path: string): boolean {
   return htmlExtensions.has(extensionFromPath(path));
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-// Markdown destinations arrive percent-encoded (both the escape sequences
-// written by the author, like "image%201.png", and the re-encoding applied by
-// the markdown-to-HTML pipeline to non-ASCII characters). The file APIs take
-// literal filesystem paths, so decode first; malformed escapes stay as-is.
-function decodePathTarget(target: string): string {
-  try {
-    return decodeURIComponent(target);
-  } catch {
-    return target;
-  }
 }
 
 function normalizeLocalPath(baseFilePath: string, target: string): string {
@@ -94,30 +65,11 @@ function normalizeLocalPath(baseFilePath: string, target: string): string {
   return baseParts.join('/') || '/';
 }
 
-function buildPreviewUrl(path: string): string {
-  const url = new URL(window.location.href);
-  url.searchParams.set('view', 'file-preview');
-  url.searchParams.set('path', path);
-  url.hash = '';
-  return url.toString();
-}
-
 function buildReturnUrl(): string {
   const url = new URL(window.location.href);
   url.searchParams.delete('view');
   url.searchParams.delete('path');
   return url.toString();
-}
-
-// Raw-bytes URL for downloads and inline embedding (PDF). Uses the public
-// share endpoint when a fileShareToken is present.
-function buildServeFileUrl(path: string, fileShareToken: string): string {
-  const query = new URLSearchParams({ path });
-  if (fileShareToken) {
-    query.set('fileShareToken', fileShareToken);
-    return `/api/v1/public/file-preview/serve-file?${query.toString()}`;
-  }
-  return `/api/v1/serve-file?${query.toString()}`;
 }
 
 async function readPreviewContext(endpoint: string, signal: AbortSignal): Promise<{ workspaceId?: string; workdir?: string }> {
@@ -134,59 +86,25 @@ async function readPreviewContext(endpoint: string, signal: AbortSignal): Promis
   }
 }
 
-// A share token reads through the public endpoint only when the viewer has
-// no session. A logged-in viewer uses the authenticated reader, so owner
-// actions stay available on the same URL.
-async function readPreviewFile(path: string, jobId: string, authenticated: boolean, signal: AbortSignal): Promise<FilePreviewData> {
-  const params = new URLSearchParams(window.location.search);
-  const fileShareToken = params.get('fileShareToken');
+async function readPreviewFile(path: string, jobId: string, fileShareToken: string, signal: AbortSignal): Promise<FileContent> {
+  if (!fileShareToken) return readFile(path, jobId, signal);
 
-  if (!authenticated && fileShareToken) {
-    const endpoint = `/api/v1/public/file-preview/read-file?fileShareToken=${encodeURIComponent(fileShareToken)}`;
-    const response = await fetch(endpoint, { signal });
-    const rawBody = await response.text();
-    if (!response.ok) {
-      const status = `${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
-      throw new Error(`GET ${endpoint} returned HTTP ${status}${rawBody ? `\n${rawBody}` : ''}`);
-    }
-    let data: { code?: number; msg?: string; content?: string; size?: number; truncated?: boolean; binary?: boolean };
-    try {
-      data = JSON.parse(rawBody);
-    } catch (error) {
-      throw new Error(`GET ${endpoint} returned invalid JSON\n${rawBody}`, { cause: error });
-    }
-    if (data.code !== 0) {
-      throw new Error(`GET ${endpoint} returned code ${String(data.code)}${rawBody ? `\n${rawBody}` : ''}`);
-    }
-    return {
-      content: data.content ?? '',
-      size: data.size ?? 0,
-      truncated: !!data.truncated,
-      binary: !!data.binary,
-    };
-  }
-
-  const endpoint = '/api/v1/read-file';
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, job_id: jobId }),
-    signal,
-  });
+  const endpoint = `/api/v1/public/file-preview/read-file?fileShareToken=${encodeURIComponent(fileShareToken)}`;
+  const response = await fetch(endpoint, { signal });
   const rawBody = await response.text();
   if (!response.ok) {
     const status = `${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
-    throw new Error(`POST ${endpoint} returned HTTP ${status}${rawBody ? `\n${rawBody}` : ''}`);
+    throw new Error(`GET ${endpoint} returned HTTP ${status}${rawBody ? `\n${rawBody}` : ''}`);
   }
 
-  let data: { code?: number; msg?: string; content?: string; size?: number; truncated?: boolean; binary?: boolean };
+  let data: { code?: number; content?: string; size?: number; truncated?: boolean; binary?: boolean };
   try {
     data = JSON.parse(rawBody);
   } catch (error) {
-    throw new Error(`POST ${endpoint} returned invalid JSON\n${rawBody}`, { cause: error });
+    throw new Error(`GET ${endpoint} returned invalid JSON\n${rawBody}`, { cause: error });
   }
   if (data.code !== 0) {
-    throw new Error(`POST ${endpoint} returned code ${String(data.code)}${rawBody ? `\n${rawBody}` : ''}`);
+    throw new Error(`GET ${endpoint} returned code ${String(data.code)}${rawBody ? `\n${rawBody}` : ''}`);
   }
   return {
     content: data.content ?? '',
@@ -410,7 +328,7 @@ function MarkdownPre({ children }: { children?: ReactNode }) {
   return <pre>{children}</pre>;
 }
 
-function MarkdownPreviewImage({ basePath, src, alt, authenticated }: { basePath: string; src: string; alt: string; authenticated: boolean }) {
+function MarkdownPreviewImage({ basePath, src, alt, fileShareToken }: { basePath: string; src: string; alt: string; fileShareToken: string }) {
   const external = externalResourceUrlPattern.test(src);
   const [blobUrl, setBlobUrl] = useState('');
   const [failed, setFailed] = useState(false);
@@ -423,15 +341,12 @@ function MarkdownPreviewImage({ basePath, src, alt, authenticated }: { basePath:
     const controller = new AbortController();
     let objectUrl = '';
     const localPath = normalizeLocalPath(basePath, src);
-    const fileShareToken = authenticated ? '' : (new URLSearchParams(window.location.search).get('fileShareToken') || '');
-    const serveUrl = fileShareToken
-      ? `/api/v1/public/file-preview/serve-file?fileShareToken=${encodeURIComponent(fileShareToken)}&path=${encodeURIComponent(localPath)}`
-      : `/api/v1/serve-file?path=${encodeURIComponent(localPath)}`;
+    const serveUrl = buildServeFileUrl(localPath, fileShareToken);
     void fetch(serveUrl, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) {
           const detail = await response.text();
-          throw new Error(`GET /api/v1/serve-file returned HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}${detail ? `\n${detail}` : ''}`);
+          throw new Error(`GET ${serveUrl} returned HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}${detail ? `\n${detail}` : ''}`);
         }
         return response.blob();
       })
@@ -450,7 +365,7 @@ function MarkdownPreviewImage({ basePath, src, alt, authenticated }: { basePath:
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [authenticated, basePath, external, src]);
+  }, [basePath, external, fileShareToken, src]);
 
   if (!src) return null;
   if (failed) return <span className="file-preview-image-error">图片加载失败：{alt || src}</span>;
@@ -463,6 +378,52 @@ function MarkdownPreviewImage({ basePath, src, alt, authenticated }: { basePath:
       referrerPolicy="no-referrer"
       onError={() => setFailed(true)}
     />
+  );
+}
+
+function FilePreviewImage({ name, src }: { name: string; src: string }) {
+  const { t } = useTranslation();
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'failed'>('loading');
+  const [detail, setDetail] = useState('');
+
+  useEffect(() => {
+    if (status !== 'failed') return;
+    const controller = new AbortController();
+    // The image's error event has no HTTP details. Fetch them on failure.
+    void fetch(src, { signal: controller.signal, referrerPolicy: 'no-referrer' })
+      .then(async (response) => {
+        const httpStatus = `${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
+        const body = response.ok ? response.headers.get('Content-Type') : await response.text();
+        if (response.ok) await response.body?.cancel();
+        return `GET ${src} returned HTTP ${httpStatus}${body ? `\n${body}` : ''}`;
+      })
+      .catch((error: unknown) => `GET ${src}\n${error instanceof Error ? error.stack || error.message : String(error)}`)
+      .then((message) => { if (!controller.signal.aborted) setDetail(message); });
+    return () => controller.abort();
+  }, [src, status]);
+
+  if (status === 'failed') {
+    return (
+      <div className="file-preview-error" role="alert">
+        <span>{t('filePreview.imageLoadFailed')}</span>
+        <h1>{name}</h1>
+        {detail && <pre>{detail}</pre>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="file-preview-image">
+      {status === 'loading' && <span className="file-preview-image-loading" role="status">{t('filePreview.imageLoading')}</span>}
+      <img
+        src={src}
+        alt={name}
+        hidden={status !== 'loaded'}
+        referrerPolicy="no-referrer"
+        onLoad={() => setStatus('loaded')}
+        onError={() => setStatus('failed')}
+      />
+    </div>
   );
 }
 
@@ -481,21 +442,24 @@ export function FilePreviewPage() {
     };
   });
   const [path, setPath] = useState(initialPath);
-  const authenticated = !!principal;
-  const isPublic = !!fileShareToken && !authenticated;
+  const canReadFiles = principal?.permissions.includes('file.read') ?? false;
+  const isPublic = !!fileShareToken && !canReadFiles;
+  const previewToken = isPublic ? fileShareToken : '';
   const isSharedLink = isPublic || !!jobShareToken;
-  const canBrowseFiles = !isSharedLink && (principal?.permissions.includes('file.read') ?? false)
+  const canBrowseFiles = !isSharedLink && canReadFiles
     && (principal?.permissions.includes('workspace.read') ?? false);
   const canShareFiles = !isPublic && (principal?.permissions.includes('file.share') ?? false);
   const canWriteFiles = !isPublic && (principal?.permissions.includes('file.write') ?? false);
   const markdown = isMarkdownPath(path);
   const html = isHtmlPath(path);
+  const image = isImageFile(fileNameFromPath(path));
+  const svg = extensionFromPath(path) === '.svg';
   const pdf = isPdfFile(fileNameFromPath(path));
-  const renderedDocument = markdown || html;
-  const [data, setData] = useState<FilePreviewData | null>(null);
+  const renderedDocument = markdown || html || svg;
+  const [data, setData] = useState<FileContent | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(!!path);
-  const [showSource, setShowSource] = useState(!renderedDocument);
+  const [showSource, setShowSource] = useState(!renderedDocument && !image);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
@@ -519,7 +483,8 @@ export function FilePreviewPage() {
   const cancelHeadingScrollRef = useRef<(() => void) | null>(null);
   const dirty = editing && draft !== data?.content;
   const previewContent = editing ? draft : data?.content ?? '';
-  const canEdit = canWriteFiles && !!data && !loading && !error && !pdf && !data.binary && !data.truncated;
+  const hasSource = !!data && !data.binary && !pdf && (!image || svg);
+  const canEdit = canWriteFiles && hasSource && !loading && !error && !data.truncated;
 
   useEffect(() => {
     if (!canBrowseFiles || !fileBrowserOpen || browserRootPath) return;
@@ -550,12 +515,12 @@ export function FilePreviewPage() {
   const handleFileSelect = useCallback((nextPath: string, updateHistory = true): boolean => {
     if (nextPath === path) return true;
     if (savingRef.current || shareLoading || (dirty && !window.confirm(t('filePreview.discardChanges')))) return false;
-    if (updateHistory) window.history.pushState(window.history.state, '', buildPreviewUrl(nextPath));
+    if (updateHistory) window.history.pushState(window.history.state, '', buildFilePreviewUrl(nextPath));
     setPath(nextPath);
     setData(null);
     setLoading(!!nextPath);
     setError('');
-    setShowSource(!isMarkdownPath(nextPath) && !isHtmlPath(nextPath));
+    setShowSource(!isMarkdownPath(nextPath) && !isHtmlPath(nextPath) && !isImageFile(fileNameFromPath(nextPath)));
     setEditing(false);
     setDraft('');
     setSaveError('');
@@ -578,7 +543,7 @@ export function FilePreviewPage() {
     const handlePopState = () => {
       const nextPath = new URLSearchParams(window.location.search).get('path')?.trim() || '';
       if (!handleFileSelect(nextPath, false)) {
-        window.history.pushState(window.history.state, '', buildPreviewUrl(path));
+        window.history.pushState(window.history.state, '', buildFilePreviewUrl(path));
       }
     };
     window.addEventListener('popstate', handlePopState);
@@ -624,7 +589,7 @@ export function FilePreviewPage() {
       setEditing(false);
       setSaved(true);
       try {
-        const latest = await readPreviewFile(path, jobId, authenticated, new AbortController().signal);
+        const latest = await readPreviewFile(path, jobId, previewToken, new AbortController().signal);
         setData(latest);
       } catch (reason: unknown) {
         const detail = reason instanceof Error ? reason.stack || reason.message : String(reason);
@@ -637,7 +602,7 @@ export function FilePreviewPage() {
       savingRef.current = false;
       setSaving(false);
     }
-  }, [authenticated, canEdit, editing, dirty, data, path, draft, jobId, t]);
+  }, [canEdit, editing, dirty, data, path, draft, jobId, previewToken, t]);
 
   useEffect(() => {
     if (!editing) return;
@@ -678,7 +643,7 @@ export function FilePreviewPage() {
     const controller = new AbortController();
     setLoading(true);
     setError('');
-    void readPreviewFile(path, jobId, authenticated, controller.signal)
+    void readPreviewFile(path, jobId, previewToken, controller.signal)
       .then((result) => { if (!controller.signal.aborted) setData(result); })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return;
@@ -688,7 +653,7 @@ export function FilePreviewPage() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [authenticated, jobId, path]);
+  }, [jobId, path, previewToken]);
 
   useEffect(() => {
     if (!markdown || showSource || !data || data.binary) {
@@ -864,16 +829,18 @@ export function FilePreviewPage() {
         return <a href={target} target="_blank" rel="noopener noreferrer">{children}</a>;
       }
       const localPath = normalizeLocalPath(path, target);
-      return <a href={buildPreviewUrl(localPath)} target="_blank" rel="noopener noreferrer">{children}</a>;
+      return <a href={buildFilePreviewUrl(localPath)} target="_blank" rel="noopener noreferrer">{children}</a>;
     },
     img: ({ src, alt }) => {
       const target = typeof src === 'string' ? src : '';
-      return <MarkdownPreviewImage basePath={path} src={target} alt={alt || ''} authenticated={authenticated} />;
+      return <MarkdownPreviewImage basePath={path} src={target} alt={alt || ''} fileShareToken={previewToken} />;
     },
     table: ({ children }) => <div className="file-preview-table-wrap"><table>{children}</table></div>,
     code: ({ className, children }) => <code className={className}>{children}</code>,
     pre: ({ children }) => <MarkdownPre>{children}</MarkdownPre>,
-  }), [authenticated, path]);
+  }), [path, previewToken]);
+
+  const serveUrl = buildServeFileUrl(path, previewToken);
 
   return (
     <div className="file-preview-page">
@@ -897,13 +864,13 @@ export function FilePreviewPage() {
             {path && <span id="file-preview-path-tooltip" className="file-preview-path-tooltip" role="tooltip">{path}</span>}
           </div>
           <span className="file-preview-type">{typeLabel}</span>
-          {data && <span className="file-preview-meta">{formatSize(data.size)}{!pdf && ` · ${lineCount} 行`}</span>}
+          {data && <span className="file-preview-meta">{formatFileSize(data.size)}{hasSource && (!image || showSource) && ` · ${lineCount} 行`}</span>}
         </div>
 
         <div className="file-preview-actions">
-          {renderedDocument && data && !data.binary && (
+          {renderedDocument && hasSource && (
             <div className="file-preview-segmented" role="group" aria-label="预览模式">
-              <button type="button" className={!showSource ? 'active' : ''} disabled={saving} onClick={() => setShowSource(false)}>{html ? '预览' : '阅读'}</button>
+              <button type="button" className={!showSource ? 'active' : ''} disabled={saving} onClick={() => setShowSource(false)}>{markdown ? '阅读' : t('filePreview.preview')}</button>
               <button type="button" className={showSource ? 'active' : ''} disabled={saving} onClick={() => setShowSource(true)}>源文</button>
             </div>
           )}
@@ -924,12 +891,12 @@ export function FilePreviewPage() {
             </>
           )}
           {saved && !saveError && <span className="file-preview-edit-status" role="status">{t('filePreview.saved')}</span>}
-          {data && showSource && !data.binary && !pdf && (
+          {hasSource && showSource && (
             <button type="button" className={`file-preview-button ${wrapText ? 'active' : ''}`} onClick={() => setWrapText((value) => !value)}>
               自动换行
             </button>
           )}
-          {data && !data.binary && !isSharedLink && !pdf && (
+          {hasSource && !isSharedLink && (!image || showSource) && (
             <button type="button" className="file-preview-button" onClick={handleCopy}>
               {copied ? '已复制' : '复制内容'}
             </button>
@@ -942,7 +909,7 @@ export function FilePreviewPage() {
           {data && path && !isSharedLink && (
             <a
               className="file-preview-button"
-              href={`${buildServeFileUrl(path, isPublic ? fileShareToken : '')}${isPublic ? '' : '&download=1'}`}
+              href={`${serveUrl}&download=1`}
               download={fileNameFromPath(path)}
             >
               {t('filePreview.download')}
@@ -984,7 +951,7 @@ export function FilePreviewPage() {
         </div>
       )}
 
-      {data?.truncated && !pdf && (
+      {data?.truncated && !pdf && (!image || showSource) && (
         <div className="file-preview-notice" role="status">
           文件超过 1 MB，接口未返回完整内容。当前页面显示的是服务端返回的提示信息。
         </div>
@@ -1017,15 +984,24 @@ export function FilePreviewPage() {
             <iframe
               className="file-preview-pdf-frame"
               title={t('filePreview.pdfFrameTitle', { name: fileNameFromPath(path) })}
-              src={buildServeFileUrl(path, isPublic ? fileShareToken : '')}
+              src={serveUrl}
             />
           )
         )}
 
-        {!loading && data?.binary && !pdf && (
+        {!loading && data && image && !showSource && (
+          data.size > maxEmbeddedFileSize ? (
+            <div className="file-preview-state" role="status">
+              <strong>{t('filePreview.imageTooLarge')}</strong>
+              {!isSharedLink && <span>{t('filePreview.pdfTooLargeHint')}</span>}
+            </div>
+          ) : <FilePreviewImage key={serveUrl} name={fileNameFromPath(path)} src={serveUrl} />
+        )}
+
+        {!loading && data?.binary && !pdf && !image && (
           <div className="file-preview-state" role="status">
             <strong>这是二进制文件</strong>
-            <span>独立预览页目前支持 Markdown 和 UTF-8 文本文件。</span>
+            <span>{t('filePreview.supportedFormats')}</span>
           </div>
         )}
 
@@ -1073,7 +1049,7 @@ export function FilePreviewPage() {
           <HtmlPreviewDocument content={previewContent} title={fileNameFromPath(path)} />
         )}
 
-        {!loading && data && !data.binary && !pdf && (showSource || editing) && (
+        {!loading && hasSource && (showSource || editing) && (
           <section className="file-preview-source" aria-label="文件源文" hidden={!showSource}>
             {editing ? (
               <textarea
