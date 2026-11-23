@@ -46,8 +46,9 @@ struct ChatWebDestination: Identifiable {
 enum ChatLinkTarget {
     static let fileScheme = "quartet-file"
 
+    private static let fileLocationSuffix = #"(?:#L\d+(?:-L?\d+)?(?:C\d+)?|:\d+(?:-\d+)?(?::\d+)?)$"#
     private static let localPathExpression = try! NSRegularExpression(
-        pattern: #"((?:\.{1,2}/)?(?:/)?(?:[\w./_-]+\.[a-zA-Z][\w]*|[\w./_-]*\.[a-zA-Z][\w.-]*)(?::\d+(?:-\d+)?(?::\d+)?)?(?:#L\d+(?:-L?\d+)?(?:C\d+)?)?)"#
+        pattern: #"(?<![\p{L}\p{M}\p{N}_./%+-])[\p{L}\p{M}\p{N}_./%+-]*\.[a-zA-Z][a-zA-Z0-9_-]*(?::\d+(?:-\d+)?(?::\d+)?|#L\d+(?:-L?\d+)?(?:C\d+)?)?(?![\p{L}\p{M}\p{N}_/%+-]|\.[\p{L}\p{M}\p{N}_/%+-])"#
     )
 
     static func fileLinkURL(for target: String) -> URL? {
@@ -61,9 +62,10 @@ enum ChatLinkTarget {
     static func fileTarget(from url: URL) -> String? {
         if url.isFileURL {
             let host = url.host?.lowercased() ?? ""
-            guard host.isEmpty || host == "localhost" else { return nil }
-            let path = url.path.trimmingCharacters(in: .whitespacesAndNewlines)
-            return path.isEmpty ? nil : path
+            guard host.isEmpty || host == "localhost",
+                  let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath,
+                  path.hasPrefix("/") else { return nil }
+            return path
         }
 
         guard url.scheme?.lowercased() == fileScheme,
@@ -75,36 +77,23 @@ enum ChatLinkTarget {
 
     static func isLocalFileTarget(_ rawTarget: String) -> Bool {
         let target = rawTarget.replacingOccurrences(of: #"\/"#, with: "/")
-        let clean = target.replacingOccurrences(
-            of: #"[#:].*$"#,
-            with: "",
-            options: .regularExpression
-        )
+        let clean = target.replacingOccurrences(of: fileLocationSuffix, with: "", options: .regularExpression)
+        guard !clean.hasPrefix("//"), !matches(#"^[a-zA-Z][a-zA-Z0-9+.-]*:"#, in: clean) else { return false }
         let basename = clean.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? ""
         let isDotfile = matches(#"^\.[a-zA-Z][\w.-]*$"#, in: basename)
         let hasFileExtension = matches(#"^.+\.[a-zA-Z]\w*$"#, in: basename)
         guard hasFileExtension || isDotfile else { return false }
 
-        if target.hasPrefix("/"), !target.hasPrefix("//") { return true }
-        if target.hasPrefix("./") || target.hasPrefix("../") { return true }
+        if clean.hasPrefix("/") || clean.hasPrefix("./") || clean.hasPrefix("../") { return true }
         if isDotfile { return true }
-        return matches(#"^[\w][\w./_-]*\.[a-zA-Z]+"#, in: clean)
+        return matches(#"^[\p{L}\p{M}\p{N}_%][\p{L}\p{M}\p{N}_./%+-]*\.[a-zA-Z]"#, in: clean)
     }
 
     static func normalizeFileTarget(_ rawTarget: String) -> String {
-        let decoded = rawTarget.removingPercentEncoding ?? rawTarget
-        return decoded
+        let path = rawTarget
             .replacingOccurrences(of: #"\/"#, with: "/")
-            .replacingOccurrences(
-                of: #"#L\d+(-L?\d+)?(C\d+)?$"#,
-                with: "",
-                options: .regularExpression
-            )
-            .replacingOccurrences(
-                of: #":\d+(-\d+)?(:\d+)?$"#,
-                with: "",
-                options: .regularExpression
-            )
+            .replacingOccurrences(of: fileLocationSuffix, with: "", options: .regularExpression)
+        return path.removingPercentEncoding ?? path
     }
 
     static func resolvedFilePath(target: String, workdir: String?) -> String? {
@@ -138,6 +127,8 @@ enum ChatLinkTarget {
             items.append(URLQueryItem(name: "jobId", value: jobID))
         }
         components.queryItems = items
+        // URLSearchParams on the preview page treats an unescaped + as a space.
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         return components.url
     }
 
@@ -152,12 +143,18 @@ enum ChatLinkTarget {
         }
 
         let visibleText = String(attributed.characters)
-        let matches = localPathExpression.matches(
-            in: visibleText,
-            range: NSRange(visibleText.startIndex..., in: visibleText)
-        )
-        for match in matches {
-            guard let stringRange = Range(match.range(at: 1), in: visibleText) else { continue }
+        // Foundation flattens Markdown blocks without inserting a separator.
+        let pathRanges = attributed.runs[\.presentationIntent].flatMap { _, range -> [NSRange] in
+            guard let lower = String.Index(range.lowerBound, within: visibleText),
+                  let upper = String.Index(range.upperBound, within: visibleText) else { return [] }
+            let block = String(visibleText[lower..<upper])
+            let offset = lower.utf16Offset(in: visibleText)
+            return localPathExpression.matches(in: block, range: NSRange(block.startIndex..., in: block)).map { match in
+                NSRange(location: offset + match.range.location, length: match.range.length)
+            }
+        }
+        for pathRange in pathRanges {
+            guard let stringRange = Range(pathRange, in: visibleText) else { continue }
             let target = String(visibleText[stringRange])
             guard isLocalFileTarget(target),
                   let lower = AttributedString.Index(stringRange.lowerBound, within: attributed),

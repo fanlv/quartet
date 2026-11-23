@@ -35,6 +35,8 @@
     <string>Connect to your personal Quartet service on the local network.</string>
     <key>NSCameraUsageDescription</key>
     <string>Take photos to send in the current conversation.</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>Save images you choose from a file preview to your photo library.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Choose photos to send in the current conversation.</string>
     <key>UILaunchScreen</key>
