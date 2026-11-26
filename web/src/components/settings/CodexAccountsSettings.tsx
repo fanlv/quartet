@@ -5,6 +5,8 @@ import type { CodexAccount, CodexAccountsResponse, CodexLogin } from '../../api/
 import { notifyCodexAccountChanged } from '../../utils/agentUsage';
 import './CodexAccountsSettings.css';
 
+const baseKey = 'settings.codexAccounts';
+
 interface AccountForm {
   mode: 'import' | 'capture' | 'update' | 'login';
   account?: CodexAccount;
@@ -13,6 +15,34 @@ interface AccountForm {
   auth?: File;
   config?: File;
   removeConfig: boolean;
+}
+
+interface AccountFilePickerProps {
+  label: string;
+  accept: string;
+  file?: File;
+  disabled: boolean;
+  autoFocus?: boolean;
+  onChange: (file?: File) => void;
+}
+
+function AccountFilePicker({ label, accept, file, disabled, autoFocus, onChange }: AccountFilePickerProps) {
+  const { t } = useTranslation();
+  const input = useRef<HTMLInputElement>(null);
+  const remove = t(`${baseKey}.removeFile`);
+
+  return <div className="codex-account-file">
+    <input ref={input} type="file" accept={accept} aria-label={label} hidden disabled={disabled} onChange={(event) => {
+      const next = event.currentTarget.files?.[0];
+      event.currentTarget.value = '';
+      if (next) onChange(next);
+    }} />
+    <button type="button" autoFocus={autoFocus} disabled={disabled} onClick={() => input.current?.click()}>{label}</button>
+    {file && <>
+      <span role="status">{file.name}</span>
+      <button type="button" aria-label={`${remove} ${file.name}`} disabled={disabled} onClick={() => onChange()}>{remove}</button>
+    </>}
+  </div>;
 }
 
 function LoginOutput({ text }: { text: string }) {
@@ -46,7 +76,6 @@ export function CodexAccountsSettings({ onChanged }: { onChanged?: () => void })
   const previousFocus = useRef<HTMLElement | null>(null);
   const intentState = useRef<CodexAccountsResponse | null>(null);
   const [dialogError, setDialogError] = useState('');
-  const baseKey = 'settings.codexAccounts';
   const label = (key: string) => t(`${baseKey}.${key}`);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
@@ -127,6 +156,32 @@ export function CodexAccountsSettings({ onChanged }: { onChanged?: () => void })
   };
   const setPending = (value: boolean) => { busyRef.current = value; setBusy(value); };
 
+  const setSelectedFile = (field: 'auth' | 'config', file?: File) => {
+    setDialogError('');
+    setForm((current) => current && {
+      ...current,
+      [field]: file,
+      removeConfig: field === 'config' && file ? false : current.removeConfig,
+    });
+  };
+
+  const dropFiles = (files: File[]) => {
+    if (busyRef.current || !files.length) return;
+    const auth = files.filter((file) => /\.json$/i.test(file.name));
+    const config = files.filter((file) => /\.toml$/i.test(file.name));
+    if (auth.length > 1 || config.length > 1 || auth.length + config.length !== files.length) {
+      setDialogError(t(`${baseKey}.dropError`, { files: files.map((file) => file.name).join(', ') }));
+      return;
+    }
+    setDialogError('');
+    setForm((current) => current && {
+      ...current,
+      auth: auth[0] ?? current.auth,
+      config: config[0] ?? current.config,
+      removeConfig: config.length ? false : current.removeConfig,
+    });
+  };
+
   const run = async (action: string, id?: string, payload: Record<string, unknown> = {}) => {
     if (!data || busyRef.current) return;
     const inDialog = dialogOpen;
@@ -149,8 +204,11 @@ export function CodexAccountsSettings({ onChanged }: { onChanged?: () => void })
     }
   };
 
+  const importing = form?.mode === 'import';
+  const canSave = importing ? !!form.auth : !!form?.name.trim();
+
   const submit = async () => {
-    if (!form || busyRef.current) return;
+    if (!form || !canSave || busyRef.current) return;
     if (form.mode === 'login') {
       setPending(true); setDialogError('');
       try {
@@ -186,8 +244,17 @@ export function CodexAccountsSettings({ onChanged }: { onChanged?: () => void })
   };
 
   const time = (value?: number) => value ? new Date(value).toLocaleString(i18n.language) : label('never');
-  const showFiles = form?.mode === 'import' || form?.mode === 'update';
-  const canSave = !!form?.name.trim() && (form.mode !== 'import' || !!form.auth);
+  const showFiles = importing || form?.mode === 'update';
+  const filePickerLabel = (file: string, requirement: string) => `${t(`${baseKey}.chooseFile`, { file })} ${label(requirement)}`;
+  const accountDetails = form && <>
+    <label>
+      {label('name')}{importing && ` ${label('optional')}`}
+      <input autoFocus={!importing} required={!importing} value={form.name} disabled={busy}
+        placeholder={importing ? label('defaultNameHint') : undefined}
+        onChange={(event) => setForm({ ...form, name: event.target.value })} />
+    </label>
+    <label>{label('note')}<textarea value={form.note} disabled={busy} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label>
+  </>;
 
   return <section className="codex-accounts" aria-label={label('title')}>
     <div className="codex-accounts-heading">
@@ -219,7 +286,7 @@ export function CodexAccountsSettings({ onChanged }: { onChanged?: () => void })
       {!data.accounts.length ? <div className="codex-account-empty"><strong>{label('emptyTitle')}</strong><p>{label('emptyHint')}</p></div> : <div className="codex-account-list">
         {data.accounts.map((account) => <article className="codex-account-item" key={account.id}>
           <div className="codex-account-row"><h4>{account.name}</h4>{data.current.managed_id === account.id && <span className="codex-account-badge">{label('active')}</span>}</div>
-          <p>{account.email || label(account.auth_type === 'api_key' ? 'apiKey' : 'chatgpt')}</p>
+          <p>{account.email && account.email !== account.name ? account.email : label(account.auth_type === 'api_key' ? 'apiKey' : 'chatgpt')}</p>
           {account.workspace_id && <p className="codex-account-detail">{label('workspace')}: <code>{account.workspace_id}</code></p>}
           {account.note && <p className="codex-account-note">{account.note}</p>}
           <p className="codex-account-detail">{label(account.has_config ? 'withConfig' : 'authOnly')}{account.model ? ` · ${account.model}` : ''}{account.provider ? ` · ${account.provider}` : ''}</p>
@@ -235,21 +302,33 @@ export function CodexAccountsSettings({ onChanged }: { onChanged?: () => void })
     <dialog ref={dialog} className="codex-account-dialog" aria-labelledby={dialogTitle} onCancel={(event) => { event.preventDefault(); closeDialog(); }}>
       <div className="codex-account-dialog-heading"><h3 id={dialogTitle}>{label(form?.mode || (switching ? 'activate' : 'login'))}</h3><button type="button" aria-label={label('close')} disabled={busy} onClick={closeDialog}>×</button></div>
       {form && <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-        <label>{label('name')}<input autoFocus required value={form.name} disabled={busy} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
-        <label>{label('note')}<textarea value={form.note} disabled={busy} onChange={(event) => setForm({ ...form, note: event.target.value })} /></label>
+        {!importing && accountDetails}
         {showFiles && <>
           <div className="codex-account-drop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
-            event.preventDefault(); if (busy) return;
-            const files = [...event.dataTransfer.files];
-            setForm({ ...form, auth: files.find((file) => /\.json$/i.test(file.name)) || form.auth, config: files.find((file) => /\.toml$/i.test(file.name)) || form.config, removeConfig: false });
+            event.preventDefault();
+            dropFiles([...event.dataTransfer.files]);
           }}>
             <p>{label('dropHint')}</p>
-            <label>auth.json {form.mode === 'import' ? label('required') : label('keepExisting')}<input type="file" accept=".json,application/json" disabled={busy} onChange={(event) => setForm({ ...form, auth: event.target.files?.[0] })} /></label>
-            <label>config.toml {label('optional')}<input type="file" accept=".toml,text/plain" disabled={busy} onChange={(event) => setForm({ ...form, config: event.target.files?.[0], removeConfig: false })} /></label>
+            <AccountFilePicker
+              label={filePickerLabel('auth.json', importing ? 'required' : 'keepExisting')}
+              accept=".json,application/json"
+              file={form.auth}
+              disabled={busy}
+              autoFocus={importing}
+              onChange={(file) => setSelectedFile('auth', file)}
+            />
+            <AccountFilePicker
+              label={filePickerLabel('config.toml', 'optional')}
+              accept=".toml,text/plain"
+              file={form.config}
+              disabled={busy}
+              onChange={(file) => setSelectedFile('config', file)}
+            />
           </div>
           <p className="codex-account-hint">{label(form.mode === 'update' ? 'updateHint' : 'importHint')}</p>
           {form.mode === 'update' && form.account?.has_config && <label className="codex-account-check"><input type="checkbox" checked={form.removeConfig} disabled={busy || !!form.config} onChange={(event) => setForm({ ...form, removeConfig: event.target.checked })} />{label('removeConfig')}</label>}
         </>}
+        {importing && accountDetails}
         {form.mode === 'capture' && <p className="codex-account-hint">{label('captureHint')}</p>}
         {form.mode === 'login' && <p className="codex-account-hint">{label('loginHint')}</p>}
         {dialogError && <pre className="codex-account-error" role="alert">{dialogError}</pre>}

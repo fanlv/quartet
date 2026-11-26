@@ -289,20 +289,30 @@ func (s *Service) Mutate(ctx context.Context, action, id string, request model.C
 	}
 	requestHash := mutationHash(action, id, request)
 	index := -1
-	for i := range state.Accounts {
-		if state.Accounts[i].Info.ID == id {
-			index = i
-			break
+	if id != "" {
+		for i := range state.Accounts {
+			if state.Accounts[i].Info.ID == id {
+				index = i
+				break
+			}
 		}
-	}
-	if id != "" && index < 0 {
-		return nil, fmt.Errorf("Codex account %q does not exist", id)
+		if index < 0 {
+			return nil, fmt.Errorf("Codex account %q does not exist", id)
+		}
 	}
 	operation := model.CodexAccountOperation{ID: request.OperationID, Action: action, AccountID: id, Status: "completed"}
 	var candidate repository.StoredCodexAccount
 	switch action {
 	case "import", "capture", "update":
-		if strings.TrimSpace(request.Name) == "" {
+		name := strings.TrimSpace(request.Name)
+		if action == "import" {
+			if id != "" {
+				return nil, fmt.Errorf("import creates a new Codex account and does not accept an account id")
+			}
+			if request.AuthJSON == nil {
+				return nil, fmt.Errorf("auth.json is required")
+			}
+		} else if name == "" {
 			return nil, fmt.Errorf("account name is required")
 		}
 		if index >= 0 {
@@ -311,7 +321,6 @@ func (s *Service) Mutate(ctx context.Context, action, id string, request model.C
 			candidate.Info.ID = uuid.NewString()
 			candidate.Info.CreatedAt = time.Now().UnixMilli()
 		}
-		candidate.Info.Name, candidate.Info.Note = strings.TrimSpace(request.Name), strings.TrimSpace(request.Note)
 		if action == "capture" {
 			if files.Auth == nil {
 				return nil, fmt.Errorf("Codex auth.json does not exist in %s", home)
@@ -332,7 +341,14 @@ func (s *Service) Mutate(ctx context.Context, action, id string, request model.C
 		if err != nil {
 			return nil, err
 		}
-		info.ID, info.Name, info.Note = candidate.Info.ID, candidate.Info.Name, candidate.Info.Note
+		if name == "" {
+			name = strings.TrimSpace(info.Email)
+			if name == "" {
+				shortID, _, _ := strings.Cut(candidate.Info.ID, "-")
+				name = "Codex " + shortID
+			}
+		}
+		info.ID, info.Name, info.Note = candidate.Info.ID, name, strings.TrimSpace(request.Note)
 		info.CreatedAt, info.UpdatedAt, info.LastUsedAt = candidate.Info.CreatedAt, time.Now().UnixMilli(), candidate.Info.LastUsedAt
 		candidate.Info, candidate.Identity = info, identity
 		for _, existing := range state.Accounts {
