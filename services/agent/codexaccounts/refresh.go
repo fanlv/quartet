@@ -124,7 +124,7 @@ func refreshWithCodex(ctx context.Context, home string, environment map[string]s
 	// The adapter's CLI forwarding selects the same bundled or configured
 	// executable as the ACP runtime. Codex owns OAuth refresh and file writes.
 	cmd := executil.CommandContext(ctx, adapter.ACPProgram, "cli", "app-server", "-c", `cli_auth_credentials_store="file"`)
-	configureCodexProcess(cmd)
+	executil.ConfigureProcessTreeCancellation(cmd)
 	cmd.Dir = home
 	cmd.Env = os.Environ()
 	for key, value := range (runtimeenv.Resolver{}).Effective(adapter.AgentID, environment) {

@@ -409,7 +409,7 @@ func newConn(ctx context.Context, agentType, workdir string, options connOptions
 		args = parts[1:]
 	}
 	cmd := executil.Command(program, args...)
-	ctx, releaseCreation, err := beginRuntimeCreation(ctx, envKey)
+	ctx, releaseCreation, err := TrackRuntimeOperation(ctx, envKey)
 	if err != nil {
 		return nil, err
 	}

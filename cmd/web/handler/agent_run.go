@@ -59,12 +59,8 @@ func (h *Handler) runACPInternal(ctx context.Context, s *model.Session, userMess
 			err,
 		)
 	}
-	if binding.AgentID == "codex" && h.codexAccounts != nil {
-		defer func() {
-			if _, err := h.codexAccounts.List(context.WithoutCancel(ctx)); err != nil {
-				logger.Warnf(ctx, "[codex.accounts] save live credentials after round: %v", err)
-			}
-		}()
+	if binding.AgentID == "codex" {
+		defer h.saveCodexCredentials(ctx)
 	}
 
 	// Transient phase reporter: surfaces the "silent" preparation window

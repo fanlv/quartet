@@ -16,7 +16,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/messaging"
 	"github.com/fanlv/quartet/pkg/safe"
@@ -1265,14 +1264,9 @@ func (g *imGateway) handleGroupChat(ctx context.Context, msg *messaging.Message)
 	}
 	prompt = renderIMPrompt(prompt, msg)
 
-	messages := []*schema.Message{
-		schema.SystemMessage(prompt),
-		schema.UserMessage(msg.Content),
-	}
-
 	logger.Debugf(ctx, "[im] group chat prompt len=%d", len(prompt))
 
-	reply, err := g.h.generateText(ctx, replyAgent.AgentID, replyAgent.ModelID, replyAgent.ACPThoughtLevel, messages)
+	reply, err := g.h.generateText(ctx, *replyAgent, prompt, msg.Content)
 	if err != nil {
 		logger.Errorf(ctx, "[im] group chat: generate reply failed: chat=%s err=%v", msg.ChatID, err)
 		g.replyToMessage(ctx, msg.Platform, msg.MessageID, "生成回复失败: "+err.Error())

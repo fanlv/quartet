@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// 三个角色。标题生成与群回复走 `bin -p` 无会话路径，只能选支持该能力的 Agent，
-/// 也没有会话模式；IM 会话角色创建的是真实交互 Job，所以多一个模式选择。
+/// 标题生成与群回复使用支持单次文本生成的 Agent。IM 会话角色还可选择会话模式。
 private enum AgentRole: String, CaseIterable, Identifiable {
     case title
     case groupReply
@@ -34,7 +33,7 @@ private enum AgentRole: String, CaseIterable, Identifiable {
     }
 
     var supportsMode: Bool { self == .imSession }
-    /// 只有支持 `bin -p` 的 Agent 能承担无会话角色。
+    /// 单次文本生成角色根据 Agent 声明的能力筛选。
     var requiresHeadlessPrint: Bool { self != .imSession }
 }
 
@@ -144,7 +143,7 @@ struct AgentRoleSettingsView: View {
             ) { picker = .agent(role) }
             if pool.isEmpty {
                 agentSettingsHint(role.requiresHeadlessPrint
-                    ? "当前没有支持 bin -p 单次执行的可用 Agent。"
+                    ? "当前没有支持单次文本生成的可用 Agent。"
                     : "当前没有可用的 Agent。")
             }
             if let selected, !(selected.models?.availableModels ?? []).isEmpty {

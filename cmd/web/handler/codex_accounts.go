@@ -9,10 +9,20 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	pkgacp "github.com/fanlv/quartet/pkg/acp"
 	"github.com/fanlv/quartet/pkg/httputil"
+	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/services/agent/codexaccounts"
 	"github.com/fanlv/quartet/services/agent/probe"
 	"github.com/fanlv/quartet/types/model"
 )
+
+func (h *Handler) saveCodexCredentials(ctx context.Context) {
+	if h.codexAccounts == nil {
+		return
+	}
+	if _, err := h.codexAccounts.List(context.WithoutCancel(ctx)); err != nil {
+		logger.Warnf(ctx, "[codex.accounts] save live credentials after execution: %v", err)
+	}
+}
 
 func (h *Handler) acquireCodexAccountUpdate(ctx context.Context, force bool) (func(), error) {
 	release, err := h.agentExecutions.beginMaintenance("codex", force)

@@ -158,12 +158,9 @@ func InstalledACPAgents() []ACPAgentDef {
 // to the binary used to run that same tool in *headless one-shot* mode
 // (e.g. "qoderclicn", "claude").
 //
-// This distinction matters: an ACP serve command speaks JSON-RPC over
-// stdio and cannot be invoked as `<cmd> -p <prompt>`; doing so just boots
-// the ACP server and exits non-zero. One-shot text flows (title / IM
-// reply) must instead run the agent's plain CLI in print mode, which is
-// exactly what KnownACPAgents already records as Bin. The second return
-// value reports whether command was a recognised ACP agent.
+// One-shot text flows (title / IM reply) use the plain CLI's non-interactive
+// command. The second return value reports whether command was a recognised
+// ACP agent.
 func HeadlessBin(command string) (string, bool) {
 	a, ok := catalog.ResolveBuiltin(command)
 	if !ok {

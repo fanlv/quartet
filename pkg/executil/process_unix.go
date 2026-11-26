@@ -1,6 +1,6 @@
 //go:build !windows
 
-package codexaccounts
+package executil
 
 import (
 	"errors"
@@ -10,7 +10,9 @@ import (
 	"time"
 )
 
-func configureCodexProcess(cmd *exec.Cmd) {
+// ConfigureProcessTreeCancellation makes context cancellation terminate the
+// command and its children. Apply it to a CommandContext result before Start.
+func ConfigureProcessTreeCancellation(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = 3 * time.Second
 	cmd.Cancel = func() error {

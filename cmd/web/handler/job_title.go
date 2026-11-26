@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/safe"
 	graphsvc "github.com/fanlv/quartet/services/graph"
@@ -254,10 +253,7 @@ func (h *Handler) doUpdateJobTitle(ctx context.Context, jobID string, userMessag
 	logger.Debugf(ctx, "[title] calling generateText: jobId=%s agentId=%s modelId=%s thought=%s",
 		jobID, titleAgent.AgentID, titleAgent.ModelID, titleAgent.ACPThoughtLevel)
 	start := time.Now()
-	title, err := h.generateText(ctx, titleAgent.AgentID, titleAgent.ModelID, titleAgent.ACPThoughtLevel, []*schema.Message{
-		schema.SystemMessage(systemPrompt),
-		schema.UserMessage(userMessage),
-	})
+	title, err := h.generateText(ctx, *titleAgent, systemPrompt, userMessage)
 	if err != nil {
 		return fmt.Errorf("generate title failed (agentId=%s elapsed=%s): %w", titleAgent.AgentID, time.Since(start).Round(time.Millisecond), err)
 	}

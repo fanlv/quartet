@@ -250,7 +250,7 @@ var builtinAgents = []BuiltinAgent{
 			{Kind: IdentifierKindACPCommand, Value: "npx @agentclientprotocol/codex-acp"},
 			{Kind: IdentifierKindACPCommand, Value: "npx @zed-industries/codex-acp"},
 		},
-		DisplayName: "Codex", IconURL: "https://avatars.githubusercontent.com/u/14957082", SupportsHeadlessPrint: false,
+		DisplayName: "Codex", IconURL: "https://avatars.githubusercontent.com/u/14957082", SupportsHeadlessPrint: true,
 		Install: npmInstallSpecWithUpgrade(
 			"codex", "codex-acp",
 			allPlatforms(
@@ -310,7 +310,7 @@ var builtinAgents = []BuiltinAgent{
 		HistoricalIdentifiers: []HistoricalIdentifier{
 			{Kind: IdentifierKindACPCommand, Value: "npx -y opencode-ai acp"},
 		},
-		DisplayName: "OpenCode", IconURL: "https://avatars.githubusercontent.com/in/1549082", SupportsHeadlessPrint: false,
+		DisplayName: "OpenCode", IconURL: "https://avatars.githubusercontent.com/in/1549082", SupportsHeadlessPrint: true,
 		Install: agentinstall.InstallSpec{
 			Method:                agentinstall.InstallMethodNPM,
 			InstallSteps:          agentinstall.NPMInstallFlow(opencodeNPMPackage),

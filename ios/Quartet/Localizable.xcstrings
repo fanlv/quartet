@@ -8539,19 +8539,19 @@
         }
       }
     },
-    "当前没有支持 bin -p 单次执行的可用 Agent。" : {
+    "当前没有支持单次文本生成的可用 Agent。" : {
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No available agent supports one-shot bin -p execution."
+            "value" : "No available agent supports one-shot text generation."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "当前没有支持 bin -p 单次执行的可用 Agent。"
+            "value" : "当前没有支持单次文本生成的可用 Agent。"
           }
         }
       }
@@ -10087,19 +10087,19 @@
         }
       }
     },
-    "支持 bin -p 单次执行，可用于标题生成和群回复角色。" : {
+    "支持单次文本生成，可用于标题生成和群聊回复。" : {
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Supports one-shot bin -p execution, so it can serve the title and group-reply roles."
+            "value" : "Supports one-shot text generation for titles and group replies."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "支持 bin -p 单次执行，可用于标题生成和群回复角色。"
+            "value" : "支持单次文本生成，可用于标题生成和群聊回复。"
           }
         }
       }

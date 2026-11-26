@@ -2862,8 +2862,7 @@ struct AgentRoleConfig: Decodable, Hashable, Sendable {
     }
 }
 
-/// 保存角色配置的请求体。标题生成与群回复走 `bin -p` 无会话路径，没有 mode，
-/// 所以只有 IM 会话角色会带上 `acp_mode`。
+/// 保存角色配置的请求体。IM 会话角色额外携带 `acp_mode`。
 struct AgentRoleSaveRequest: Encodable, Sendable {
     let agentId: String
     let modelId: String

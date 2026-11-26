@@ -30,7 +30,7 @@ const (
 	EnvKeyTrustedProxies          = "QUARTET_TRUSTED_PROXIES"    // comma-separated trusted reverse-proxy IPs/CIDRs; defaults to loopback only
 	EnvKeyStaticDir               = "QUARTET_STATIC_DIR"         // dir served as the web UI static root; default "static" (relative to cwd)
 	EnvKeyCertsDir                = "QUARTET_CERTS_DIR"          // dir holding cert.pem/key.pem; presence enables HTTPS; default "certs" (relative to cwd)
-	EnvKeyCodexPath               = "CODEX_PATH"                 // Codex executable selected by codex-acp
+	EnvKeyCodexPath               = "CODEX_PATH"                 // Codex executable selected by the adapter and one-shot CLI
 	EnvKeyCodexHome               = "CODEX_HOME"                 // Codex credential, configuration and session directory
 	EnvKeyCodexAPIKey             = "CODEX_API_KEY"              // Codex API-key override
 	EnvKeyOpenAIIdentityTokenFile = "OPENAI_IDENTITY_TOKEN_FILE" // Workload identity token used instead of a stored Codex login

@@ -710,7 +710,7 @@ func validateAgentRoleEntry(entry catalog.ResolvedAgent, requireHeadless bool) e
 		return fmt.Errorf("Agent lifecycle is %q, want %q", entry.Lifecycle, model.AgentLifecycleActive)
 	}
 	if requireHeadless && !entry.SupportsHeadlessPrint {
-		return fmt.Errorf("Agent does not declare bin -p prompt support")
+		return fmt.Errorf("Agent does not support one-shot text generation")
 	}
 	return nil
 }

@@ -660,7 +660,7 @@ struct AgentCatalogSettingsView: View {
             AgentSettingsMonoRow(label: "卸载命令", value: item.uninstallCommands.joined(separator: "\n"))
         }
         if item.supportsHeadlessPrint {
-            agentSettingsHint("支持 bin -p 单次执行，可用于标题生成和群回复角色。")
+            agentSettingsHint("支持单次文本生成，可用于标题生成和群聊回复。")
         }
     }
 
