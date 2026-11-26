@@ -2,6 +2,7 @@ package install
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -107,6 +108,9 @@ type InstallSpec struct {
 	// VersionPackage is the npm package whose published version is the latest
 	// release for an npm installation of this agent.
 	VersionPackage string
+	// VersionPackageByMajor overrides VersionPackage for executables whose
+	// installed major version follows a separate npm release line.
+	VersionPackageByMajor map[int64]string
 	// VersionURL returns the latest executable version as a plain semver string.
 	VersionURL string
 	// NativeVersionURL is the plain-semver latest endpoint of the native
@@ -225,6 +229,7 @@ func (s InstallSpec) Clone() InstallSpec {
 	s.UpgradeSteps = s.UpgradeSteps.clone()
 	s.NativeUpgradeSteps = s.NativeUpgradeSteps.clone()
 	s.UninstallSteps = s.UninstallSteps.clone()
+	s.VersionPackageByMajor = maps.Clone(s.VersionPackageByMajor)
 	s.NativeInstallDirs = append([]string(nil), s.NativeInstallDirs...)
 	return s
 }

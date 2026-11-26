@@ -79,13 +79,14 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 
 	for _, entry := range entries {
 		var (
-			agentID          string
-			definition       model.AgentRuntimeDefinition
-			packages         []string
-			probeBinary      bool
-			versionPackage   string
-			versionURL       string
-			upgradeSupported bool
+			agentID               string
+			definition            model.AgentRuntimeDefinition
+			packages              []string
+			probeBinary           bool
+			versionPackage        string
+			versionPackageByMajor map[int64]string
+			versionURL            string
+			upgradeSupported      bool
 		)
 		switch entry.Source {
 		case model.AgentCatalogSourceBuiltin:
@@ -95,12 +96,14 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 			agentID = entry.Builtin.AgentID
 			definition = entry.Builtin.RuntimeDefinition()
 			versionPackage = strings.TrimSpace(entry.Builtin.Install.VersionPackage)
+			versionPackageByMajor = entry.Builtin.Install.VersionPackageByMajor
 			versionURL = strings.TrimSpace(entry.Builtin.Install.VersionURL)
 			nativeVersionURL := strings.TrimSpace(entry.Builtin.Install.NativeVersionURL)
-			if versionPackage == "" && nativeVersionURL == "" {
+			hasPublishedPackage := versionPackage != "" || len(versionPackageByMajor) > 0
+			if !hasPublishedPackage && nativeVersionURL == "" {
 				packages = entry.Builtin.Install.NPMPackages(platform)
 			}
-			probeBinary = versionPackage != "" || versionURL != "" || nativeVersionURL != "" || len(packages) == 0 || entry.Builtin.Install.HasNonNPMSteps(platform)
+			probeBinary = hasPublishedPackage || versionURL != "" || nativeVersionURL != "" || len(packages) == 0 || entry.Builtin.Install.HasNonNPMSteps(platform)
 			upgradeSupported = entry.Builtin.Install.AutoUpgradeable(platform)
 		case model.AgentCatalogSourceCustom:
 			if entry.Custom == nil || entry.Custom.Lifecycle != model.AgentLifecycleActive {
@@ -140,19 +143,15 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 				Name: definition.Bin,
 				Kind: "binary",
 			})
-			binaryTasks = append(binaryTasks, binaryTask{
-				infoIndex: infoIndex, componentIndex: componentIndex, binary: definition.Bin,
-			})
 			if entry.Source == model.AgentCatalogSourceBuiltin && entry.Builtin.Install.UsesNativeRelease(installed.Bin.ResolvedPath) {
 				versionURL = strings.TrimSpace(entry.Builtin.Install.NativeVersionURL)
 				versionPackage = ""
+				versionPackageByMajor = nil
 			}
-			if versionPackage != "" {
-				publishedVersionRefs[versionPackage] = append(
-					publishedVersionRefs[versionPackage],
-					componentRef{infoIndex: infoIndex, componentIndex: componentIndex},
-				)
-			}
+			binaryTasks = append(binaryTasks, binaryTask{
+				infoIndex: infoIndex, componentIndex: componentIndex, binary: definition.Bin,
+				versionPackage: versionPackage, versionPackageByMajor: versionPackageByMajor,
+			})
 			if versionURL != "" {
 				publishedURLRefs[versionURL] = append(
 					publishedURLRefs[versionURL],
@@ -186,6 +185,21 @@ func (s *Service) Check(ctx context.Context, force bool) ([]model.AgentVersionIn
 	}
 
 	applyBinaryVersions(ctx, infos, binaryTasks)
+	for _, task := range binaryTasks {
+		pkg := task.versionPackage
+		if len(task.versionPackageByMajor) > 0 {
+			current := infos[task.infoIndex].Components[task.componentIndex].CurrentVersion
+			if version, ok := parseSemanticVersion(current); ok {
+				if majorPackage := task.versionPackageByMajor[version.core[0]]; majorPackage != "" {
+					pkg = majorPackage
+				}
+			}
+		}
+		if pkg != "" {
+			ref := componentRef{infoIndex: task.infoIndex, componentIndex: task.componentIndex}
+			publishedVersionRefs[pkg] = append(publishedVersionRefs[pkg], ref)
+		}
+	}
 	if len(registryRefs) > 0 {
 		current, latest, versionErr := agentinstall.OfficialAntigravityACPVersions(ctx)
 		for _, ref := range registryRefs {
@@ -242,9 +256,11 @@ type componentRef struct {
 }
 
 type binaryTask struct {
-	infoIndex      int
-	componentIndex int
-	binary         string
+	infoIndex             int
+	componentIndex        int
+	binary                string
+	versionPackage        string
+	versionPackageByMajor map[int64]string
 }
 
 type binaryResult struct {
