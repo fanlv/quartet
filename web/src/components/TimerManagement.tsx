@@ -32,6 +32,30 @@ function jobLink(jobId: string, scheduleId: string, executionId: string, workspa
   return `/?${query}`;
 }
 
+function TimerFilter({ label, allLabel, value, options, onChange }: {
+  label: string;
+  allLabel: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+}) {
+  const selected = options.find(option => option.value === value);
+  const displayValue = value ? selected?.label || value : allLabel;
+
+  return (
+    <label className="timer-filter" data-active={value ? true : undefined} title={value ? displayValue : undefined}>
+      {value && <span className="timer-filter-label" aria-hidden="true">{label}</span>}
+      <span className="timer-filter-value" aria-hidden="true">{displayValue}</span>
+      <TimerIcon name="chevron" className="timer-filter-chevron" />
+      <select aria-label={label} value={value} onChange={event => onChange(event.target.value)}>
+        <option value="">{allLabel}</option>
+        {value && !selected && <option value={value}>{value}</option>}
+        {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
 export default function TimerManagement({ permissions }: { permissions: string[] }) {
   const { t } = useTranslation();
   const canWrite = permissions.includes('schedule.write');
@@ -196,8 +220,8 @@ export default function TimerManagement({ permissions }: { permissions: string[]
   };
   const workspaceName = (id?: string) => options.workspaces.find(item => item.id === id)?.title || id;
   const workflowName = (id?: string) => options.workflows.find(item => item.id === id)?.name || id;
-  const showStatus = (value?: string) => value ? t(`timers.status.${value}`, { defaultValue: value }) : '—';
   const isExecutionDetail = view === 'executions' && Boolean(executionId);
+  const showHistoryList = view !== 'plans' && !isExecutionDetail;
   const record = isExecutionDetail ? executions.find(item => item.id === executionId && (!scheduleId || item.scheduleId === scheduleId)) : undefined;
   const visibleExecutions = executions.filter(item => (
     (!scheduleId || item.scheduleId === scheduleId) && (!workspace || item.workspaceId === workspace) && (!status || item.status === status)
@@ -210,9 +234,23 @@ export default function TimerManagement({ permissions }: { permissions: string[]
   const hasRecords = view === 'plans' ? timers.length > 0
     : isExecutionDetail ? Boolean(record)
     : view === 'executions' ? visibleExecutions.length > 0 : visibleSessions.length > 0;
+  const showRows = !loading && hasRecords;
+  const emptyMessageKey = isExecutionDetail ? 'timers.executionMissing'
+    : showHistoryList && hasFilters ? 'timers.filters.noMatches' : `timers.emptyState.${view}`;
+  const recordState = loading ? (
+    <div className="timer-state" role="status">
+      <span className="timer-spinner" aria-hidden="true" />
+      {t('common.loading')}
+    </div>
+  ) : !hasRecords && !(view === 'plans' ? planError : historyError) && (
+    <div className="timer-state">
+      <span className="timer-state-icon"><TimerIcon name={viewIcons[view]} /></span>
+      <p>{t(emptyMessageKey)}</p>
+    </div>
+  );
   const refreshButton = (
-    <button type="button" className="timer-button" onClick={refresh} disabled={historyLoading}>
-      <TimerIcon name="refresh" />{t('timers.refresh')}
+    <button type="button" className="timer-button timer-refresh" onClick={refresh} disabled={historyLoading} aria-label={t('timers.refresh')} title={t('timers.refresh')}>
+      <TimerIcon name="refresh" /><span>{t('timers.refresh')}</span>
     </button>
   );
 
@@ -243,75 +281,15 @@ export default function TimerManagement({ permissions }: { permissions: string[]
               {refreshButton}
             </div>
           )}
-          {view !== 'plans' && !isExecutionDetail && (
-            <div className="timer-filters">
-              <label>
-                {t('timers.plans')}
-                <select className="timer-control" value={scheduleId} onChange={event => navigate(view, event.target.value)}>
-                  <option value="">{t('timers.all')}</option>
-                  {scheduleId && !timers.some(item => item.id === scheduleId) && <option value={scheduleId}>{scheduleId}</option>}
-                  {timers.map(timer => <option key={timer.id} value={timer.id}>{timer.name}</option>)}
-                </select>
-              </label>
-              {view === 'executions' && (
-                <>
-                  {canReadWorkspaces && (
-                    <label>
-                      {t('timers.workspace')}
-                      <select className="timer-control" value={workspace} onChange={event => { setCursor(''); setWorkspace(event.target.value); }}>
-                        <option value="">{t('timers.all')}</option>
-                        {options.workspaces.map(item => <option key={item.id} value={item.id}>{item.title || item.id}</option>)}
-                      </select>
-                    </label>
-                  )}
-                  <label>
-                    {t('timers.state')}
-                    <select className="timer-control" value={status} onChange={event => { setCursor(''); setStatus(event.target.value); }}>
-                      <option value="">{t('timers.all')}</option>
-                      {statusOptions.map(value => <option key={value} value={value}>{showStatus(value)}</option>)}
-                    </select>
-                  </label>
-                </>
-              )}
-              <div className="timer-actions timer-filter-actions">
-                {view === 'sessions' && executionId && (
-                  <button type="button" className="timer-button timer-button-quiet" onClick={() => navigate('executions', scheduleId, executionId)}>
-                    <TimerIcon name="back" />{t('timers.backToExecution')}
-                  </button>
-                )}
-                {hasFilters && (
-                  <button type="button" className="timer-button timer-button-quiet" onClick={() => {
-                    if (view === 'executions') {
-                      setWorkspace('');
-                      setStatus('');
-                    }
-                    navigate(view);
-                  }}>{t('timers.resetFilters')}</button>
-                )}
-                {refreshButton}
-              </div>
-            </div>
-          )}
-
           {notice && <p role="status" className="timer-feedback timer-feedback-success"><TimerIcon name="check" />{notice}</p>}
           {actionError && !confirm && <pre className="timer-feedback timer-feedback-error" role="alert">{actionError}</pre>}
           {planError && <pre className="timer-feedback timer-feedback-error" role="alert">{planError}</pre>}
           {historyError && view !== 'plans' && <pre className="timer-feedback timer-feedback-error" role="alert">{historyError}</pre>}
           {optionsError && editor === undefined && <pre className="timer-feedback timer-feedback-error" role="alert" data-testid="schedule-graph-workflow-warnings">{optionsError}</pre>}
 
-          {loading ? (
-            <div className="timer-state" role="status">
-              <span className="timer-spinner" aria-hidden="true" />
-              {t('common.loading')}
-            </div>
-          ) : !hasRecords && !(view === 'plans' ? planError : historyError) && (
-            <div className="timer-state">
-              <span className="timer-state-icon"><TimerIcon name={viewIcons[view]} /></span>
-              <p>{t(isExecutionDetail ? 'timers.executionMissing' : `timers.emptyState.${view}`)}</p>
-            </div>
-          )}
+          {!showHistoryList && recordState}
 
-          {!loading && hasRecords && view === 'plans' && (
+          {showRows && view === 'plans' && (
             <TimerRecords view="plans">
               {timers.map(timer => {
                 const kind = timer.kind || 'graph';
@@ -369,10 +347,70 @@ export default function TimerManagement({ permissions }: { permissions: string[]
             </TimerRecords>
           )}
 
-          {!loading && hasRecords && view === 'executions' && !isExecutionDetail && (
-            <TimerRecords view="executions">
-              {visibleExecutions.map(item => (
+          {showHistoryList && (
+            <TimerRecords
+              view={view}
+              showColumns={showRows}
+              toolbar={
+                <div className="timer-list-toolbar">
+                  <div className="timer-list-filters" role="group" aria-label={t('timers.filters.label')}>
+                    <TimerFilter
+                      label={t('timers.plans')}
+                      allLabel={t('timers.filters.allTimers')}
+                      value={scheduleId}
+                      options={timers.map(timer => ({ value: timer.id, label: timer.name }))}
+                      onChange={value => navigate(view, value)}
+                    />
+                    {view === 'executions' && canReadWorkspaces && (
+                      <TimerFilter
+                        label={t('timers.workspace')}
+                        allLabel={t('timers.filters.allWorkspaces')}
+                        value={workspace}
+                        options={options.workspaces.map(item => ({ value: item.id, label: item.title || item.id }))}
+                        onChange={value => { setCursor(''); setWorkspace(value); }}
+                      />
+                    )}
+                    {view === 'executions' && (
+                      <TimerFilter
+                        label={t('timers.state')}
+                        allLabel={t('timers.filters.allStatuses')}
+                        value={status}
+                        options={statusOptions.map(value => ({ value, label: t(`timers.status.${value}`, { defaultValue: value }) }))}
+                        onChange={value => { setCursor(''); setStatus(value); }}
+                      />
+                    )}
+                    {hasFilters && (
+                      <button type="button" className="timer-button timer-button-quiet" onClick={() => {
+                        if (view === 'executions') {
+                          setWorkspace('');
+                          setStatus('');
+                        }
+                        navigate(view);
+                      }}>{t('timers.resetFilters')}</button>
+                    )}
+                  </div>
+                  <div className="timer-list-actions">
+                    {view === 'sessions' && executionId && (
+                      <button type="button" className="timer-button timer-button-quiet" onClick={() => navigate('executions', scheduleId, executionId)}>
+                        <TimerIcon name="back" />{t('timers.backToExecution')}
+                      </button>
+                    )}
+                    {refreshButton}
+                  </div>
+                </div>
+              }
+            >
+              {!showRows && recordState}
+              {showRows && view === 'executions' && visibleExecutions.map(item => (
                 <TimerExecutionRow key={item.id} record={item} workspaceName={workspaceName(item.workspaceId)} onOpen={() => navigate('executions', scheduleId, item.id)} />
+              ))}
+              {showRows && view === 'sessions' && visibleSessions.map(session => (
+                <TimerSessionRow
+                  key={session.id}
+                  session={session}
+                  href={jobLink(session.jobId, session.scheduleId, session.executionId, session.workspaceId, session.id)}
+                  onOpenExecution={() => navigate('executions', session.scheduleId, session.executionId)}
+                />
               ))}
             </TimerRecords>
           )}
@@ -401,20 +439,7 @@ export default function TimerManagement({ permissions }: { permissions: string[]
             />
           )}
 
-          {!loading && hasRecords && view === 'sessions' && (
-            <TimerRecords view="sessions">
-              {visibleSessions.map(session => (
-                <TimerSessionRow
-                  key={session.id}
-                  session={session}
-                  href={jobLink(session.jobId, session.scheduleId, session.executionId, session.workspaceId, session.id)}
-                  onOpenExecution={() => navigate('executions', session.scheduleId, session.executionId)}
-                />
-              ))}
-            </TimerRecords>
-          )}
-
-          {view !== 'plans' && !isExecutionDetail && (nextCursor || (historyLoading && cursor)) && (
+          {showHistoryList && (nextCursor || (historyLoading && cursor)) && (
             <div className="timer-pagination">
               <button type="button" className="timer-button" disabled={historyLoading} onClick={() => setCursor(nextCursor)}>
                 {t(historyLoading ? 'common.loading' : 'timers.more')}

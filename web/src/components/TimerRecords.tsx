@@ -45,13 +45,21 @@ const columns = {
   sessions: ['name', 'agent', 'created'],
 };
 
-export function TimerRecords({ view, children }: { view: keyof typeof columns; children: ReactNode }) {
+export function TimerRecords({ view, toolbar, showColumns = true, children }: {
+  view: keyof typeof columns;
+  toolbar?: ReactNode;
+  showColumns?: boolean;
+  children: ReactNode;
+}) {
   const { t } = useTranslation();
   return (
     <div className="timer-records" data-view={view}>
-      <div className="timer-columns timer-row-grid" aria-hidden="true">
-        {columns[view].map(column => <span key={column}>{t(`timers.${column}`)}</span>)}
-      </div>
+      {toolbar}
+      {showColumns && (
+        <div className="timer-columns timer-row-grid" aria-hidden="true">
+          {columns[view].map(column => <span key={column}>{t(`timers.${column}`)}</span>)}
+        </div>
+      )}
       {children}
     </div>
   );
@@ -199,22 +207,31 @@ export function TimerSessionRow({ session, href, onOpenExecution }: {
   onOpenExecution: () => void;
 }) {
   const { t } = useTranslation();
-  const loop = session.loop?.map(item => item.index).join(' / ');
-  const meta = [session.scheduleName, session.nodeName || session.nodeId, loop].filter(Boolean).join(' · ');
+  // The session API uses "New Chat" as its default, including for Shell steps.
+  const savedTitle = session.title?.trim();
+  const nodeName = session.nodeName?.trim();
+  const nodeId = session.nodeId?.trim();
+  const scheduleName = session.scheduleName?.trim();
+  const title = (savedTitle === 'New Chat' ? undefined : savedTitle) || nodeName || scheduleName || nodeId || session.id;
+  const rounds = session.loop?.map(item => item.index + 1).join(' / ');
+  const loop = rounds ? t('timers.sessionLoopRound', { round: rounds }) : undefined;
+  const meta = [...new Set([scheduleName, nodeName || nodeId, loop])].filter(value => value && value !== title).join(' · ');
+  const isShell = session.agentId === 'shell';
+  const agent = isShell ? t('graph.kinds.shellLabel') : session.agentId;
 
   return (
     <article className="timer-record timer-session timer-entry timer-row-grid">
       <a className="timer-session-link" href={href}>
-        <RecordTitle title={session.title || session.id} meta={meta} icon="sessions" />
+        <RecordTitle title={title} meta={meta} icon={isShell ? 'prompt' : 'sessions'} />
         <TimerIcon name="open" />
       </a>
       <RecordCell label={t('timers.agent')}>
-        {session.agentId || session.modelId || <span className="timer-muted">—</span>}
-        {session.agentId && session.modelId && <span className="timer-meta">{session.modelId}</span>}
+        {agent || session.modelId || <span className="timer-muted">—</span>}
+        {agent && session.modelId && <span className="timer-meta">{session.modelId}</span>}
       </RecordCell>
-      <RecordCell label={t('timers.created')}><TimerTime value={session.createdAt} /></RecordCell>
+      <RecordCell label={t('timers.created')}><TimerTime value={session.createdAt} seconds /></RecordCell>
       <button className="timer-button timer-button-quiet timer-session-action" type="button" onClick={onOpenExecution}>
-        {t('timers.backToExecution')}<TimerIcon name="chevron" />
+        {t('timers.viewExecution')}<TimerIcon name="chevron" />
       </button>
     </article>
   );

@@ -1,235 +1,88 @@
 # AGENTS.md
 
-This file documents the current architecture and development conventions for this repository.
+## 开发约定
 
-## 代码规范
+- 在 `main` 分支开发，Git 提交信息使用英文。项目仍在开发，重构时可直接调整接口与数据结构。
+- 用 `pkg/logger` 记录日志，向用户展示完整错误。仅在明确要求时新增单元测试。
+- 重构与功能方案只描述功能行为。编写文档、修改 iOS 或项目 Skill 时阅读对应目录的约定。[文档](docs/AGENTS.md) · [iOS](ios/AGENTS.md) · [Skill](skill/AGENTS.md)
+- 进程启停、重启和 PATH 查找的跨平台差异按平台文件封装（如 `_unix.go`、`_windows.go`）。外部 CLI 统一用 `pkg/executil.LookPath` 查找，包含用户级安装目录的兜底。
+- ACP 工具并发错误在原会话处理并发或租约问题，保留会话上下文。
 
-1. 目前项目还在开发中，然后重构的时候不用考虑兼容性问题.
-2. 重构文档里面的话，不要有代码细节，只写功能描述。
-3. 错误信息就要全量给用户显示，不要隐藏任何错误信息.
-4. services 目录下的代码，尽量不要对外暴露全局的函数。比如 func ValidateWorkdir(workdir string) error 。
-5. 当前 quartet 程序一般运行在用户的个人电脑或其他可信环境中。账号之间不隔离工作区和业务数据，RBAC 只控制功能能力；不用考虑账号是否能访问宿主机上的资源。
-6. Git commit message 必须使用英文。
+## 构建与验证
 
-## Build & Run Commands
+Go 最低版本见 `go.mod`。Web 开发使用 `web/.nvmrc` 指定的 Node 和 `web/package.json` 的 `packageManager`。完整 Make 目标以 `make help` 为准。
 
-```bash
-make help                 # List Make targets and descriptions
-make build                # Build CLI, eino-cli, backend, and frontend artifacts
-make build-all            # Run go build ./...
-make build-cli            # Build bin/quartet-cli
-make build-eino-cli       # Build bin/eino-cli
-make build-web            # Build bin/quartet-web
-make build-frontend       # Type-check and build the SPA into static/; does not restart the backend
-make pod-install          # Install iOS CocoaPods dependencies
-make build-ios            # Build the iOS app on macOS with Xcode
-make test-ios             # Build the iOS Simulator target without signing
-make e2e-ios              # Run native iOS UI tests in Simulator
-make test                 # Run Go tests, frontend component tests, and Playwright E2E
-make test-go              # Run all Go tests
-make test-web             # Run frontend component tests (cd web && npm test)
-make lint-web             # Run frontend ESLint checks
-make e2e                  # Run frontend Playwright E2E tests
-make run-cli              # Run quartet-cli with go run
-make run-backend          # Run web backend only (go run ./cmd/web)
-make run-frontend         # Dev-only Vite server (5173, or 443 with certs); not used by make web
-make web                  # Build frontend/backend, then start or restart the detached backend web service
-make web-stop             # Stop watchdog, backend, and orphan quartet-web processes
-make backend-stop         # Stop backend only; watchdog untouched
-make web-status           # Check backend and watchdog status
-make web-logs             # Follow backend log (/tmp/quartet-backend.log)
-make web-watch            # Start detached watchdog; revive the backend only after its port goes down
-make web-watch-stop       # Stop the watchdog; leave a running backend untouched
-make web-watch-logs       # Follow watchdog log (/tmp/quartet-watchdog.log)
-make autostart-install    # Install and load the launchd job: auto-start watchdog + revive it after a crash (AUTOSTART_SCOPE=agent for login-time LaunchAgent, daemon for boot-time LaunchDaemon)
-make autostart-status     # Show launchd job, watchdog, and backend status
-make autostart-uninstall  # Unload and remove the launchd job (backend keeps running)
-make install-project-tools # Install quartet-cli and all three project skills
-make install-eino-cli     # Build/install eino-cli into INSTALL_BIN_DIR
-make install-skill        # Build/install quartet-cli, then register one skill selected by SKILL_NAME
-make install-skill-cli    # Only build and install quartet-cli into INSTALL_BIN_DIR
-make install-skill-run    # Only register the skill directory with the skills CLI
-make install-skill-copy   # Install skill files by copying instead of symlinking
-make install-skill-list   # List skills under SKILL_SOURCE without installing
-make clean                # Remove bin/ and static/
-```
+| 任务 | 命令 |
+| --- | --- |
+| 构建 | `make build` 构建 `quartet-cli`、`eino-cli`、后端和前端。单独构建用 `make build-web` 或 `make build-frontend` |
+| 检查 | `make test-go`、`make test-web`、`make lint-web`、`make e2e`。`make test` 汇总 Go、Web 组件和 Playwright 测试 |
+| iOS | `make build-ios` 构建应用，`make test-ios` 无签名构建模拟器目标，`make e2e-ios` 运行 UI 测试 |
+| 开发服务 | `make run-backend`、`make run-frontend`。Vite 服务用于开发，正式后端同源提供 SPA 构建 |
+| 安装项目工具 | `make install-project-tools` 安装 `quartet-cli` 和项目 Skills，`make install-eino-cli` 安装独立的 `eino-cli` |
 
-> `stage-web` 和 `activate-web-stage` 是「设置页重启后端」功能的内部目标，由 `services/runtime` 调用：先把候选前端与候选二进制构建到一个独立的 stage 目录，候选进程启动自检通过后才提升为线上版本，失败会回滚到当前版本。不要手工执行这两个目标。
+## 后端运行
 
-> agent 不要自己执行 `make web` 重启后端：当前 agent（ACP 子进程）跑在后端进程树之下，`make web` 会 kill 旧后端，旧后端一死，agent 这条 ACP 链会被 `Pdeathsig` 连带 SIGKILL，重启过程当场失去执行者。重启后端这一步交给用户在机器上手动执行。需要"挂掉自动拉起"时用 `make web-watch`：它 detached 在后端进程树之外，只在端口已空时才拉起服务、从不 kill 活着的进程，所以既不会误伤 agent，也能在后端宕掉后自动恢复。`make web-stop` 会同时停止 watchdog 与后端；只想停后端时使用 `make backend-stop`。
-> 修改前端后可以执行 `make build-frontend` 更新 `static/`；后端会直接提供新构建，刷新页面即可查看，无需重启后端。
+- **用 `make web` 重启当前后端，由用户手动执行。** 重启会中断正在运行的 ACP 会话。纯前端改动可用 `make build-frontend` 更新 `static/` 后刷新页面。
+- `stage-web` 和 `activate-web-stage` 仅供 `services/runtime` 的设置页重启流程调用。候选版本通过启动自检后才会提升，失败时回滚。
+- `make web-watch` 启动独立 watchdog，只在后端端口空闲时拉起服务。`make web-stop` 停止后端和 watchdog，`make backend-stop` 只停止后端，`make web-watch-stop` 只停止 watchdog。状态和日志命令见服务命令表。[服务命令](README.zh-CN.md#服务命令)
+- `LOCAL_MEMORY` 必须是绝对路径。默认 HTTP 监听 `0.0.0.0:8090`。证书目录默认是 `certs/`，同时存在 `cert.pem` 和 `key.pem` 时启用 HTTPS，默认监听 `0.0.0.0:443`，ALPN 优先 `h2` 并支持 HTTP/1.1。TLS 启用时另起 `127.0.0.1:8090` 的明文监听供本地 CLI 和脚本使用。证书加载失败会报错退出。
+- `QUARTET_LISTEN_ADDR` 只覆盖后端监听地址。Make 的启停、状态和 watchdog 命令按仓库 `certs/` 推导端口，使用自定义地址时注意两者的差异。
+- macOS `make autostart-install` 通过 launchd 监督 watchdog。`AUTOSTART_SCOPE=agent` 在登录时启动，`daemon` 在开机时启动且装卸需 `sudo`，后端以安装用户身份运行。两种模式互斥。安装时记录 `LOCAL_MEMORY` 和 `PATH`，变更后重装。watchdog 正常停止后，launchd 会在下次登录或开机时再启动它。卸载时使用与安装相同的 scope 执行 `make autostart-uninstall`。 [自启脚本](scripts/autostart.sh)
+- macOS 构建优先使用稳定签名，可用 `QUARTET_SIGN_IDENTITY` 指定身份。缺少可用身份时构建会告警。首次部署或更换身份后，按需为 `bin/quartet-web` 重新授予目录访问权限。 [签名脚本](scripts/codesign-darwin.sh)
 
-> `make autostart-install` 会用 launchd（默认 `~/Library/LaunchAgents/com.fanlv.quartet.plist`）守护 `scripts/watchdog.sh`：自动起 watchdog 并拉起后端，watchdog 崩溃时 launchd 重新拉起。`AUTOSTART_SCOPE=daemon` 时改为安装 `/Library/LaunchDaemons` 的系统级 LaunchDaemon（真正开机即跑、无需登录，装卸需要 sudo；plist 写入 `UserName` 让后端仍以当前用户身份写 LOCAL_MEMORY）。两种 scope 互斥，装一个会自动卸掉另一个。安装时会写入当时的 `LOCAL_MEMORY` 和显式 PATH（launchd 读不到 shell 的环境变量），改了 `LOCAL_MEMORY` 后需要重装一次。`make web-stop` / `web-watch-stop` 发 SIGTERM 让 watchdog 正常退出，launchd 不会再拉起；要彻底关掉自启用 `make autostart-uninstall`（只移除 launchd 任务，不动后端）。
+## 代码入口与分层
 
-> macOS 上每次构建都会用稳定身份给 `bin/quartet-web` 重新签名（`scripts/codesign-darwin.sh`，可用 `QUARTET_SIGN_IDENTITY` 覆盖，无可用证书时跳过并告警）：Go 产出的 ad-hoc 二进制每次 CDHash 都不同，macOS TCC 会把每次重建当成新程序，「文稿/桌面/下载」等文件夹授权即使点过允许也会再次弹窗。首次部署后到「系统设置 → 隐私与安全性 → 完全磁盘访问权限」把 `bin/quartet-web` 加入一次即可长期覆盖全部文件夹授权；更换签名证书后需要重新授权一次。
+- `cmd/web` 是 Web 后端入口，负责装配服务、路由与中间件。`web/` 是 React/Vite SPA，`ios/` 是 SwiftUI 客户端。
+- `cmd/quartet-cli` 通过 HTTP API 驱动项目 Skills，按后端地址保存 Cookie 和 CSRF 会话。`skill/` 包含 `quartet-workflow`、`quartet-schedule`、`quartet-wechat`。
+- `cmd/eino-cli` 和 `einocli/` 构成独立 CLI，自管配置和运行时。Quartet 对话经 ACP 使用 Eino，设置页经 `services/einocli` 调用它的配置子命令。
+- `types/model` 放共享模型和 API 类型，`types/path` 统一解析 Quartet 数据路径。`repository/` 负责持久化、原子写入和并发控制。`services/` 负责业务逻辑并优先封装为服务方法，`cmd/web/handler` 仅做参数校验、鉴权、服务编排和响应。
+- `pkg/` 放可复用的基础能力。多个服务共用的执行语义放到 `pkg/`，依赖方向从服务指向基础包。
 
-Frontend (from `web/`):
+### 常用业务入口
 
-```bash
-npm run dev          # Vite dev server
-npm run build        # TypeScript check + Vite build
-npm run lint         # ESLint
-npm test             # Vitest component/unit tests
-npm run test:watch   # Vitest watch mode
-npm run test:e2e     # Playwright E2E tests
-npm run test:e2e:ui  # Playwright E2E UI mode
-```
+- `services/agent/acp` 管理对话、Agent 会话和回放。标题与群聊回复等单次文本生成由 `services/agent/textgen` 调用 CLI。
+- `services/agent/catalog` 管理稳定的 Agent ID 与历史运行定义。`probe`、`authentication`、`install`、`versioncheck` 和 `usage` 分别负责探测、登录、安装、版本检查及订阅配额。`codexaccounts` 管理 Codex 账号切换与凭据协调，对客户端仅返回元信息。
+- `services/job` 管理对话执行、队列与恢复，`services/session` 管理会话。`services/graph` 管理图工作流，`services/schedule` 管理 Prompt 与工作流定时器、执行记录和对应会话。 [定时任务设计](docs/feature/feature-2026-11-27-timer-management.md)
+- `services/usagestats` 归集 Token 和工具调用。IM 接入由 `pkg/messaging` 和 `services/im` 承担，主动微信消息的持久队列在 `services/wechatoutbox`。
 
-Go tests: `go test ./...`
+## 数据与配置
 
-## Development Conventions
+通过 `types/path` 和仓储接口访问数据。以下路径相对于 `$LOCAL_MEMORY`。
 
-- Logging: use `pkg/logger` (`logger.Infof/Warnf/Errorf/...`). Avoid `log.Printf`, `fmt.Printf`, etc.
-- Tests: during development, do not add unit tests unless explicitly requested.
-- Go requires `1.25` or newer.
-- Default backend startup requires `LOCAL_MEMORY`; the web server binds to `0.0.0.0:8090` (plain HTTP) by default, or `0.0.0.0:443` (HTTPS, serving the built UI same-origin) when `certs/` holds `cert.pem`+`key.pem`. When TLS is active on :443, the backend additionally serves a loopback-only plaintext listener on `127.0.0.1:8090` so local tooling (quartet-cli, workflow shell scripts) can reach the API without TLS handling. `QUARTET_LISTEN_ADDR` overrides the backend address but not the TLS decision；证书存在但加载失败是硬错误，不会静默降级成 HTTP；Makefile 的 stop/status/watch 脚本仍按证书推导的 443/8090 端口工作。TLS 监听同时开启 ALPN 并注册 h2，协议优先级为 `h2` → `http/1.1`；不支持 h2 的客户端按原样回退，明文回环监听不参与协商。
-- Frontend requires Node `>=22.18.0 <23` and npm `>=10.9.0 <11`.
-- 跨平台：进程启停、PATH 查找、重启等有平台差异的实现按 `_unix.go` / `_windows.go` 拆分文件，不要在业务代码里写 `runtime.GOOS` 分支。查找外部 CLI 统一走 `pkg/executil.LookPath`，它在进程 PATH 之外还会兜底检查官方安装器使用的用户级目录。
+| 路径 | 内容 |
+| --- | --- |
+| `quartet/config/` | 认证、Prompt、工作流、定时器和消息预设 |
+| `quartet/data/` | 设置、Agent 目录、工作区、Job、Session、上传、IM 和分享数据 |
+| `quartet/usage-stats/` | 按月分片的统计，仅支持当前 schema。同版本的内容迁移与写入、刷盘串行 |
+| `var/quartet/state/` | 会话、定时器审批和执行记录等持久运行状态 |
+| `var/quartet/cache/` | 可重建缓存 |
+| `var/quartet/tmp/` | 进程临时文件 |
 
-### 环境变量
+- 新增 Quartet 业务环境变量时，在 `types/consts` 声明常量并写明含义。`QUARTET_CORS_ORIGINS` 默认仅同源，跨域 Cookie 需要明确来源。`QUARTET_TRUSTED_PROXIES` 默认只信任回环。`QUARTET_LOG_HTTP_BODY` 默认关闭，开启可能记录密钥。 [配置表](README.zh-CN.md#配置)
+- Job 对话及 Graph 的 Prompt、终点结束 Hook 共用 `pkg/shellhook`。`QUARTET_` 保留给 Hook 上下文。临时脚本写入 `$LOCAL_MEMORY/var/quartet/tmp/shell/`，无法解析该根目录时使用系统临时目录。Job 工作目录仅用于执行。Hook 输出用于展示与日志，失败只记录告警。
 
-- 环境变量键统一在 `types/consts` 里声明并加注释，业务代码引用常量而不是裸字符串。
-- 服务级：`LOCAL_MEMORY`（必需）、`QUARTET_LISTEN_ADDR`、`QUARTET_STATIC_DIR`（默认 `static`）、`QUARTET_CERTS_DIR`（默认 `certs`）、`QUARTET_CORS_ORIGINS`（默认仅同源；通配 `*` 会被忽略，Cookie 鉴权必须写明确 origin）、`QUARTET_TRUSTED_PROXIES`（默认只信回环）。
-- 日志：`QUARTET_LOG_LEVEL`（debug|info|warn|error，默认 info）、`QUARTET_LOG_HTTP_BODY`（默认关闭，开启会打请求/响应正文，噪音大且可能泄漏密钥）。
-- 运行时调优：`QUARTET_MAX_ACP_AGENTS`、`QUARTET_ACP_PROBE_CONCURRENCY`、`QUARTET_MESSAGES_CACHE_BYTES`。
-- 客户端：`QUARTET_BASE_URL`（quartet-cli 的后端地址，默认 `http://127.0.0.1:8090`）。
-- `QUARTET_` 前缀在结束 Hook 脚本里是保留命名空间（注入上下文变量用），用户自定义变量不能占用该前缀。
+## HTTP API 与事件流
 
-### LOCAL_MEMORY Layout
+- Quartet 面向个人电脑或可信环境。账号共享工作区和业务数据，RBAC 控制功能权限。
+- 在 `cmd/web/api.go` 的 `registerRoutes` 注册路由。`GET /api/v1/health`、`POST /api/v1/auth/init`、`POST /api/v1/auth/login` 无需会话。health 返回服务状态、构建时间、实例 ID 与认证状态。
+- 私有 API 使用 `quartet_session` Cookie。除 `GET`、`HEAD`、`OPTIONS` 外还需登录响应中的 `X-CSRF-Token`。新增私有路由使用 `permit(...)`，优先复用已有权限。权限定义、中文说明和依赖在 `services/auth`。
+- 公共分享只开放 `GET` 读取及 SSE。Job 分享用 `shareTokenMiddleware` 校验 `shareToken`，`/api/v1/public/file-preview/*` 由 handler 校验独立的 `fileShareToken`。动作、版本及接受调用方 URL 的服务端代理走私有鉴权。
+- 查询和流式接口通常用 `GET`，创建与动作通常用 `POST`，更新用 `PUT` 或 `PATCH`，删除用 `DELETE`。文件接口按需使用 JSON 或 multipart。
+- gzip 只处理满足阈值的缓冲 JSON。SSE 和文件下载保持流式输出。静态回落在具体路由之后注册，非 API 路径可回落到 SPA，未知 `/api` 路径返回 JSON 404。
+- **Graph 页面只维持一条 SSE。** `pending`、`running`、`stepStopping`、`sessionStopping` 订阅 `/api/v1/job/:jobId/graph-run/events`，其余状态使用 `/api/v1/job/:jobId/events`。子组件复用页面的事件流。
+- 新增 SSE 用 handler 的 `newSSEWriter`，保留 flush 语义。出错时只结束当前流，保留 HTTP/2 共享连接。
+- 对话结束 Hook 默认在没有可见实时查看者时运行。Web 的普通与 Graph SSE 使用稳定的 `viewerId`，在可见性变化和重连时同步状态。公共分享流不计入查看者。iOS 对话页只在 scene 为 active 时保持 SSE。
 
-- `$LOCAL_MEMORY/quartet/config/` — durable configuration such as prompts, Graph Workflows, schedules, message presets, and authentication users/roles.
-- `$LOCAL_MEMORY/quartet/data/` — durable settings and business data such as the Agent catalog, workspaces, Jobs, Sessions, uploads, IM records, file shares, and the WeChat outbox.
-- `$LOCAL_MEMORY/quartet/usage-stats/` — persistent monthly usage statistics, month-sharded JSON written at the current schema version only; a file at any other version is rejected rather than upgraded in place. 同一 schema 版本内的内容迁移（模型 ID 归一、工作空间名回填）在服务里就地完成，并与写入/刷盘串行。
-- `$LOCAL_MEMORY/var/quartet/state/` — durable runtime state such as authenticated sessions and schedule state.
-- `$LOCAL_MEMORY/var/quartet/cache/` — reconstructable cache.
-- `$LOCAL_MEMORY/var/quartet/tmp/` — process-owned temporary files; Shell Hook scripts live under `tmp/shell/`.
-- Quartet 自有根目录和分类目录统一由 `types/path` 解析；handler 和 service 必须复用路径/仓储接口，不要硬编码 `LOCAL_MEMORY` 布局。
+## Web 前端与页面调试
 
-### Code Layering
-
-新增接口时必须严格分层，禁止在 handler 中直接操作文件/数据库：
-
-1. **`types/model/`** — 定义 Request/Response、认证、Agent、Job、Graph、Schedule、消息预设、IM 等共享结构体
-2. **`types/path/`** — 统一维护数据目录和文件路径拼接逻辑
-3. **`repository/`** — 数据持久化层，负责 auth、settings、Agent catalog、jobs、sessions、Graph、schedules、message presets、workspace、IM 与分享数据等读写
-4. **`services/`** — 业务逻辑层，封装 auth、Agent、Job、Graph、schedule、workspace、prompt、config、skills、IM outbox 等能力
-5. **`cmd/web/handler/`** — HTTP 层，只做参数校验、鉴权、响应格式化和服务编排
-
-`pkg/` 放与 quartet 业务无关、可被多层复用的通用能力（协议客户端、IM 接入、文件存储、日志、Hook 执行器等），不反向 import `services/`。跨 service 需要共享一段执行语义时（例如结束 Hook 同时被 graph 与 job 触发），抽到 `pkg/` 而不是让两个 service 互相依赖。
-
-### API & Route Conventions
-
-- 路由统一注册在 `cmd/web/api.go` 的 `registerRoutes`
-- `/api/v1/health`、`POST /api/v1/auth/init`、`POST /api/v1/auth/login` 不走会话鉴权；health 只用于探测服务和认证初始化状态，返回 buildTime、实例 ID 和认证状态，供客户端选择「初始化 / 登录 / 恢复 / 就绪」流程。
-- 其余私有 `/api/v1/*` 默认走 `quartet_session` Cookie 会话鉴权并按路由校验 RBAC 权限；除 `GET`、`HEAD`、`OPTIONS` 外还必须携带登录响应返回的 `X-CSRF-Token`。
-- 新增私有路由必须挂权限：权限枚举、中文描述和权限之间的依赖关系集中在 `services/auth` 声明，路由注册时用 `permit(...)` 包一层；优先复用已有权限，确实是新能力再加新权限。
-- `/api/v1/public/*` 只提供只读分享：Job 分享路由通过 `shareTokenMiddleware` 校验 `shareToken`，`/api/v1/public/file-preview/*` 是独立的分组，由 handler 校验独立的 `fileShareToken`。分享面只暴露 GET 读取与事件流，任何动作类、版本类路由都保持鉴权。
-- 图标代理这类「服务端按调用方给的 URL 发请求」的能力必须留在鉴权后面，公共分享走不接受调用方 URL 的专用路由。
-- 当前接口风格是混合型：
-  - 查询/流式接口大量使用 `GET`（如 agent list、job list、SSE、public share）
-  - 创建/动作类接口主要使用 `POST`
-  - 更新类接口主要使用 `PUT`，局部更新可使用 `PATCH`（如 workspace）
-  - 删除类接口使用 `DELETE`
-- 文件类接口既有 JSON body，也有 multipart 上传，不要再假设"所有接口都走 POST + JSON"
-- 响应压缩：JSON 响应体超过阈值时由中间件 gzip；SSE 和 body stream（文件下载）一律跳过，新增流式接口不要改成缓冲响应，否则会破坏 flush 语义。
-- 未匹配路由回落：非 API 路径回落到前端静态构建（SPA index fallback），未知 `/api` 路径返回 JSON 404；该 fallback 注册在所有具体路由之后。
-- SSE 连接模型：graph 工作流任务页面同一时刻只保留一条长连接——run live（pending/running/stepStopping）时只订阅 `/api/v1/job/:id/graph-run/events`，run 非 live（terminal/awaitingInput）时只订阅 `/api/v1/job/:id/events`；GraphRunProgress 等组件不得再开第二条流。证书存在时后端经 ALPN 协商 HTTP/2，多个 tab 的 SSE 复用同一条 TCP 连接，不再受浏览器单域名约 6 条连接的限制；但明文 8090 与不支持 h2 的客户端仍走 HTTP/1.1，一页一条流的约束继续有效。
-- 新增 SSE 接口必须用 handler 层的 `newSSEWriter` 建流，不要直接调 `sse.NewWriter`：后者在 HTTP/2 上会退化成 HTTP/1.1 分块写，把分块头直接写进共享 TCP 连接，破坏该连接上所有其他 tab 的流。同理，SSE 出错时不要关闭底层连接——HTTP/2 下那是所有 tab 共用的连接。
-- 对话结束 Hook 默认只在 Job 没有可见实时查看者时执行。Web 的普通/Graph SSE 必须携带稳定 `viewerId`，并在页面可见性变化与每次重连后同步状态；公共分享流不计入 viewer。iOS 对话页只在 scene 为 active 时保持 SSE。
-
-### agent-browser 页面鉴权
-
-- Quartet 账号记录保存在 `$LOCAL_MEMORY/quartet/config/auth/users/{userID}.json`（文件权限 `0600`）。文件内包含用户名和 bcrypt `passwordHash`，不保存明文密码；不要尝试从该文件恢复密码。
-- 服务端登录会话保存在 `$LOCAL_MEMORY/var/quartet/state/auth/sessions/{tokenHash}.json`（文件权限 `0600`），浏览器持有对应的 HttpOnly `quartet_session` Cookie。服务端只保存 Cookie token 的哈希，不能根据 session 文件手工构造 Cookie。
-- 使用 agent-browser 调试页面时，固定使用当前 worktree 派生的 session，并在每条命令中带上 `--restore --restore-save auto`，让首次登录产生的 Cookie 在后续调试及浏览器重启后继续复用：
+- 组件在 `web/src/components/`，状态与数据逻辑在 `hooks/`、`contexts/` 和 `utils/`。`src/types/` 对应后端共享类型，Playwright 用例和 fixtures 在 `web/e2e/`。
+- 界面文本走 `web/src/i18n/locales/zh.json` 和 `en.json`。Web 单测就近放置。
+- `AgentUsageCard` 先显示 CLI 版本，再显示套餐、额度或金额。用量响应应并行获取版本，缺失时使用版本探测结果。Codex 工作区可显示个人支出额度、余额和重置时间。 [Magpie 项目](https://github.com/yetone/magpie) · [Codex 工作区用量案例](https://github.com/yetone/magpie/issues/4259)
+- `agent-browser` 的每条页面调试命令都复用当前 worktree 的 session，并带 `--restore --restore-save auto`。
 
   ```bash
-  agent-browser --session "$(agent-browser session id --scope worktree --prefix quartet)" --restore --restore-save auto open --enable react-devtools 'https://devbox.fanlv.fun/?workspaceId=ws-1'
-  agent-browser --session "$(agent-browser session id --scope worktree --prefix quartet)" --restore --restore-save auto snapshot -i
+  agent-browser --session "$(agent-browser session id --scope worktree --prefix quartet)" \
+    --restore --restore-save auto open '<站点地址>'
   ```
 
-- 恢复后仍显示登录页时，优先看 agent 能否读写目标后端的 `$LOCAL_MEMORY`（本机/同机调试通常都可以）：服务端每次鉴权都从磁盘读 session 文件，所以写入即生效——随机生成 cookie token 与 CSRF token，把 token 的 SHA-256 十六进制作为文件名，往 `$LOCAL_MEMORY/var/quartet/state/auth/sessions/{tokenHash}.json` 写入 `{"tokenHash","userId","csrfToken","createdAt"}`（`userId` 从 `quartet/config/auth/users/` 目录取现存账号，文件权限 `0600`），然后在同一个 agent-browser session 里执行 `cookies set quartet_session <token> --url '<站点地址>/' --httpOnly --sameSite Lax` 并重新打开页面。先用 `curl -H 'Cookie: quartet_session=<token>' <站点>/api/v1/auth/me` 确认返回用户 JSON 再进浏览器。这是以该账号身份拿到完整权限的等价登录，只能用于本地/可信环境的测试；测试结束后必须删除这个 session 文件，并验证原 token 已返回 401。
-- 够不到目标后端的文件系统时（远程部署、别人的机器）才走 auth profile：已有 profile 就在同一 session 里 `auth login <profile>`；没有则由用户使用 `agent-browser auth save <profile> --url '<站点地址>/' --username '<username>' --password-stdin` 一次性录入，禁止把密码写在命令行、AGENTS.md、日志或代码中。登录完成后继续复用上述 session，不要每次新建 session 或重复登录。
-
-## Architecture
-
-### 顶层入口
-
-- `cmd/web` — Web 后端入口，承担 HTTP 路由注册、中间件、请求编排和服务装配。
-- `cmd/eino-cli` — 独立 eino-cli 二进制的入口；eino 能力全部抽出为该 ACP agent，quartet 只经 ACP 接入。
-- `cmd/quartet-cli` — quartet-cli 命令行入口，通过后端 HTTP API 登录并按 base URL 保存 Cookie/CSRF 会话。命令分组：`workflow`（图工作流增删改查、校验、手动运行）、`schedule`（cron 定时任务）、`workspace`（只读）、`job`（查询与停止）、`agent`（只读列出已安装 ACP agent）、`wechat`（发送主动消息、查询账号）、`auth`（登录/查看/清除会话）。
-- `einocli/` — eino-cli 的全部实现（`app` 命令层：serve/headless/prompt/replay/sessions；`runtime` 推理循环；`middlewares` 中间件链：AGENTS.md 加载、计划任务、上下文削减与总结、工具包装、本地工具后端；`chatctx` 上下文组装；`round` 轮次管理；`store` 会话与上下文持久化；`modelbuilder` 多供应商模型构建（openai/claude/gemini/deepseek/qwen/ark/ollama）；`config` 自管配置，以及自带的 `types`/`json`/`logger`/`tokenizer`），与 quartet 后端零 import 依赖，按"日后可整体抽到独立仓库"设计。
-- `web/` — React/Vite 单页应用，提供聊天、工作区、文件浏览、Graph 编排、设置、统计、调度、Agent 管理和 IM 配置等界面。
-- `ios/` — 原生 SwiftUI 客户端，提供局域网连接与登录、Job/对话、附件、Graph 运行、定时任务和统计能力；目录内还有更具体的 `ios/AGENTS.md`（含 UI/主题/排版/弹窗等规范，改 iOS 代码前必读）。
-
-### 类型与路径
-
-- `types/model` — Auth、Agent、Job、Session、Graph、Schedule、MessagePreset、IM、Workspace、Skill、用户输入与事件等共享 Request/Response 和领域结构体。
-- `types/path` — 数据目录与文件路径的统一拼接规则。
-- `types/agentstream`、`types/agui` — Agent 流式与 AGUI 协议的事件结构定义。
-- `types/msgextra`、`types/consts` — 消息扩展字段，以及默认值、环境变量键、错误码等全局常量。
-
-### 数据持久化（repository）
-
-- `repository/` — 基于本地文件的存储层，负责 auth、settings、Agent catalog、ACP 探测缓存、jobs、sessions、Graph Workflows/Runs、schedules、message presets、prompts、workspace、文件分享、IM/WeChat outbox、IM-Job 映射、用户输入、聊天上下文缓存与最近目录等数据的读写，以及原子写入、损坏处理、ID 生成和并发锁。
-
-### 业务服务（services）
-
-- `services/agent/acp` — 通过 ACP 协议接入的外部 Agent 进程（含 eino-cli）的会话、运行与回放管理；是 quartet 唯一的 agent 接入路径。
-- `services/agent/catalog` — 内置与自定义 Agent 目录、稳定 AgentID、运行定义修订及历史引用解析。
-- `services/agent/authentication` — 统一 Agent 按需认证：发现 ACP 登录方式、复用已有凭据、主动协议登录、终端/环境变量认证引导、取消与登录后重新验证；不维护独立凭据库。
-- `services/agent/codexaccounts` — Codex 共享账号库：导入或独立设备码登录、保存当前登录态、切换与恢复、令牌回存及执行占用协调；只向客户端返回账号元信息。
-- `services/agent/install`、`services/agent/versioncheck` — Agent 安装状态检查、受控安装/升级/卸载和版本检查。
-- `services/agent/chatctx` — Agent 聊天上下文的组装与维护。
-- `services/agent/round` — 单轮 Agent 交互的构建、刷新与生命周期管理。
-- `services/agent/probe` — Agent 安装与 ACP 能力探测、并发/冷却控制、持久化缓存及遗留 npx 命令的缓存自愈。
-- `services/agent/usage` — 已支持 Agent 的订阅配额与 CLI 版本读取。
-- `services/agent/internal/acpstate`、`services/agent/internal/sessioncache` — ACP 状态转换与带租约的 Agent 会话缓存。
-- `services/auth` — 初始化、登录、Cookie/CSRF 会话、用户/角色与 RBAC 权限管理（权限枚举、描述和依赖关系的唯一来源）。
-- `services/einocli` — 设置页 eino tab 的后端编排：exec `eino-cli models` / `eino-cli systemprompt` 子命令读写 eino-cli 自管配置（密钥不出 eino-cli 进程）。
-- `services/graph` — Graph Workflow 校验、DAG/Loop 调度、变量替换与条件求值、运行版本、恢复、控制、Shell 结点控制、事件缓冲，以及 Prompt/终点结点的 Hook 触发（执行器复用 `pkg/shellhook`）。
-- `services/job` — Job 执行核心，覆盖交互式消息运行、持久消息队列、状态恢复、观察记录、用量归集、事件分发，以及每轮交互结束后的结束 Hook 触发。
-- `services/messagepreset` — 全局与工作区消息预设的合并、校验、乐观并发和孤儿配置处理。
-- `services/schedule` — 定时任务的注册、调度与执行。
-- `services/prompt` — Prompt 模板的组装与渲染。
-- `services/session` — 会话级业务逻辑封装。
-- `services/workspace` — 工作目录与最近目录管理。
-- `services/config` — 全局 settings 的业务接口。
-- `services/command` — 系统命令执行的统一封装。
-- `services/runtime` — 运行时控制：后端重启走「构建候选版本 → 候选进程自检 → 提升 → 失败回滚」流程。
-- `services/skills` — 项目/全局 Skill 清单缓存以及受控安装入口。
-- `services/usagestats` — Token 与工具调用等用量统计的记录、累积、读取和同版本内的内容迁移。
-- `services/wechatoutbox` — 微信主动消息的持久队列、分片、限速与重试。
-
-### 基础包（pkg）
-
-- `pkg/acp` — ACP 协议客户端、子进程池、会话 IO、事件缓冲与跨平台进程属性/终止处理。
-- `pkg/shellhook` — 结束 Hook（graph Prompt/终点结点、对话每轮结束）共用的脚本执行器：统一超时、环境变量注入规则和「纯副作用」语义——输出只用于展示/日志，失败只告警，绝不改变调用方状态。
-- `pkg/executil` — 外部 CLI 的跨平台解析与启动，PATH 之外兜底检查官方安装器使用的用户级目录。
-- `pkg/messaging` — IM 通用类型与文件名处理，下辖 `lark`（消息监听、回复、图片处理与 WS 运行时）、`wechat`（ilink 客户端、CDN、登录、媒体、回复与主动推送：`Replier.SendText`，经 `POST /api/v1/wechat/send` 暴露给定时任务/脚本，ContextToken 持久化在 `$LOCAL_MEMORY/quartet/data/wechat/accounts/user_tokens.json`）和 `media`（IM 媒体缓存）。
-- `pkg/fileserver` — repository 与文件 API 共用的本地文件存储抽象。
-- `pkg/tokenizer` — Token 计数。
-- `pkg/logger` — 项目统一日志（必须使用）。
-- `pkg/httputil`、`pkg/json`、`pkg/strutil`、`pkg/safe` — HTTP 响应、JSON、字符串、协程安全等通用工具。
-
-结束 Hook 的临时脚本必须写入 `$LOCAL_MEMORY/var/quartet/tmp/shell/`（无法解析 `LOCAL_MEMORY` 时回退系统临时目录），只把 Job workdir 设为脚本执行目录；禁止把 `.quartet-hook-*.sh` 写入项目目录。
-
-### 前端结构（web/）
-
-- `src/components/` — 页面级与业务组件，按域再分 `graph/`、`settings/`、`stats/`、`FileViewer/` 子目录。
-- `src/hooks/`、`src/contexts/` — 聊天/任务列表/文件预览/消息预设等数据 hook，以及连接状态、服务端时钟等全局上下文。
-- `src/utils/` — SSE 客户端（普通流与 graph 流各一套）、消息合并、API 响应解析、命令与斜杠补全、时间与统计格式化等纯逻辑，单测就近放在同目录。
-- `src/i18n/` — 文案集中在 `locales/zh.json` 与 `locales/en.json`，界面文本一律走 i18n，不在组件里写死中英文。
-- `src/types/` — 与后端 `types/model` 对应的协议、消息与 graph 类型。
-- `e2e/` — Playwright 用例与 fixtures。
-- Agent 用量条（`AgentUsageCard`，输入框底部）展示顺序规范：所有 provider 一律**先显示 CLI 版本号，再显示套餐 / 额度 / 金额信息**；用量 payload 应携带版本号（后端并行探测 `<bin> --version`），payload 缺版本时用探测结果兜底，但顺序不变。
-- Agent 的套餐和用量展示可参考 Magpie。Codex 工作区账号可按个人支出额度展示已用量、上限、剩余额度和重置时间。 [Magpie 项目](https://github.com/yetone/magpie) · [Codex 工作区用量案例](https://github.com/yetone/magpie/issues/4259)
-
-### 其他
-
-- `scripts/` — Make 目标调用的 shell 脚本：前端环境检查与依赖安装、后端启停与重启、进程树终止、看门狗、候选版本提升，以及微信 ilink 移植代码与上游的差异对比。
-- `static/`、`bin/`、`certs/` — 分别是前端构建产物、Go 构建产物和 TLS 证书目录，都不入库；`certs/` 里是否存在 `cert.pem`+`key.pem` 决定后端是否走 HTTPS。
-- `docs/` — 架构与功能设计文档，命名与写法见 `docs/AGENTS.md`。
-- `skill/` — 随项目发布的 `quartet-workflow`、`quartet-schedule`、`quartet-wechat` Skills。
-- 就在 main 分支开发，不要在其他分支开发。
-- ACP 工具并发错误后不要 reset session；reset 会丢失全部上下文，应保留 session 并处理并发/租约问题。
+- 登录态失效时在同一 session 使用 `auth login <profile>`。新 profile 由用户通过 `auth save` 的 `--password-stdin` 录入，也可直接通过浏览器登录。密码与会话凭据不得写入命令行、文档、代码或日志。本地自动化可复用 Playwright 的隔离后端与初始化流程。 [E2E 环境](web/e2e/fixtures/e2e-environment.ts)

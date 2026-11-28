@@ -1630,11 +1630,19 @@
     },
     "run": "Run now",
     "openJob": "Open job",
+    "viewExecution": "View execution",
+    "sessionLoopRound": "Loop round {{round}}",
     "backToExecution": "Back to execution",
     "backToExecutions": "Back to executions",
-    "all": "All",
     "state": "Status",
     "refresh": "Refresh",
+    "filters": {
+      "label": "Filter records",
+      "allTimers": "All timers",
+      "allWorkspaces": "All workspaces",
+      "allStatuses": "All statuses",
+      "noMatches": "No records match these filters"
+    },
     "resetFilters": "Clear filters",
     "emptyState": {
       "plans": "No timers yet",

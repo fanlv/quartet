@@ -1621,11 +1621,19 @@
     },
     "run": "立即运行",
     "openJob": "打开 Job",
+    "viewExecution": "查看执行",
+    "sessionLoopRound": "循环轮次 {{round}}",
     "backToExecution": "返回执行记录",
     "backToExecutions": "返回记录列表",
-    "all": "全部",
     "state": "状态",
     "refresh": "刷新",
+    "filters": {
+      "label": "筛选记录",
+      "allTimers": "全部定时器",
+      "allWorkspaces": "全部工作区",
+      "allStatuses": "全部状态",
+      "noMatches": "暂无符合筛选条件的记录"
+    },
     "resetFilters": "清除筛选",
     "emptyState": {
       "plans": "暂无定时器",
