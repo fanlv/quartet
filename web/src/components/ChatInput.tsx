@@ -21,7 +21,7 @@ import { isImageUrl, resolveIconSrc } from '../utils/url';
 import { showToast } from '../utils/toast';
 import { splitFavoriteModels } from '../utils/agentPrefs';
 import { DurationBadge } from './DurationBadge';
-import { ConfigurationIcon } from './ComposerIcons';
+import { ClockIcon, ConfigurationIcon } from './ComposerIcons';
 import { MessagePresetHistoryMenu, type SentMessageHistoryItem } from './MessagePresetHistoryMenu';
 import { useLocalComposerDraft } from '../hooks/useLocalComposerDraft';
 import { useAutosizeTextarea } from '../hooks/useAutosizeTextarea';
@@ -357,7 +357,9 @@ export function ChatInput({
   // compose and submit: the submission is queued and auto-sent when the run finishes.
   const canQueue = canQueueWhileRunning && !interactionDisabled;
   const composerLocked = interactionDisabled || (isLoading && !canQueue);
-  const hasQueued = (!!queuedMessages && queuedMessages.length > 0) || messageQueuePaused;
+  const queuedCount = queuedMessages?.length ?? 0;
+  const hasQueued = queuedCount > 0 || messageQueuePaused;
+  const queueBlocked = messageQueuePauseReason === 'blocked';
   const { isDraggingAttachment, attachmentDropHandlers } = useAttachmentDrop(addAttachments, composerLocked);
 
   useEffect(() => {
@@ -765,11 +767,94 @@ export function ChatInput({
   };
 
   return (
-    <div className="chat-input-container" style={containerStyle} data-testid="chat-input-container" data-loading={isLoading ? 'true' : 'false'} data-readonly={readOnly ? 'true' : 'false'}>
+    <div
+      className="chat-input-container"
+      style={containerStyle}
+      data-testid="chat-input-container"
+      data-loading={isLoading ? 'true' : 'false'}
+      data-readonly={readOnly ? 'true' : 'false'}
+      {...attachmentDropHandlers}
+    >
+      {hasQueued && (
+        <div className="chat-queued-panel" data-testid="chat-queued-list">
+          <div className={`chat-queued-header${messageQueuePaused && queueBlocked ? ' blocked' : ''}`}>
+            <div className="chat-queued-status">
+              <ClockIcon className="chat-queued-clock" />
+              <span>{messageQueuePaused
+                ? t(queueBlocked ? 'chat.queueBlocked' : 'chat.queuePaused')
+                : t('chat.queuedCount', { count: queuedCount })}</span>
+            </div>
+            {messageQueuePaused && !queueBlocked && onContinueMessageQueue && (
+              <button
+                type="button"
+                onClick={() => { void Promise.resolve(onContinueMessageQueue()).catch(() => {}); }}
+              >{t('chat.continueQueue')}</button>
+            )}
+          </div>
+          {queuedCount > 0 && (
+            <ol className="chat-queued-list" role="list" aria-label={t('chat.waitingToSend')}>
+              {queuedMessages?.map(({ id, content, imageUrls, fileAttachments, state, error }, index) => {
+                const imageCount = imageUrls?.length ?? 0;
+                const fileCount = fileAttachments?.length ?? 0;
+                const attachments = [
+                  imageCount > 0 ? t('chat.imagesCount', { count: imageCount }) : '',
+                  fileCount > 0 ? t('chat.filesCount', { count: fileCount }) : '',
+                ].filter(Boolean).join(' · ');
+                const text = content.trim();
+                const preview = attachments && (text === '[image]' || text === '[file]') ? '' : text;
+                const label = preview || attachments || t('chat.waitingToSend');
+                const deleting = deletingQueuedIds.has(id);
+                return (
+                  <li
+                    key={id}
+                    className={`chat-queued-item${state === 'blocked' ? ' blocked' : ''}`}
+                    title={error || label}
+                    data-testid="chat-queued-item"
+                    data-queued-id={id}
+                  >
+                    <span className="chat-queued-index" aria-hidden="true">{index + 1}</span>
+                    <div className="chat-queued-preview">
+                      <span className="chat-queued-text">{label}</span>
+                      {preview && attachments && <span className="chat-queued-attachments">{attachments}</span>}
+                    </div>
+                    {error && (
+                      <button
+                        type="button"
+                        className="chat-queued-action chat-queued-error"
+                        title={error}
+                        aria-label={error}
+                        onClick={() => { void copyToClipboard(error); showToast(t('common.copySuccess')); }}
+                      >!</button>
+                    )}
+                    {onCancelQueuedMessage && (
+                      <button
+                        type="button"
+                        className="chat-queued-action"
+                        disabled={deleting}
+                        onClick={() => {
+                          setDeletingQueuedIds((prev) => new Set(prev).add(id));
+                          void Promise.resolve(onCancelQueuedMessage(id)).catch(() => {
+                            // The owner surfaces the full server error. Consume the
+                            // rejection here so a failed delete is not reported as an
+                            // unhandled browser promise.
+                          }).finally(() => {
+                            setDeletingQueuedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+                          });
+                        }}
+                        title={t('chat.cancelQueue')}
+                        aria-label={t('chat.cancelQueue')}
+                      >{deleting ? '…' : '×'}</button>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
+      )}
       <div
         className={`chat-input-wrapper${isDraggingAttachment ? ' attachment-drag-active' : ''}`}
         style={{ position: 'relative' }}
-        {...attachmentDropHandlers}
       >
         {isDraggingAttachment && (
           <div className="attachment-drop-overlay" data-testid="attachment-drop-overlay">
@@ -785,65 +870,6 @@ export function ChatInput({
             activeIndex={mentionActiveIndex}
             onActiveIndexChange={setMentionActiveIndex}
           />
-        )}
-        {hasQueued && (
-          <div className="chat-queued-panel" data-testid="chat-queued-list">
-            {messageQueuePaused && (
-              <div className="chat-queued-header">
-                <span>{messageQueuePauseReason === 'blocked' ? t('chat.queueBlocked') : t('chat.queuePaused')}</span>
-                {messageQueuePauseReason !== 'blocked' && onContinueMessageQueue && (
-                  <button
-                    type="button"
-                    onClick={() => { void Promise.resolve(onContinueMessageQueue()).catch(() => {}); }}
-                  >{t('chat.continueQueue')}</button>
-                )}
-              </div>
-            )}
-            <div className="chat-queued-row" role="list" aria-label={t('chat.waitingToSend')}>
-              {(queuedMessages ?? []).map((q, index) => {
-                const preview = q.content.trim()
-                  || (q.imageUrls && q.imageUrls.length > 0 ? t('chat.imagesCount', { count: q.imageUrls.length }) : '')
-                  || (q.fileAttachments && q.fileAttachments.length > 0 ? t('chat.filesCount', { count: q.fileAttachments.length }) : '');
-                const deleting = deletingQueuedIds.has(q.id);
-                return (
-                  <div key={q.id} className={`chat-queued-pill ${q.state === 'blocked' ? 'blocked' : ''}`} role="listitem" title={q.error || preview || t('chat.waitingToSend')} data-testid="chat-queued-item" data-queued-id={q.id}>
-                    <span className="chat-queued-index">{index + 1}</span>
-                    <span className="chat-queued-text">{preview || t('chat.waitingToSend')}</span>
-                    {q.imageUrls && q.imageUrls.length > 0 && <span className="chat-queued-images">{t('chat.imagesCount', { count: q.imageUrls.length })}</span>}
-                    {q.fileAttachments && q.fileAttachments.length > 0 && <span className="chat-queued-images">{t('chat.filesCount', { count: q.fileAttachments.length })}</span>}
-                    {q.error && (
-                      <button
-                        type="button"
-                        className="chat-queued-error"
-                        title={q.error}
-                        aria-label={q.error}
-                        onClick={() => { void copyToClipboard(q.error!); showToast(t('common.copySuccess')); }}
-                      >!</button>
-                    )}
-                    {onCancelQueuedMessage && (
-                      <button
-                        type="button"
-                        className="chat-queued-cancel"
-                        disabled={deleting}
-                        onClick={() => {
-                          setDeletingQueuedIds((prev) => new Set(prev).add(q.id));
-                          void Promise.resolve(onCancelQueuedMessage(q.id)).catch(() => {
-                            // The owner surfaces the full server error. Consume the
-                            // rejection here so a failed delete is not reported as an
-                            // unhandled browser promise.
-                          }).finally(() => {
-                            setDeletingQueuedIds((prev) => { const next = new Set(prev); next.delete(q.id); return next; });
-                          });
-                        }}
-                        title={q.error || t('chat.cancelQueue')}
-                        aria-label={t('chat.cancelQueue')}
-                      >{deleting ? '…' : '×'}</button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
         )}
         {pickedImageUrls.length > 0 && (
           <div className="chat-image-preview-row">

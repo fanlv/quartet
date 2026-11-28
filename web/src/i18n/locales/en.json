@@ -161,6 +161,8 @@
     "slashCommands": "Commands",
     "slashSkills": "Skills",
     "cancelQueue": "Cancel queue",
+    "queuedCount_one": "{{count}} message queued",
+    "queuedCount_other": "{{count}} messages queued",
     "queuePaused": "Queue paused",
     "queueBlocked": "Queue blocked; remove the failed message",
     "continueQueue": "Continue queue",

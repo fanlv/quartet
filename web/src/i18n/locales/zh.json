@@ -161,6 +161,7 @@
     "slashCommands": "命令",
     "slashSkills": "Skills",
     "cancelQueue": "取消排队",
+    "queuedCount": "{{count}} 条消息待发送",
     "queuePaused": "队列已暂停",
     "queueBlocked": "队列已阻塞，请删除失败消息",
     "continueQueue": "继续队列",
