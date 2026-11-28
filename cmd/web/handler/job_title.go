@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/safe"
@@ -17,20 +15,20 @@ import (
 	"github.com/fanlv/quartet/types/model"
 )
 
-const titleCreatePrompt = `你是一个标题生成器。根据用户输入的消息内容，生成一个简洁、准确的标题（title）。
+const titleCreatePrompt = `你是一个标题生成器。根据用户消息和提供的附件文件名，生成一个简洁、准确的标题。
 
 ## 规则
 
 1. **长度**：标题控制在 5-20 个字符之间（中文）或 3-10 个单词之间（英文）。
-2. **语言**：标题语言与用户输入的主要语言保持一致。
-3. **准确性**：标题必须精准概括消息的核心意图或主题，不得引入消息中未提及的内容。
+2. **语言**：标题语言与消息正文的主要语言保持一致。只有附件时，参考文件名的语言。
+3. **准确性**：标题必须精准概括用户的核心意图或主题，不得引入输入中未提供的信息。
 4. **简洁性**：去除冗余修饰词，优先使用名词短语或动宾结构。
 5. **可读性**：标题应自然流畅，像人类手动拟定的标题。
 6. **格式**：
-   - 不使用标点符号（引号、句号、感叹号等）。
+   - 避免多余标点。引用文件名时可以保留文件名原有的标点。
    - 不使用 "关于"、"请问"、"帮我" 等口语化前缀。
    - 不输出任何解释，仅输出标题本身。
-   - 输出格式是纯文本，不要 markdown 格式，也不要其他任何标点符号。
+   - 使用纯文本输出，不使用 Markdown 格式。
 
 ## 策略
 
@@ -38,7 +36,7 @@ const titleCreatePrompt = `你是一个标题生成器。根据用户输入的�
 - 如果消息是一个**任务指令**，提取任务目标作为标题。
 - 如果消息是一段**描述或讨论**，提取核心主题作为标题。
 - 如果消息包含**代码或技术内容**，提取技术主题和动作作为标题。
-- 如果提供了附件文件名，用它们理解正文引用的对象，并以消息正文的主要语言概括任务。应用会在标题里显示附件名，摘要无需重复文件名。
+- 附件文件名是理解任务的线索。根据相关性决定是否在标题中体现文件名或其中的主题，并自然组织措辞。只有附件时，根据文件名能判断的主题起标题。
 - 如果消息**过短或语义模糊**（如 "你好"、"嗯"），直接使用原文或输出 "闲聊"。
 请根据下面的内容生成标题，仅输出标题本身：
 `
@@ -90,15 +88,18 @@ const titleCircuitBreakerThreshold = 3
 const titleCircuitBreakerCooldown = 5 * time.Minute
 
 type jobTitleInput struct {
-	systemPrompt    string
-	userMessage     string
-	fallbackTitle   string
-	attachmentTitle string
+	systemPrompt  string
+	userMessage   string
+	fallbackTitle string
 }
 
 // updateAcceptedJobTitle is shared by direct sends and queued dispatch.
 func (h *Handler) updateAcceptedJobTitle(ctx context.Context, jobID, currentTitle string, messages []model.RequestMessage) {
 	if len(messages) == 0 || (currentTitle != "" && currentTitle != consts.DefaultJobTitle) {
+		return
+	}
+	// An attachment-only first message can start generation while the Job still has its default title.
+	if _, generating := h.titleInFlight.Load(jobID); generating {
 		return
 	}
 
@@ -121,7 +122,7 @@ func interactiveJobTitleInput(messages []model.RequestMessage) (jobTitleInput, s
 			parts = append(parts, msg.Content)
 		}
 		for _, file := range msg.FileAttachments {
-			if name := strings.Join(strings.Fields(file.Name), " "); name != "" {
+			if name := strings.TrimSpace(file.Name); name != "" {
 				filenames = append(filenames, name)
 			}
 		}
@@ -136,57 +137,8 @@ func interactiveJobTitleInput(messages []model.RequestMessage) (jobTitleInput, s
 		return input, strutil.TruncateRunes(messages[0].Content, 30)
 	}
 
-	input.attachmentTitle = titleFromAttachmentNames(filenames)
-	input.fallbackTitle = titleWithAttachments(input.fallbackTitle, input.attachmentTitle)
-	input.userMessage = ""
-	if strings.TrimSpace(message) != "" {
-		input.userMessage = fmt.Sprintf("附件文件名：%q\n\n消息正文：\n%s", filenames, message)
-	}
+	input.userMessage = fmt.Sprintf("消息正文：\n%s\n\n附件文件名：%q", message, filenames)
 	return input, input.fallbackTitle
-}
-
-// Leave room for an attachment count so the leading filenames fit in the chat header.
-func titleFromAttachmentNames(filenames []string) string {
-	const maxRunes = 36
-	var names, more string
-	for i, name := range filenames {
-		suffix := ""
-		if remaining := len(filenames) - i - 1; remaining > 0 {
-			suffix = fmt.Sprintf(" +%d", remaining)
-		}
-		if i == 0 {
-			names = truncateTitleFilename(name, maxRunes-utf8.RuneCountInString(suffix))
-		} else {
-			joined := names + ", " + name
-			if utf8.RuneCountInString(joined+suffix) > maxRunes {
-				break
-			}
-			names = joined
-		}
-		more = suffix
-	}
-	return names + more
-}
-
-func truncateTitleFilename(name string, maxRunes int) string {
-	if utf8.RuneCountInString(name) <= maxRunes {
-		return name
-	}
-	ext := filepath.Ext(name)
-	if stemRunes := maxRunes - utf8.RuneCountInString(ext) - 1; stemRunes > 0 {
-		return strutil.TruncateRunes(strings.TrimSuffix(name, ext), stemRunes) + "…" + ext
-	}
-	return strutil.TruncateRunes(name, maxRunes-1) + "…"
-}
-
-func titleWithAttachments(summary, attachmentTitle string) string {
-	if attachmentTitle == "" {
-		return summary
-	}
-	if summary == "" || summary == attachmentTitle {
-		return attachmentTitle
-	}
-	return strutil.TruncateRunes(attachmentTitle+" · "+summary, jobTitleMaxLen)
 }
 
 // asyncUpdateGraphJobTitle schedules title generation for a Graph Workflow Job.
@@ -359,7 +311,6 @@ func (h *Handler) doUpdateJobTitle(ctx context.Context, jobID string, input jobT
 		return fmt.Errorf("generate title failed (agentId=%s elapsed=%s): %w", titleAgent.AgentID, time.Since(start).Round(time.Millisecond), err)
 	}
 
-	title = titleWithAttachments(title, input.attachmentTitle)
 	logger.Infof(ctx, "[title] generated: jobId=%s title=%q", jobID, title)
 
 	if err := h.applyJobTitle(jobID, title); err != nil {
