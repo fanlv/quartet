@@ -8,8 +8,14 @@ export async function timerFetch<T>(path: string, method = 'GET', body?: object,
   return JSON.parse(raw) as T;
 }
 
-export function timerDate(value: string | number, zone?: string) {
-  return new Date(value).toLocaleString(undefined, {
-    dateStyle: 'medium', timeStyle: 'short', ...(zone && zone !== 'Local' && { timeZone: zone }),
-  });
+export function timerDate(value: string | number, zone?: string, locale?: string, timeStyle: 'short' | 'medium' = 'short') {
+  const date = new Date(value);
+  try {
+    return date.toLocaleString(locale, {
+      dateStyle: 'medium', timeStyle, ...(zone && zone !== 'Local' && { timeZone: zone }),
+    });
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    return Number.isNaN(date.getTime()) ? String(value) : date.toISOString();
+  }
 }

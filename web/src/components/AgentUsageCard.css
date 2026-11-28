@@ -355,11 +355,19 @@
   z-index: 3000;
 }
 
+.usage-ring-tip.usage-hover-tip {
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .usage-ring-tip::after {
   content: '';
   position: absolute;
   top: 100%;
-  left: 50%;
+  left: calc(50% + var(--usage-tip-arrow-offset, 0px));
   transform: translateX(-50%);
   border: 4px solid transparent;
   border-top-color: #1c2b21;

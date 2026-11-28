@@ -1,104 +1,172 @@
-.timer-page {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  width: min(1120px, 100%);
-  margin-inline: auto;
-  padding: clamp(16px, 3vw, 32px);
-  color: var(--fg);
-}
-.timer-toolbar, .timer-filters, .timer-actions, .timer-editor header, .timer-editor footer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.timer-toolbar, .timer-editor header {
-  justify-content: space-between;
-}
-.timer-toolbar nav { display: flex; gap: 5px; }
-.timer-page button, .timer-editor button, .timer-actions a {
-  padding: 7px 12px;
-  min-height: 36px;
-  color: var(--fg);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  font: inherit;
-  cursor: pointer;
-}
-.timer-page button:disabled, .timer-editor button:disabled { opacity: .5; cursor: default; }
-.timer-page button[aria-current="page"] {
-  color: var(--accent-deep);
-  border-color: var(--accent-border);
-  background: var(--accent-soft);
-}
-.timer-page button.timer-primary, .timer-editor button.timer-primary {
-  background: var(--accent-deep);
-  color: var(--accent-fg);
-  border-color: transparent;
-}
-.timer-filters { margin-top: 16px; align-items: end; }
-.timer-filters label, .timer-fields label { display: grid; gap: 5px; color: var(--muted); font-size: .9em; }
-.timer-filters select, .timer-fields :is(input:not([type="checkbox"]), select, textarea) {
-  width: 100%;
-  min-height: 36px;
-  padding: 7px 9px;
-  color: var(--fg);
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  font: inherit;
-}
-.timer-records { margin-top: 16px; }
-.timer-records > * { border: 1px solid var(--border); background: var(--surface); border-radius: 9px; margin-bottom: 8px; }
-.timer-records .timer-entry {
-  display: grid;
-  grid-template-columns: minmax(120px, 1.35fr) repeat(3, minmax(100px, 1fr));
-  align-items: center;
-  width: 100%;
-  text-align: left;
-  gap: 12px;
-  padding: 14px;
-  overflow-wrap: anywhere;
-  border: 0;
-  font-size: .94em;
-}
-.timer-entry span { color: var(--muted); }
-.timer-entry:not(.timer-session) { cursor: pointer; }
-.timer-entry-body { padding: 14px; }
-.timer-records .timer-entry-body { border-top: 1px solid var(--border); }
-.timer-details { display: grid; grid-template-columns: minmax(100px, max-content) 1fr; gap: 6px 16px; margin: 0 0 14px; }
-.timer-details dt { color: var(--muted); }
-.timer-details dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.timer-error { color: var(--danger); background: var(--danger-soft); white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px; border-radius: 6px; }
-.timer-notice { color: var(--accent-deep); overflow-wrap: anywhere; }
-.timer-empty { color: var(--muted); padding: 20px 0; }
-.timer-overlay {
+.timer-dialog {
   position: fixed;
   inset: 0;
-  z-index: 2600;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  background: rgba(0, 0, 0, .42);
-}
-.timer-editor {
-  width: min(640px, 100%);
-  max-height: calc(100dvh - 32px);
-  overflow: auto;
-  background: var(--surface);
+  width: min(690px, calc(100% - 32px));
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: var(--radius-sheet);
+  color: var(--fg);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
 }
-.timer-editor h2 { margin: 0; font-size: 1.15rem; }
-.timer-editor form { margin-top: 16px; }
-.timer-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
-.timer-field-wide { grid-column: 1 / -1; }
-.timer-fields .timer-checkbox { display: flex; align-items: center; }
-.timer-editor footer { justify-content: flex-end; margin-top: 16px; }
-@media (max-width: 620px) {
-  .timer-records .timer-entry { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .timer-toolbar nav { flex-wrap: wrap; }
+
+.timer-dialog[data-compact='true'] {
+  width: min(440px, calc(100% - 32px));
+}
+
+.timer-dialog::backdrop {
+  background: rgba(12, 23, 16, .4);
+  backdrop-filter: blur(3px);
+}
+
+.timer-dialog-form {
+  display: flex;
+  flex-direction: column;
+  max-height: min(840px, calc(100dvh - 34px));
+}
+
+.timer-dialog-header,
+.timer-dialog-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+}
+
+.timer-dialog-header {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+
+.timer-dialog-header h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.timer-dialog-header .timer-button {
+  flex: none;
+}
+
+.timer-dialog-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 20px 22px;
+  overscroll-behavior: contain;
+}
+
+.timer-dialog-body > .timer-feedback {
+  margin-block-end: 14px;
+}
+
+.timer-dialog-footer {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--canvas) 64%, var(--surface));
+}
+
+.timer-dialog .timer-details {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.timer-preview-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.timer-dialog-message {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.timer-editor-sections {
+  display: grid;
+  gap: 18px;
+}
+
+.timer-form-section {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.timer-form-section legend {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 0 0 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.timer-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.timer-fields textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.timer-enable {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: var(--control-height);
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--fg);
+  background: var(--canvas);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.timer-enable input {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  accent-color: var(--accent-deep);
+}
+
+.timer-enable:has(input:disabled) {
+  color: var(--muted);
+}
+
+@media (max-width: 520px) {
+  .timer-dialog-header,
+  .timer-dialog-footer {
+    padding: 10px 14px;
+  }
+
+  .timer-dialog-header h2 {
+    font-size: 17px;
+  }
+
+  .timer-dialog-body {
+    padding: 14px;
+  }
+
+  .timer-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .timer-fields .timer-control {
+    font-size: 16px;
+  }
 }

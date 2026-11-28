@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthPrincipal } from '../auth';
 import { useConnectionStatus } from '../contexts/ConnectionStatus';
+import type { WorkspaceView } from '../utils/appRoute';
 import { AgentsLocalEditor } from './AgentsLocalEditor';
+import { BackButton } from './BackButton';
 import { FileBrowser } from './FileBrowser';
 import './JobChat.css';
-import './ChatPage.css';
+import './HomeNavigation.css';
 
 const WEB_RESTART_POLL_INTERVAL_MS = 500;
 const WEB_RESTART_PROBE_TIMEOUT_MS = 3000;
@@ -21,14 +23,9 @@ export interface HomeNavigationProps {
   workspaceTitle?: string;
   workdir?: string;
   refreshKey?: number;
-  activeView?: 'home' | 'stats' | 'graph' | 'timers';
-  className?: string;
-  pageTitle?: string;
-  pageMark?: ReactNode;
+  activeView?: WorkspaceView;
   onBack?: () => void;
   backLabel?: string;
-  pageActions?: ReactNode;
-  onHome?: () => void;
   onOpenSettings?: () => void;
   onOpenStats?: () => void;
   onOpenGraph?: () => void;
@@ -99,14 +96,9 @@ export function HomeNavigation({
   workspaceTitle,
   workdir = '',
   refreshKey,
-  activeView = 'home',
-  className,
-  pageTitle,
-  pageMark,
+  activeView,
   onBack,
   backLabel,
-  pageActions,
-  onHome,
   onOpenSettings,
   onOpenStats,
   onOpenGraph,
@@ -124,9 +116,10 @@ export function HomeNavigation({
   const [agentsEditorOpen, setAgentsEditorOpen] = useState(false);
   const [webRestarting, setWebRestarting] = useState(false);
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
+  const isHome = !activeView;
 
   useEffect(() => {
-    if (pageTitle || !canReadConfig) {
+    if (!isHome || !canReadConfig) {
       setUserAvatarUrl('');
       return;
     }
@@ -135,7 +128,7 @@ export function HomeNavigation({
       if (!cancelled) setUserAvatarUrl(avatarUrl);
     });
     return () => { cancelled = true; };
-  }, [canReadConfig, pageTitle, refreshKey]);
+  }, [canReadConfig, isHome, refreshKey]);
 
   const localizedBuildTime = useMemo(() => {
     if (!buildTime) return { full: '', compact: '' };
@@ -155,9 +148,7 @@ export function HomeNavigation({
     };
   }, [buildTime, i18n.language, i18n.resolvedLanguage]);
 
-  const navigationMark = pageTitle ? (
-    pageMark
-  ) : userAvatarUrl ? (
+  const navigationMark = userAvatarUrl ? (
     <img src={userAvatarUrl} alt="" className="header-user-avatar" referrerPolicy="no-referrer" />
   ) : (
     <svg className="header-logo-mark" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -167,6 +158,46 @@ export function HomeNavigation({
       <path d="M9.5 13h.01M14.5 13h.01" />
     </svg>
   );
+
+  const viewItems = [
+    {
+      view: 'stats',
+      title: t('stats.title'),
+      label: t('stats.topbarTooltip'),
+      onOpen: onOpenStats,
+      icon: <path d="M18 20V10M12 20V4M6 20v-6" />,
+    },
+    {
+      view: 'timers',
+      title: t('timers.title'),
+      label: t('timers.title'),
+      onOpen: onOpenTimers,
+      icon: (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </>
+      ),
+    },
+    {
+      view: 'graph',
+      title: t('graph.header.title'),
+      label: t('chat.headerActions.graph'),
+      onOpen: onOpenGraph,
+      icon: (
+        <>
+          <circle cx="5" cy="12" r="2" />
+          <circle cx="12" cy="5" r="2" />
+          <circle cx="19" cy="12" r="2" />
+          <circle cx="12" cy="19" r="2" />
+          <path d="M6.5 10.5 10.5 6.5M13.5 6.5 17.5 10.5M17.5 13.5 13.5 17.5M10.5 17.5 6.5 13.5" />
+        </>
+      ),
+    },
+  ];
+  const visibleViewItems = viewItems.filter(({ onOpen }) => onOpen);
+  const pageTitle = viewItems.find(({ view }) => view === activeView)?.title;
+  const returnLabel = backLabel ?? t('chat.headerActions.home');
 
   const handleRestartWeb = async () => {
     if (webRestarting) return;
@@ -195,40 +226,27 @@ export function HomeNavigation({
 
   return (
     <>
-      <header className={`chatbot-header${className ? ` ${className}` : ''}`} data-testid={activeView === 'home' ? 'home-header' : 'home-navigation'}>
+      <header className="chatbot-header home-navigation" data-testid={activeView ? 'home-navigation' : 'home-header'}>
         <div className="header-left">
-          {onBack && (
-            <button className="back-button" onClick={onBack} aria-label={backLabel}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-            </button>
+          {activeView ? (
+            <>
+              {onBack && <BackButton label={returnLabel} onClick={onBack} />}
+              <h1 className="home-navigation-title">{pageTitle}</h1>
+            </>
+          ) : (
+            <span className="header-logo">
+              {navigationMark}
+              <span className="header-logo-text">{workspaceTitle || principal?.user.displayName || 'Quartet'}</span>
+              {localizedBuildTime.full && (
+                <span className="home-build-time" title={`${t('home.buildTime')}: ${buildTime}`} data-testid="home-build-time">
+                  <span className="home-build-time-full">{t('home.buildTimeValue', { time: localizedBuildTime.full })}</span>
+                  <span className="home-build-time-compact">{localizedBuildTime.compact}</span>
+                </span>
+              )}
+            </span>
           )}
-          <span className="header-logo">
-            {onHome ? (
-              <button
-                type="button"
-                className="header-home-button"
-                onClick={onHome}
-                title={t('chat.headerActions.home')}
-                aria-label={t('chat.headerActions.home')}
-              >
-                {navigationMark}
-              </button>
-            ) : (
-              navigationMark
-            )}
-            {' '}<span className="header-logo-text">{pageTitle || workspaceTitle || principal?.user.displayName || 'Quartet'}</span>
-            {!pageTitle && localizedBuildTime.full && (
-              <span className="home-build-time" title={`${t('home.buildTime')}: ${buildTime}`} data-testid="home-build-time">
-                <span className="home-build-time-full">{t('home.buildTimeValue', { time: localizedBuildTime.full })}</span>
-                <span className="home-build-time-compact">{localizedBuildTime.compact}</span>
-              </span>
-            )}
-          </span>
         </div>
         <nav className="header-nav" aria-label={t('chat.headerActions.navigation')}>
-          {pageActions}
           {canManageSystem && (
             <button
               className={`header-settings-btn header-restart-btn ${webRestarting ? 'restarting' : ''}`}
@@ -243,56 +261,21 @@ export function HomeNavigation({
               </svg>
             </button>
           )}
-          {onOpenStats && (
+          {visibleViewItems.map(({ view, label, onOpen, icon }) => (
             <button
-              className={`header-filebrowser-btn ${activeView === 'stats' ? 'active' : ''}`}
-              onClick={activeView === 'stats' ? undefined : onOpenStats}
-              title={t('stats.topbarTooltip')}
-              aria-label={t('stats.topbarTooltip')}
-              aria-current={activeView === 'stats' ? 'page' : undefined}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <line x1="18" y1="20" x2="18" y2="10" />
-                <line x1="12" y1="20" x2="12" y2="4" />
-                <line x1="6" y1="20" x2="6" y2="14" />
-              </svg>
-            </button>
-          )}
-          {onOpenTimers && (
-            <button
+              key={view}
               type="button"
-              className={`header-filebrowser-btn ${activeView === 'timers' ? 'active' : ''}`}
-              onClick={onOpenTimers}
-              aria-current={activeView === 'timers' ? 'page' : undefined}
-              aria-label={t('timers.title')}
-              title={t('timers.title')}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="9" />
-                <path d="M12 7v5l3 2" />
-              </svg>
-            </button>
-          )}
-          {onOpenGraph && (
-            <button
-              className={`header-filebrowser-btn ${activeView === 'graph' ? 'active' : ''}`}
-              onClick={activeView === 'graph' ? undefined : onOpenGraph}
-              title={t('chat.headerActions.graph')}
-              aria-label={t('chat.headerActions.graph')}
-              aria-current={activeView === 'graph' ? 'page' : undefined}
+              className="header-filebrowser-btn"
+              onClick={activeView === view ? undefined : onOpen}
+              title={label}
+              aria-label={label}
+              aria-current={activeView === view ? 'page' : undefined}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="5" cy="12" r="2" />
-                <circle cx="12" cy="5" r="2" />
-                <circle cx="19" cy="12" r="2" />
-                <circle cx="12" cy="19" r="2" />
-                <path d="M6.5 10.5 10.5 6.5" />
-                <path d="M13.5 6.5 17.5 10.5" />
-                <path d="M17.5 13.5 13.5 17.5" />
-                <path d="M10.5 17.5 6.5 13.5" />
+                {icon}
               </svg>
             </button>
-          )}
+          ))}
           {canWriteFiles && (
             <button
               className={`header-filebrowser-btn ${agentsEditorOpen ? 'active' : ''}`}

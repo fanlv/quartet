@@ -60,7 +60,6 @@ import { GraphInspector, BUILTIN_VARS } from './graph/GraphInspector';
 import { GraphRunInspector } from './graph/GraphRunInspector';
 import { registerWorkspaceColors, workspaceColor } from '../utils/workspace';
 import { useAuthPrincipal } from '../auth';
-import { HomeNavigation } from './HomeNavigation';
 import { fetchAvailableAgentList } from '../api/agents';
 import './GraphWorkflowPage.css';
 
@@ -70,13 +69,7 @@ interface GraphWorkflowPageProps {
   workspaceId?: string;
   workspaceTitle?: string;
   workspaceWorkdir?: string;
-  onClose: () => void;
   onDirtyChange?: (dirty: boolean) => void;
-  navigationRefreshKey?: number;
-  onOpenSettings?: () => void;
-  onOpenStats?: () => void;
-  onOpenGraph?: () => void;
-  onOpenTimers?: () => void;
   // Called after a run is started so the app can jump into the Chat page for the
   // bound Graph Job, mirroring the normal Graph run launch flow.
   onRunStarted: (jobId: string) => void;
@@ -599,13 +592,7 @@ export function GraphWorkflowPage({
   workspaceId,
   workspaceTitle,
   workspaceWorkdir,
-  onClose,
   onDirtyChange,
-  navigationRefreshKey,
-  onOpenSettings,
-  onOpenStats,
-  onOpenGraph,
-  onOpenTimers,
   onRunStarted,
 }: GraphWorkflowPageProps) {
   const { t } = useTranslation();
@@ -656,6 +643,15 @@ export function GraphWorkflowPage({
   // Mobile-only: the workflow library is an off-canvas left drawer (it would
   // otherwise collapse to a sliver in the stacked layout). Desktop ignores this.
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const libraryToggleRef = useRef<HTMLButtonElement>(null);
+  const libraryCloseRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!isMobile || !libraryOpen) return;
+    libraryCloseRef.current?.focus({ preventScroll: true });
+    const toggle = libraryToggleRef.current;
+    return () => toggle?.focus({ preventScroll: true });
+  }, [isMobile, libraryOpen]);
+
   const [focus, setFocus] = useState<GraphCanvasFocus>({ token: 0 });
   const [loadedConfig, setLoadedConfig] = useState<GraphConfig>(initialConfig);
   // Last persisted/default document snapshot. `loadedConfig` is the structural
@@ -971,9 +967,7 @@ export function GraphWorkflowPage({
   const discardGuardDirty = dirty || hasJsonDraft;
   const editingLocked = saving || startingRun || validating;
 
-  // Live mirror of `dirty` so the stable discard-guard callback (wired into
-  // Back / new / select-other / cancel-edit) can read the latest value without
-  // taking `dirty` as a dependency and re-creating every handler on each edit.
+  // Keep the latest draft state available to the editor's action handlers.
   const dirtyRef = useRef(false);
   useEffect(() => {
     dirtyRef.current = discardGuardDirty;
@@ -994,10 +988,7 @@ export function GraphWorkflowPage({
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [discardGuardDirty]);
 
-  // Confirm before throwing away unsaved canvas edits. Returns true when it is
-  // safe to proceed (not dirty, or the user accepted the prompt). A single
-  // guard for every "leave the current document" path: Back, new workflow,
-  // selecting another workflow, and cancelling a run-version edit.
+  // Confirm before leaving the current workflow or cancelling run-version edits.
   const guardDiscard = useCallback((): boolean => {
     if (!dirtyRef.current) return true;
     return window.confirm(i18n.t('graph.messages.discardUnsavedConfirm'));
@@ -2170,40 +2161,12 @@ export function GraphWorkflowPage({
 
   return (
     <div className="graph-page">
-      <HomeNavigation
-        className="graph-page-header"
-        workspaceTitle={workspaceTitle}
-        workdir={workspaceWorkdir}
-        refreshKey={navigationRefreshKey}
-        activeView="graph"
-        pageTitle={t('graph.header.title')}
-        pageMark={<span className="graph-header-mark">◇</span>}
-        onBack={() => { if (guardDiscard()) onClose(); }}
-        backLabel={t('graph.header.back')}
-        onHome={() => { if (guardDiscard()) onClose(); }}
-        pageActions={isMobile ? (
-            <button
-              className="header-settings-btn"
-              onClick={() => setLibraryOpen(true)}
-              title={t('graph.header.openLibrary')}
-              aria-label={t('graph.header.openLibrary')}
-              data-testid="graph-library-toggle"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            </button>
-        ) : undefined}
-        onOpenSettings={onOpenSettings}
-        onOpenStats={onOpenStats}
-        onOpenGraph={onOpenGraph}
-        onOpenTimers={onOpenTimers}
-      />
-
       <main className="graph-page-main">
-        <aside className={`graph-sidebar${isMobile && libraryOpen ? ' graph-sidebar-open' : ''}`}>
+        <aside
+          id="graph-workflow-library"
+          className={`graph-sidebar${isMobile && libraryOpen ? ' graph-sidebar-open' : ''}`}
+          inert={isMobile && !libraryOpen}
+        >
           <div className="graph-sidebar-top">
             <div>
               <div className="graph-kicker">{workspaceTitle || workspaceId || t('graph.sidebar.workspace')}</div>
@@ -2231,6 +2194,8 @@ export function GraphWorkflowPage({
               </button>}
               {isMobile && (
                 <button
+                  type="button"
+                  ref={libraryCloseRef}
                   className="graph-sidebar-close"
                   onClick={() => setLibraryOpen(false)}
                   title={t('graph.sidebar.closeLibrary')}
@@ -2306,6 +2271,23 @@ export function GraphWorkflowPage({
         <section className="graph-editor">
           <div className="graph-editor-head">
             <div className="graph-editor-title">
+              {isMobile && (
+                <button
+                  type="button"
+                  ref={libraryToggleRef}
+                  className="graph-sidebar-icon-btn graph-library-toggle"
+                  onClick={() => setLibraryOpen(true)}
+                  title={t('graph.header.openLibrary')}
+                  aria-label={t('graph.header.openLibrary')}
+                  aria-controls="graph-workflow-library"
+                  aria-expanded={libraryOpen}
+                  data-testid="graph-library-toggle"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                    <path d="M3 6h18M3 12h18M3 18h18" />
+                  </svg>
+                </button>
+              )}
               {!viewingRun && allWorkspaces.length > 0 && (
                 <div className="graph-ws-selector" ref={wsDropdownRef}>
                   <button

@@ -51,7 +51,7 @@ describe('StatsPage token trend accessibility', () => {
         : report,
     ));
 
-    render(<StatsPage onClose={vi.fn()} />);
+    render(<StatsPage />);
 
     const chart = await screen.findByRole('group', { name: /Usage trend by day/ });
     const days = within(chart).getAllByRole('button');

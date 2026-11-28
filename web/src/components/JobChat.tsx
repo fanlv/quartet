@@ -2,7 +2,6 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useJobChat } from '../hooks/useJobChat';
-import { useJobList, type JobSummary } from '../hooks/useJobList';
 import { MessageList, type MessageListHandle, type TimelineViewState } from './MessageList';
 import { phaseLabel } from '../utils/chatPhase';
 import { ChatInput } from './ChatInput';
@@ -11,9 +10,9 @@ import { StepOutline } from './StepOutline';
 import { FileBrowser } from './FileBrowser';
 import { AgentsLocalEditor } from './AgentsLocalEditor';
 import { AgentIdentityIcon } from './AgentIdentityIcon';
+import { BackButton } from './BackButton';
 import { MessageRoleEnum, MessageStatusEnum, type AgentInfo, type UserMessage, type FileAttachment, type WorkspaceInfo } from '../types';
 import { ServerClockProvider } from '../contexts/ServerClock';
-import { VirtualList } from './VirtualList';
 import { registerWorkspaceColors } from '../utils/workspace';
 import { ensureAgentDisplays, invalidateAgentDisplays, peekAgentDisplay, useAgentDisplayVersion } from '../utils/agentDisplay';
 import { fetchAgentPrefs, prefsForAgent, type AgentPrefsMap } from '../utils/agentPrefs';
@@ -61,7 +60,6 @@ interface JobChatProps {
   onBack?: () => void;
   onJobCreated?: (jobId: string) => void;
   onInitialMessageAccepted?: (clientMessageId: string) => void;
-  onSelectJob?: (jobId: string, workspaceId?: string) => void;
   onOpenSettings?: () => void;
   onOpenStats?: () => void;
   /** Open the Graph Workflows page. Mirrors the home page's button so both
@@ -78,26 +76,10 @@ interface JobChatProps {
   onJobNotFound?: (jobId: string) => void;
 }
 
-interface JobInfo {
-  id: string;
-  title: string;
-  status: string;
-  mode?: 'interactive' | 'graph';
-  workdir?: string;
-  updatedAt: number;
-  scheduleId?: string;
-}
-
-// JOB_ROW_HEIGHT matches the fixed row height declared in .header-joblist-item
-// (see JobChat.css). The VirtualList uses this to compute the slice of rows
-// that overlap the viewport, so it must stay in sync with the CSS.
-const JOB_ROW_HEIGHT = 36;
-
 export function JobChat(props: JobChatProps) {
-  const { existingJobId, initialMessage, initialMessageClientId, initialImageUrls, initialFileAttachments, initialWorkdir, initialSessionId, initialModelId, initialAgentType, initialAcpMode, initialAcpThoughtLevel, workspaceId, shareToken, isReadonly, onBack, onJobCreated, onInitialMessageAccepted, onSelectJob, onOpenSettings, onOpenStats, onOpenGraph, onStartNewChat, onSwitchWorkspaceChat, onJobNotFound } = props;
+  const { existingJobId, initialMessage, initialMessageClientId, initialImageUrls, initialFileAttachments, initialWorkdir, initialSessionId, initialModelId, initialAgentType, initialAcpMode, initialAcpThoughtLevel, workspaceId, shareToken, isReadonly, onBack, onJobCreated, onInitialMessageAccepted, onOpenSettings, onOpenStats, onOpenGraph, onStartNewChat, onSwitchWorkspaceChat, onJobNotFound } = props;
   const { t } = useTranslation();
   const principal = useAuthPrincipal();
-  const canReadJobs = !!isReadonly || (principal?.permissions.includes('job.read') ?? false);
   const canExecuteJobs = !isReadonly && (principal?.permissions.includes('job.execute') ?? false);
   const canManageJobs = !isReadonly && (principal?.permissions.includes('job.manage') ?? false);
   const canShareJobs = !isReadonly && (principal?.permissions.includes('job.share') ?? false);
@@ -238,7 +220,6 @@ export function JobChat(props: JobChatProps) {
   const [graphSessionSidebarOpen, setGraphSessionSidebarOpen] = useState(false);
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
   const [agentsEditorOpen, setAgentsEditorOpen] = useState(false);
-  const [jobListOpen, setJobListOpen] = useState(false);
   const [headerMoreOpen, setHeaderMoreOpen] = useState(false);
   // Step outline panel (right side): lists thinking / tool-call / assistant
   // steps with per-step duration; clicking a row scrolls the bubble into view.
@@ -291,24 +272,6 @@ export function JobChat(props: JobChatProps) {
       window.removeEventListener('quartet:workspace-deleted', onDeleted);
     };
   }, [isReadonly]);
-  // Job list is fetched lazily — only when the dropdown is open — so the
-  // hook doesn't poll in the background for chat pages where the menu is
-  // never expanded. We swap the poll intervals to 0 while the menu is
-  // closed so the hook's tight poll loop isn't even scheduled.
-  const {
-    jobs,
-    hasMore: hasMoreJobs,
-    isLoadingMore: isLoadingMoreJobs,
-    loadMore: loadMoreJobs,
-    refresh: refreshJobs,
-    patchJob: patchJobInList,
-  } = useJobList({
-    workspaceId,
-    pollIntervalMs: jobListOpen ? 60_000 : 0,
-    activePollIntervalMs: jobListOpen ? 5_000 : 0,
-    refetchOnFocus: jobListOpen,
-    disabled: !canReadJobs,
-  });
   const [userAvatarUrl, setUserAvatarUrl] = useState('');
   const [jobShareToken, setJobShareToken] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
@@ -330,7 +293,6 @@ export function JobChat(props: JobChatProps) {
   // params so the banner re-translates on language switch.
   const [agentListError, setAgentListError] = useState<{ key: string; params?: Record<string, string> } | null>(null);
   const refreshedAgentModelsRef = useRef<Set<string>>(new Set());
-  const jobListRef = useRef<HTMLDivElement | null>(null);
   const headerMoreRef = useRef<HTMLDivElement | null>(null);
 
   // Sync share token from loaded job data
@@ -363,14 +325,6 @@ export function JobChat(props: JobChatProps) {
       }
     }
   }, [messages, jobTitle]);
-
-  // When the job's title changes in the chat header we patch the cached list
-  // so the menu reflects the new title without waiting for the next poll.
-  useEffect(() => {
-    const targetId = jobId || existingJobId;
-    if (!targetId || !jobTitle) return;
-    patchJobInList(targetId, { title: jobTitle });
-  }, [existingJobId, jobId, jobTitle, patchJobInList]);
 
   useEffect(() => {
     if (!canReadConfig) return;
@@ -522,24 +476,6 @@ export function JobChat(props: JobChatProps) {
       return updated;
     }));
   }, [sessionModelId, sessionACPMode, sessionACPThoughtLevel, sessionType, agents.length, selectedAgentIndex, hasUserSelected, hasUserSelectedMode, hasUserSelectedThoughtLevel]);
-
-  // Refresh on open + close-on-outside-click. The useJobList hook handles
-  // initial load + background polling; here we only refresh eagerly when the
-  // user opens the menu so they see the latest state without waiting.
-  useEffect(() => {
-    if (!jobListOpen) return;
-
-    void refreshJobs();
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!jobListRef.current?.contains(event.target as Node)) {
-        setJobListOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handlePointerDown);
-    return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, [jobListOpen, refreshJobs]);
 
   useEffect(() => {
     if (!headerMoreOpen) return;
@@ -1100,7 +1036,6 @@ export function JobChat(props: JobChatProps) {
       const data = await res.json().catch(() => ({}));
       const next = typeof data?.title === 'string' && data.title ? data.title : trimmed;
       setJobTitle(next);
-      patchJobInList(existingJobId, { title: next });
       setIsEditingTitle(false);
       setEditingTitleValue('');
     } catch (err) {
@@ -1108,7 +1043,7 @@ export function JobChat(props: JobChatProps) {
     } finally {
       setSavingTitle(false);
     }
-  }, [existingJobId, editingTitleValue, jobTitle, t, cancelEditTitle, setJobTitle, patchJobInList]);
+  }, [existingJobId, editingTitleValue, jobTitle, t, cancelEditTitle, setJobTitle]);
 
   useEffect(() => {
     if (!isEditingTitle) return;
@@ -1129,12 +1064,6 @@ export function JobChat(props: JobChatProps) {
     setSavingTitle(false);
   }, [existingJobId]);
 
-  const handleSelectJob = (nextJobId: string) => {
-    setJobListOpen(false);
-    if (nextJobId === existingJobId) return;
-    onSelectJob?.(nextJobId);
-  };
-
   // Scroll a specific message bubble into view from the step-outline panel.
   // Bubbles carry data-message-id (see MessageItem); we briefly flash the
   // target so the user sees where they landed.
@@ -1146,42 +1075,15 @@ export function JobChat(props: JobChatProps) {
     window.setTimeout(() => el.classList.remove('step-jump-flash'), 1200);
   }, []);
 
-  const getJobTitle = (job: JobInfo) => {
-    const title = job.title?.trim();
-    return title ? title : 'undefined title';
-  };
-
-  const getJobIcon = (job: JobInfo) => {
-    if (job.mode === 'graph') return (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="6" cy="6" r="2.5" />
-        <circle cx="18" cy="6" r="2.5" />
-        <circle cx="12" cy="18" r="2.5" />
-        <path d="M8.2 7.5 11 15.7" />
-        <path d="M15.8 7.5 13 15.7" />
-        <path d="M8.5 6h7" />
-      </svg>
-    );
-    return (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-      </svg>
-    );
-  };
-
   return (
     <ServerClockProvider getServerNow={getServerNow}>
     <div className="chatbot-container" data-testid="job-chat" data-job-id={jobId || existingJobId || ''} data-job-mode={isGraph ? 'graph' : 'interactive'} data-loading={isLoading ? 'true' : 'false'}>
       <header className="chatbot-header" data-testid="job-chat-header">
         <div className="header-left">
           {!isReadonly && (
-            <button className="back-button" onClick={handleNewChat} title="Back to Home">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M19 12H5M12 19l-7-7 7-7" />
-              </svg>
-            </button>
+            <BackButton label={t('chat.headerActions.home')} onClick={handleNewChat} />
           )}
-          <span className="header-logo" onClick={isReadonly || isEditingTitle ? undefined : handleNewChat} style={{ cursor: isReadonly || isEditingTitle ? 'default' : 'pointer' }}>
+          <span className="header-logo">
             {userAvatarUrl ? (
               <img src={userAvatarUrl} alt="" className="header-user-avatar" referrerPolicy="no-referrer" />
             ) : (
@@ -1189,7 +1091,7 @@ export function JobChat(props: JobChatProps) {
             )}
             {' '}
             {isEditingTitle ? (
-              <span className="header-title-edit" onClick={(e) => e.stopPropagation()}>
+              <span className="header-title-edit">
                 <input
                   ref={titleInputRef}
                   className={`header-title-input${titleEditError ? ' has-error' : ''}`}
@@ -1215,7 +1117,7 @@ export function JobChat(props: JobChatProps) {
                 <button
                   type="button"
                   className="header-title-action save"
-                  onClick={(e) => { e.stopPropagation(); void saveEditTitle(); }}
+                  onClick={() => void saveEditTitle()}
                   disabled={savingTitle || !editingTitleValue.trim()}
                   title={t('chat.titleSave')}
                   data-testid="job-title-save-button"
@@ -1233,7 +1135,7 @@ export function JobChat(props: JobChatProps) {
                 <button
                   type="button"
                   className="header-title-action cancel"
-                  onClick={(e) => { e.stopPropagation(); cancelEditTitle(); }}
+                  onClick={cancelEditTitle}
                   disabled={savingTitle}
                   title={t('chat.titleCancel')}
                   data-testid="job-title-cancel-button"
@@ -1252,7 +1154,7 @@ export function JobChat(props: JobChatProps) {
                   <button
                     type="button"
                     className="header-edit-title-btn"
-                    onClick={(e) => { e.stopPropagation(); startEditTitle(); }}
+                    onClick={startEditTitle}
                     title={t('chat.renameTitle')}
                     aria-label={t('chat.renameTitle')}
                     data-testid="job-title-edit-button"
@@ -1279,74 +1181,6 @@ export function JobChat(props: JobChatProps) {
                   </svg>
                 </button>
               )}
-              <div className="header-joblist" ref={jobListRef}>
-                <button
-                  className={`header-filebrowser-btn ${jobListOpen ? 'active' : ''}`}
-                  onClick={() => {
-                    setHeaderMoreOpen(false);
-                    setJobListOpen((open) => !open);
-                  }}
-                  title="Job List"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-                  </svg>
-                </button>
-                {jobListOpen && (
-                  <div className="header-joblist-menu">
-                    <div className="header-joblist-title">Job List</div>
-                    <VirtualList<JobSummary>
-                      className="header-joblist-items"
-                      items={jobs}
-                      itemHeight={JOB_ROW_HEIGHT}
-                      getKey={(job) => job.id}
-                      onEndReached={hasMoreJobs ? () => { void loadMoreJobs(); } : undefined}
-                      empty={<div className="header-joblist-empty">No jobs</div>}
-                      footer={hasMoreJobs ? (
-                        <div className="header-joblist-loadmore">
-                          <button
-                            className="header-joblist-loadmore-btn"
-                            onClick={() => { void loadMoreJobs(); }}
-                            disabled={isLoadingMoreJobs}
-                          >
-                            {isLoadingMoreJobs ? '加载中…' : '加载更多'}
-                          </button>
-                        </div>
-                      ) : null}
-                      renderItem={(job) => {
-                        const jobUrl = (() => {
-                          const url = new URL(window.location.href);
-                          url.searchParams.delete('sessionId');
-                          url.searchParams.delete('view');
-                          url.searchParams.set('jobId', job.id);
-                          return url.toString();
-                        })();
-                        return (
-                          <a
-                            className={`header-joblist-item ${job.id === existingJobId ? 'active' : ''}`}
-                            href={jobUrl}
-                            onClick={(e) => {
-                              if (e.metaKey || e.ctrlKey) {
-                                e.stopPropagation();
-                                return;
-                              }
-                              e.preventDefault();
-                              handleSelectJob(job.id);
-                            }}
-                            onAuxClick={(e) => {
-                              if (e.button === 1) e.stopPropagation();
-                            }}
-                            title={getJobTitle(job)}
-                          >
-                            <span className="header-joblist-item-icon">{getJobIcon(job)}</span>
-                            <span className="header-joblist-item-title">{getJobTitle(job)}</span>
-                          </a>
-                        );
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
               {canExecuteJobs && <button
                 className="header-filebrowser-btn"
                 onClick={handleNewJob}
@@ -1501,10 +1335,7 @@ export function JobChat(props: JobChatProps) {
                 <button
                   type="button"
                   className={`header-filebrowser-btn header-more-trigger ${headerMoreOpen ? 'active' : ''}`}
-                  onClick={() => {
-                    setJobListOpen(false);
-                    setHeaderMoreOpen((open) => !open);
-                  }}
+                  onClick={() => setHeaderMoreOpen((open) => !open)}
                   title={t('chat.headerActions.more')}
                   aria-label={t('chat.headerActions.more')}
                   aria-haspopup="menu"

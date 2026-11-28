@@ -575,7 +575,7 @@ test('graph review #39: JSON draft dirty guard covers Back, New, and selecting a
     backDialog = d.message()
     void d.dismiss()
   })
-  await page.getByRole('button', { name: 'Back', exact: true }).click()
+  await page.getByRole('button', { name: 'Back to home' }).click()
   await expect.poll(() => backDialog).toContain('unsaved')
   await expect(page.getByTestId('graph-json-textarea')).toBeVisible()
 
@@ -1297,7 +1297,7 @@ test('graph review #5: leaving with unsaved changes prompts a confirm', async ({
     dialogSeen = true
     void d.dismiss()
   })
-  await page.getByRole('button', { name: 'Back', exact: true }).click()
+  await page.getByRole('button', { name: 'Back to home' }).click()
   await expect.poll(() => dialogSeen).toBe(true)
   // Dismissed: still on the graph page (canvas visible, did not navigate away).
   await expect(page.getByTestId('graph-node-start')).toBeVisible()

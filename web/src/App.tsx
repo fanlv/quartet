@@ -10,17 +10,15 @@ import { useAuthPrincipal } from './auth';
 import { claimJobCreateIntent, clearJobCreateIntent, clearJobCreateIntentScope } from './utils/jobCreateIntent';
 import { DEFAULT_WORKSPACE_ID, getLastUsedWorkspaceId, setLastUsedWorkspaceId, loadWorkspacePrefs, registerWorkspaceColors } from './utils/workspace';
 import {
-  getGraphOpenFromUrl,
   getJobIdFromUrl,
   getSessionIdFromUrl,
   getShareTokenFromUrl,
-  getStatsOpenFromUrl,
   getWorkspaceIdFromUrl,
-  graphUrl,
-  updateUrlWithGraph,
+  getWorkspaceViewFromUrl,
   updateUrlWithJobId,
-  updateUrlWithStats,
   updateUrlWithWorkspaceId,
+  updateUrlWithWorkspaceView,
+  type WorkspaceView,
 } from './utils/appRoute';
 import './App.css';
 
@@ -41,6 +39,12 @@ const StatsPage = lazy(() =>
 );
 
 const TimerManagement = lazy(() => import('./components/TimerManagement'));
+
+const workspaceViewPermissions = {
+  stats: 'stats.read',
+  timers: 'schedule.read',
+  graph: 'workflow.read',
+} satisfies Record<WorkspaceView, string>;
 
 function LazyPageFallback() {
   const { t } = useTranslation();
@@ -75,9 +79,7 @@ function WorkspaceApp() {
   const [initialAcpThoughtLevel, setInitialAcpThoughtLevel] = useState<string | undefined>();
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('general');
-  const [showTimers, setShowTimers] = useState(() => new URLSearchParams(window.location.search).get('view') === 'timers');
-  const [showStats, setShowStats] = useState(() => getStatsOpenFromUrl());
-  const [showGraph, setShowGraph] = useState(() => getGraphOpenFromUrl());
+  const [workspaceView, setWorkspaceView] = useState(getWorkspaceViewFromUrl);
   const graphDirtyRef = useRef(false);
   const [homeRefreshKey, setHomeRefreshKey] = useState(0);
   const [missingJobNoticeId, setMissingJobNoticeId] = useState<string | null>(null);
@@ -114,22 +116,24 @@ function WorkspaceApp() {
     if (!isReadonly && principal?.permissions.includes('skills.read')) prefetchSkills(currentWorkspace?.id);
   }, [isReadonly, principal, currentWorkspace?.id]);
 
+  const canLeaveWorkspaceView = useCallback(() => (
+    workspaceView !== 'graph' || !graphDirtyRef.current || window.confirm(t('graph.messages.discardUnsavedConfirm'))
+  ), [workspaceView, t]);
+
   useEffect(() => {
     const handlePopState = () => {
-      const graphOpen = getGraphOpenFromUrl();
-      if (showGraph && !graphOpen && graphDirtyRef.current && !window.confirm(t('graph.messages.discardUnsavedConfirm'))) {
-        window.history.pushState({}, '', graphUrl());
+      const nextView = getWorkspaceViewFromUrl();
+      if (workspaceView !== nextView && !canLeaveWorkspaceView()) {
+        updateUrlWithWorkspaceView('graph', { workspaceId: currentWorkspace?.id });
         return;
       }
       const jobId = getJobIdFromUrl();
       const wsId = getWorkspaceIdFromUrl();
       const sid = getSessionIdFromUrl();
-      setShowGraph(graphOpen);
-      setShowTimers(new URLSearchParams(window.location.search).get('view') === 'timers');
-      setShowStats(getStatsOpenFromUrl());
+      setWorkspaceView(nextView);
       setCurrentJobId(jobId);
       setInitialSessionId(sid);
-      setShowChat(!graphOpen && !!jobId);
+      setShowChat(nextView !== 'graph' && !!jobId);
       if (!jobId) {
         setInitialMessage(null);
         setInitialImageUrls(undefined);
@@ -156,7 +160,7 @@ function WorkspaceApp() {
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [currentWorkspace, showGraph, t]);
+  }, [canLeaveWorkspaceView, currentWorkspace, workspaceView]);
 
   const handleSelectWorkspace = useCallback((ws: WorkspaceInfo) => {
     setCurrentWorkspace(ws);
@@ -381,7 +385,7 @@ function WorkspaceApp() {
     url.searchParams.delete('sessionId');
     if (url.searchParams.has('timerExecutionId')) {
       url.searchParams.set('view', 'timers');
-      setShowTimers(true);
+      setWorkspaceView('timers');
     }
     window.history.pushState({}, '', url.toString());
     setInitialMessage(null);
@@ -396,11 +400,8 @@ function WorkspaceApp() {
     setShowChat(false);
   }, []);
 
-  // Shared Job-selection entry. Accepts an optional workspaceId so callers
-  // that already know the Job's workspace (e.g. the home-page global job list,
-  // which shows jobs across workspaces) can keep currentWorkspace + the URL
-  // consistent without an extra round-trip. Chat-page callers that only list
-  // jobs in the current workspace can keep passing just the jobId.
+  // The home-page job list spans workspaces. Use the selected job's workspace
+  // ID when available to keep currentWorkspace and the URL in sync.
   const handleSelectJob = useCallback((jobId: string, jobWorkspaceId?: string) => {
     setMissingJobNoticeId(null);
     if (jobWorkspaceId && jobWorkspaceId !== currentWorkspace?.id) {
@@ -861,51 +862,20 @@ function WorkspaceApp() {
     setShowSettings(false);
     setHomeRefreshKey((key) => key + 1);
   }, []);
-  const handleOpenTimers = useCallback(() => {
-    if (showGraph && graphDirtyRef.current && !window.confirm(t('graph.messages.discardUnsavedConfirm'))) return;
-    const url = new URL(window.location.href);
-    url.searchParams.delete('jobId');
-    url.searchParams.delete('sessionId');
-    url.searchParams.set('view', 'timers');
-    window.history.pushState({}, '', url);
-    setShowChat(false);
-    setShowGraph(false);
-    setShowStats(false);
-    setShowTimers(true);
-  }, [showGraph, t]);
-  const handleCloseTimers = useCallback(() => {
-    const url = new URL(window.location.href);
-    for (const key of ['view', 'timerTab', 'timerScheduleId', 'timerExecutionId']) url.searchParams.delete(key);
-    window.history.pushState({}, '', url);
-    setShowTimers(false);
-  }, []);
-  const handleOpenStats = useCallback(() => {
-    if (showGraph && graphDirtyRef.current && !window.confirm(t('graph.messages.discardUnsavedConfirm'))) {
-      return;
-    }
-    setShowGraph(false);
-    setShowStats(true);
-    setShowTimers(false);
-    updateUrlWithStats(true);
-  }, [showGraph, t]);
-  const handleCloseStats = useCallback(() => {
-    setShowStats(false);
-    updateUrlWithStats(false);
-  }, []);
-  const handleOpenGraph = useCallback(() => {
+  const handleChangeWorkspaceView = useCallback((view?: WorkspaceView) => {
+    if (workspaceView === view || !canLeaveWorkspaceView()) return;
+
+    // Statistics can also be opened from a conversation and return to it.
+    const keepJob = (view ?? workspaceView) === 'stats' && showChat && !!currentJobId;
+    updateUrlWithWorkspaceView(view, { keepJob });
+    setWorkspaceView(view);
     setMissingJobNoticeId(null);
-    setShowChat(false);
-    setCurrentJobId(undefined);
-    setInitialSessionId(undefined);
-    setShowStats(false);
-    setShowTimers(false);
-    setShowGraph(true);
-    updateUrlWithGraph(true);
-  }, []);
-  const handleCloseGraph = useCallback(() => {
-    setShowGraph(false);
-    updateUrlWithGraph(false);
-  }, []);
+    if (!keepJob) {
+      setShowChat(false);
+      setCurrentJobId(undefined);
+      setInitialSessionId(undefined);
+    }
+  }, [canLeaveWorkspaceView, currentJobId, showChat, workspaceView]);
   const handleGraphDirtyChange = useCallback((dirty: boolean) => {
     graphDirtyRef.current = dirty;
   }, []);
@@ -914,8 +884,7 @@ function WorkspaceApp() {
   // only flip views + URL here.
   const handleGraphRunStarted = useCallback((jobId: string) => {
     setMissingJobNoticeId(null);
-    setShowGraph(false);
-    setShowStats(false);
+    setWorkspaceView(undefined);
     setInitialMessage(null);
     setInitialImageUrls(undefined);
     setInitialFileAttachments(undefined);
@@ -949,8 +918,8 @@ function WorkspaceApp() {
     setInitialAgentType(undefined);
     setInitialAcpMode(undefined);
     setShowChat(false);
-    handleCloseStats();
-  }, [handleSelectWorkspace, handleCloseStats]);
+    setWorkspaceView(undefined);
+  }, [handleSelectWorkspace]);
   const handleSettingsChanged = useCallback(() => {
     setHomeRefreshKey((k) => k + 1);
   }, []);
@@ -989,6 +958,13 @@ function WorkspaceApp() {
     );
   }
 
+  const navigation = {
+    onOpenSettings: handleOpenSettings,
+    onOpenStats: principal?.permissions.includes(workspaceViewPermissions.stats) ? () => handleChangeWorkspaceView('stats') : undefined,
+    onOpenGraph: principal?.permissions.includes(workspaceViewPermissions.graph) ? () => handleChangeWorkspaceView('graph') : undefined,
+    onOpenTimers: principal?.permissions.includes(workspaceViewPermissions.timers) ? () => handleChangeWorkspaceView('timers') : undefined,
+  };
+
   return (
     <ConnectionStatusProvider>
     <div className="app-layout">
@@ -1006,52 +982,29 @@ function WorkspaceApp() {
           </button>
         </div>
       )}
-      {showTimers && principal?.permissions.includes('schedule.read') ? (
-        <div className="app-main">
-          <HomeNavigation activeView="timers" pageTitle={t('timers.title')} onHome={handleCloseTimers}
-            onOpenTimers={handleOpenTimers} onOpenSettings={handleOpenSettings}
-            onOpenStats={principal.permissions.includes('stats.read') ? handleOpenStats : undefined}
-            onOpenGraph={principal.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
-          />
-          <Suspense fallback={<LazyPageFallback />}><TimerManagement permissions={principal.permissions} /></Suspense>
-        </div>
-      ) : showStats && principal?.permissions.includes('stats.read') ? (
+      {workspaceView && principal?.permissions.includes(workspaceViewPermissions[workspaceView]) ? (
         <div className="app-main">
           <HomeNavigation
-            workspaceTitle={currentWorkspace?.title}
+            activeView={workspaceView}
             workdir={currentWorkspace?.workdir}
-            refreshKey={homeRefreshKey}
-            activeView="stats"
-            onHome={handleCloseStats}
-            onOpenTimers={principal.permissions.includes('schedule.read') ? handleOpenTimers : undefined}
-            onOpenSettings={handleOpenSettings}
-            onOpenStats={handleOpenStats}
-            onOpenGraph={principal?.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
+            onBack={() => handleChangeWorkspaceView()}
+            backLabel={workspaceView === 'stats' && showChat && currentJobId ? t('chat.headerActions.backToChat') : undefined}
+            {...navigation}
           />
           <Suspense fallback={<LazyPageFallback />}>
-            <StatsPage
-              onClose={handleCloseStats}
-              currentWorkspaceId={currentWorkspace?.id}
-              onJumpToWorkspace={handleJumpToWorkspace}
-            />
-          </Suspense>
-        </div>
-      ) : showGraph && principal?.permissions.includes('workflow.read') ? (
-        <div className="app-main">
-          <Suspense fallback={<LazyPageFallback />}>
-            <GraphWorkflowPage
-              workspaceId={currentWorkspace?.id}
-              workspaceTitle={currentWorkspace?.title}
-              workspaceWorkdir={currentWorkspace?.workdir}
-              onClose={handleCloseGraph}
-              onDirtyChange={handleGraphDirtyChange}
-              navigationRefreshKey={homeRefreshKey}
-              onOpenSettings={handleOpenSettings}
-              onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
-              onOpenGraph={handleOpenGraph}
-              onOpenTimers={principal.permissions.includes('schedule.read') ? handleOpenTimers : undefined}
-              onRunStarted={handleGraphRunStarted}
-            />
+            {workspaceView === 'stats' && (
+              <StatsPage currentWorkspaceId={currentWorkspace?.id} onJumpToWorkspace={handleJumpToWorkspace} />
+            )}
+            {workspaceView === 'timers' && <TimerManagement permissions={principal.permissions} />}
+            {workspaceView === 'graph' && (
+              <GraphWorkflowPage
+                workspaceId={currentWorkspace?.id}
+                workspaceTitle={currentWorkspace?.title}
+                workspaceWorkdir={currentWorkspace?.workdir}
+                onDirtyChange={handleGraphDirtyChange}
+                onRunStarted={handleGraphRunStarted}
+              />
+            )}
           </Suspense>
         </div>
       ) : showChat && currentJobId && principal?.permissions.includes('job.read') ? (
@@ -1076,10 +1029,9 @@ function WorkspaceApp() {
               onBack={handleNewChat}
               onJobCreated={handleJobCreated}
               onInitialMessageAccepted={handleInitialMessageAccepted}
-              onSelectJob={handleSelectJob}
-              onOpenSettings={handleOpenSettings}
-              onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
-              onOpenGraph={principal?.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
+              onOpenSettings={navigation.onOpenSettings}
+              onOpenStats={navigation.onOpenStats}
+              onOpenGraph={navigation.onOpenGraph}
               onStartNewChat={handleStartNewChat}
               onSwitchWorkspaceChat={handleSwitchWorkspaceChat}
               onJobNotFound={handleJobNotFound}
@@ -1098,11 +1050,8 @@ function WorkspaceApp() {
               workspaceTitle={currentWorkspace?.title}
               onSelectWorkspace={handleSelectWorkspace}
               onSelectJob={handleSelectJob}
-              onOpenSettings={handleOpenSettings}
-              onOpenTimers={principal?.permissions.includes('schedule.read') ? handleOpenTimers : undefined}
               onOpenAgentSettings={principal?.permissions.includes('agent.manage') ? handleOpenAgentSettings : undefined}
-              onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
-              onOpenGraph={principal?.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
+              {...navigation}
             />
           </Suspense>
         </div>
@@ -1126,10 +1075,9 @@ function App() {
   const principal = useAuthPrincipal();
   const isPublicShare = !!getShareTokenFromUrl();
   const params = new URLSearchParams(window.location.search);
-  const requestedView = params.get('view');
+  const requestedView = getWorkspaceViewFromUrl();
   const canOpenRequestedView = principal?.permissions.includes('workspace.read')
-    || (requestedView === 'stats' && principal?.permissions.includes('stats.read'))
-    || (requestedView === 'graph' && principal?.permissions.includes('workflow.read'))
+    || (requestedView && principal?.permissions.includes(workspaceViewPermissions[requestedView]))
     || (!!params.get('jobId') && principal?.permissions.includes('job.read'));
   if (!isPublicShare && principal && !canOpenRequestedView) {
     const initialTab: SettingsTab = principal.permissions.includes('users.read')

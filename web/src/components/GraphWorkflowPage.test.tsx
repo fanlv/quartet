@@ -81,7 +81,7 @@ function stubBaseFetch(extra?: (url: string) => Response | null) {
 }
 
 function renderPage() {
-  return render(<GraphWorkflowPage workspaceId="ws-1" onClose={() => {}} onRunStarted={() => {}} />);
+  return render(<GraphWorkflowPage workspaceId="ws-1" onRunStarted={() => {}} />);
 }
 
 afterEach(() => {

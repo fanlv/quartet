@@ -1,3 +1,5 @@
+export type WorkspaceView = 'stats' | 'timers' | 'graph';
+
 function query(): URLSearchParams {
   return new URLSearchParams(window.location.search);
 }
@@ -18,12 +20,9 @@ export function getShareTokenFromUrl(): string | undefined {
   return query().get('shareToken') || undefined;
 }
 
-export function getStatsOpenFromUrl(): boolean {
-  return query().get('view') === 'stats';
-}
-
-export function getGraphOpenFromUrl(): boolean {
-  return query().get('view') === 'graph';
+export function getWorkspaceViewFromUrl(): WorkspaceView | undefined {
+  const view = query().get('view');
+  if (view === 'stats' || view === 'timers' || view === 'graph') return view;
 }
 
 export function updateUrlWithJobId(jobId: string, keepSessionId = false): void {
@@ -43,34 +42,19 @@ export function updateUrlWithWorkspaceId(workspaceId: string): void {
   window.history.pushState({}, '', url.toString());
 }
 
-export function updateUrlWithStats(open: boolean): void {
+export function updateUrlWithWorkspaceView(
+  view?: WorkspaceView,
+  { keepJob = false, workspaceId }: { keepJob?: boolean; workspaceId?: string } = {},
+): void {
   const url = new URL(window.location.href);
-  if (open) {
-    url.searchParams.set('view', 'stats');
-    window.history.pushState({}, '', url.toString());
-  } else {
-    url.searchParams.delete('view');
-    window.history.replaceState({}, '', url.toString());
+  if (view) url.searchParams.set('view', view);
+  else url.searchParams.delete('view');
+  if (workspaceId) url.searchParams.set('workspaceId', workspaceId);
+  if (!keepJob) {
+    for (const key of ['jobId', 'sessionId', 'timerTab', 'timerScheduleId', 'timerExecutionId']) {
+      url.searchParams.delete(key);
+    }
   }
-}
-
-export function updateUrlWithGraph(open: boolean): void {
-  const url = new URL(window.location.href);
-  if (open) {
-    url.searchParams.delete('jobId');
-    url.searchParams.delete('sessionId');
-    url.searchParams.set('view', 'graph');
-    window.history.pushState({}, '', url.toString());
-  } else {
-    url.searchParams.delete('view');
-    window.history.replaceState({}, '', url.toString());
-  }
-}
-
-export function graphUrl(): string {
-  const url = new URL(window.location.href);
-  url.searchParams.delete('jobId');
-  url.searchParams.delete('sessionId');
-  url.searchParams.set('view', 'graph');
-  return url.toString();
+  url.searchParams.delete('graphEditJob');
+  if (url.href !== window.location.href) window.history.pushState({}, '', url.href);
 }

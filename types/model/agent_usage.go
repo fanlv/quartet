@@ -24,19 +24,32 @@ type UsageWindow struct {
 	ResetAt            int64   `json:"reset_at"` // unix seconds
 }
 
-// CodexUsage is the Codex/ChatGPT plan + rate-limit snapshot pulled from the
-// ChatGPT usage endpoint.
+// CodexUsage is the Codex/ChatGPT plan, rate limits and member spending
+// allowance from the ChatGPT usage endpoint.
 type CodexUsage struct {
-	Email           string       `json:"email,omitempty"`
-	PlanType        string       `json:"plan_type,omitempty"`
-	Version         string       `json:"version,omitempty"` // effective Codex CLI version used by codex-acp, e.g. "v0.144.0"
-	PrimaryWindow   *UsageWindow `json:"primary_window,omitempty"`
-	SecondaryWindow *UsageWindow `json:"secondary_window,omitempty"`
-	ResetCredits    int          `json:"reset_credits"` // count of available rate-limit reset credits
+	Email           string           `json:"email,omitempty"`
+	PlanType        string           `json:"plan_type,omitempty"`
+	Version         string           `json:"version,omitempty"` // effective Codex CLI version used by codex-acp, e.g. "v0.144.0"
+	PrimaryWindow   *UsageWindow     `json:"primary_window,omitempty"`
+	SecondaryWindow *UsageWindow     `json:"secondary_window,omitempty"`
+	SpendLimit      *CodexSpendLimit `json:"spend_limit,omitempty"`
+	ResetCredits    int              `json:"reset_credits"` // count of available rate-limit reset credits
 	// ResetCreditExpiries lists the expiry (unix seconds) of each available reset
 	// credit, ascending. Sourced from the rate-limit-reset-credits endpoint;
 	// empty when that supplementary call fails.
 	ResetCreditExpiries []int64 `json:"reset_credit_expiries,omitempty"`
+}
+
+// CodexSpendLimit is the member's spending allowance on a ChatGPT workspace.
+// Amounts use the reported unit (such as usd or credit) and are nil when unknown.
+type CodexSpendLimit struct {
+	Unit        string   `json:"unit,omitempty"`
+	Limit       *float64 `json:"limit,omitempty"`
+	Used        *float64 `json:"used,omitempty"`
+	Remaining   *float64 `json:"remaining,omitempty"`
+	UsedPercent *float64 `json:"used_percent,omitempty"`
+	ResetAt     int64    `json:"reset_at,omitempty"` // unix seconds
+	Reached     bool     `json:"reached,omitempty"`
 }
 
 // AgentVersionResponse is the envelope for GET /api/v1/agent/version. It

@@ -9,7 +9,7 @@
   background: var(--canvas);
 }
 
-#root :is(.chatbot-header, .graph-page-header) {
+#root .chatbot-header {
   min-height: 60px;
   padding: calc(env(safe-area-inset-top) + 11px) 24px 11px;
   background: color-mix(in srgb, var(--canvas) 90%, transparent);
@@ -57,7 +57,7 @@
   transform: translateY(1px) scale(0.985);
 }
 
-#root :is(.header-joblist-menu, .header-more-menu, .model-dropdown, .settings-model-dropdown, .home-job-ws-filter-dropdown) {
+#root :is(.header-more-menu, .model-dropdown, .settings-model-dropdown, .home-job-ws-filter-dropdown) {
   color: var(--fg);
   background: color-mix(in srgb, var(--surface) 96%, transparent);
   border: 1px solid var(--border-strong);
@@ -607,7 +607,7 @@
   box-shadow: none;
 }
 
-#root .stats-header {
+#root .stats-toolbar {
   min-height: 58px;
   padding: 13px 18px;
   background: var(--surface);
@@ -626,7 +626,7 @@
   box-shadow: 0 2px 10px rgba(20, 32, 25, 0.025);
 }
 
-#root :is(.stats-title, .stats-kpi-value, .stats-card-title) {
+#root :is(.stats-kpi-value, .stats-card-title) {
   color: var(--fg);
 }
 
@@ -674,7 +674,7 @@
 }
 
 @media (max-width: 768px) {
-  #root :is(.chatbot-header, .graph-page-header) {
+  #root .chatbot-header {
     min-height: 54px;
     padding-inline: 12px;
   }

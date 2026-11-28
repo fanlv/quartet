@@ -15,8 +15,19 @@ export interface CodexUsage {
   // Upstream field positions; use each window's limit_window_seconds for its duration.
   primary_window?: UsageWindow;
   secondary_window?: UsageWindow;
+  spend_limit?: CodexSpendLimit;
   reset_credits: number; // count of available rate-limit reset credits
   reset_credit_expiries?: number[]; // unix seconds, one per available credit, ascending
+}
+
+export interface CodexSpendLimit {
+  unit?: string;
+  limit?: number;
+  used?: number;
+  remaining?: number;
+  used_percent?: number;
+  reset_at?: number;
+  reached?: boolean;
 }
 
 export interface ClaudeUsage {

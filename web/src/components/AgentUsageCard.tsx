@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { copyToClipboard } from '../utils/clipboard';
@@ -14,6 +14,7 @@ import {
   setCachedUsage,
   setCachedVersion,
   type AgentUsageProvider,
+  type CodexSpendLimit,
   type CodexUsage,
   type ClaudeUsage,
   type AntigravityUsage,
@@ -177,15 +178,21 @@ function HoverTip({
 }) {
   const [hover, setHover] = useState(false);
   const [pinned, setPinned] = useState(false);
-  const [pos, setPos] = useState({ left: 0, top: 0 });
+  const [pos, setPos] = useState({ left: 0, top: 0, arrowOffset: 0 });
   const ref = useRef<HTMLSpanElement>(null);
+  const tipRef = useRef<HTMLSpanElement>(null);
+  const tipId = useId();
   const visible = hover || pinned;
 
   const updatePos = useCallback(() => {
     const el = ref.current;
-    if (!el) return;
+    const tooltip = tipRef.current;
+    if (!el || !tooltip) return;
     const box = el.getBoundingClientRect();
-    setPos({ left: box.left + box.width / 2, top: box.top - 6 });
+    const center = box.left + box.width / 2;
+    const inset = tooltip.getBoundingClientRect().width / 2 + 8;
+    const left = Math.max(inset, Math.min(center, document.documentElement.clientWidth - inset));
+    setPos({ left, top: box.top - 6, arrowOffset: center - left });
   }, []);
 
   useLayoutEffect(() => {
@@ -198,7 +205,7 @@ function HoverTip({
       window.removeEventListener('scroll', onMove, true);
       window.removeEventListener('resize', onMove);
     };
-  }, [visible, updatePos]);
+  }, [visible, updatePos, tip]);
 
   useEffect(() => {
     if (!pinned) return;
@@ -216,12 +223,16 @@ function HoverTip({
       role="button"
       tabIndex={0}
       aria-label={ariaLabel}
+      aria-describedby={visible ? tipId : undefined}
       onClick={() => {
         setPinned((v) => !v);
         onActivate?.();
       }}
       onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
+        if (event.key === 'Escape') {
+          setPinned(false);
+          setHover(false);
+        } else if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
           setPinned((value) => !value);
           onActivate?.();
@@ -233,7 +244,13 @@ function HoverTip({
       {children}
       {visible &&
         createPortal(
-          <span className="usage-ring-tip" role="tooltip" style={{ left: pos.left, top: pos.top }}>
+          <span
+            ref={tipRef}
+            id={tipId}
+            className="usage-ring-tip usage-hover-tip"
+            role="tooltip"
+            style={{ left: pos.left, top: pos.top, '--usage-tip-arrow-offset': `${pos.arrowOffset}px` } as CSSProperties}
+          >
             {tip}
           </span>,
           document.body,
@@ -330,28 +347,28 @@ function AntigravityQuotaGroup({
  *  the reset time still lives in the shared tooltip. */
 function UsageLanePill({
   label,
-  value,
+  usedPercent,
   tip,
   emphasis,
 }: {
   label: string;
-  value: UsageWindow;
+  usedPercent?: number;
   tip: ReactNode;
   emphasis?: boolean;
 }) {
   const { t } = useTranslation();
-  const percent = Math.max(0, Math.min(100, value.used_percent));
-  const tier = pctClass(percent);
-  const rounded = Math.round(percent);
+  const percent = usedPercent == null ? undefined : Math.max(0, Math.min(100, usedPercent));
+  const tier = percent == null ? '' : pctClass(percent);
+  const percentLabel = percent == null ? '' : `${Math.round(percent)}%`;
 
   return (
-    <HoverTip tip={tip} ariaLabel={`${label} ${t('agentUsage.used')} ${rounded}%`}>
+    <HoverTip tip={tip} ariaLabel={percentLabel ? `${label} · ${t('agentUsage.used')} ${percentLabel}` : label}>
       <span className={`usage-lane ${tier}${emphasis ? ' is-total' : ''}`}>
-        {percent > 0 && (
+        {percent != null && percent > 0 && (
           <span className={`usage-lane-fill ${tier}`} style={{ width: `${percent}%` }} aria-hidden="true" />
         )}
         <span className="usage-lane-label">{label}</span>
-        <strong className={`usage-lane-value ${tier}`}>{rounded}%</strong>
+        {percentLabel && <strong className={`usage-lane-value ${tier}`}>{percentLabel}</strong>}
       </span>
     </HoverTip>
   );
@@ -405,10 +422,105 @@ function formatResetAt(
     : hm;
 }
 
-// Local "MM-dd HH:mm" for a reset-credit expiry (unix seconds).
-function formatExpiry(unixSec: number): string {
+// Local "MM-dd HH:mm" for a quota timestamp (unix seconds).
+function formatQuotaDate(unixSec: number): string {
   const d = new Date(unixSec * 1000);
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function CodexSpendLimitPill({ limit }: { limit: CodexSpendLimit }) {
+  const { t, i18n } = useTranslation();
+  const unit = limit.unit?.toLowerCase();
+  const formatter = new Intl.NumberFormat(i18n.resolvedLanguage, unit === 'usd'
+    ? { style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol' }
+    : { maximumFractionDigits: 2 });
+  const unitLabel = unit === 'credit' || unit === 'credits' ? t('agentUsage.codexCredits') : limit.unit;
+  const withUnit = (amount: string) => unit === 'usd' || !unitLabel ? amount : `${amount} ${unitLabel}`;
+  const used = limit.used == null ? '' : formatter.format(limit.used);
+  const total = limit.limit == null ? '' : formatter.format(limit.limit);
+  const ratio = used && total ? withUnit(`${used} / ${total}`) : '';
+  const usedLine = used && t('agentUsage.codexSpendUsed', { amount: ratio || withUnit(used) });
+  const limitLine = total && !used && t('agentUsage.codexSpendCap', { amount: withUnit(total) });
+  const balance = limit.remaining == null ? '' : t('agentUsage.codexSpendRemaining', {
+    amount: withUnit(formatter.format(limit.remaining)),
+  });
+  const heading = t(limit.reached ? 'agentUsage.codexSpendReached' : 'agentUsage.codexSpendLimit');
+
+  return (
+    <UsageLanePill
+      label={ratio || usedLine || limitLine || balance || heading}
+      usedPercent={limit.used_percent}
+      emphasis
+      tip={
+        <>
+          <span className="usage-tip-line usage-tip-head">{heading}</span>
+          {usedLine && <span className="usage-tip-line">{usedLine}</span>}
+          {limitLine && <span className="usage-tip-line">{limitLine}</span>}
+          {balance && <span className="usage-tip-line">{balance}</span>}
+          {limit.reset_at != null && limit.reset_at > 0 && (
+            <span className="usage-tip-line">
+              {t('agentUsage.resetAt', { time: formatQuotaDate(limit.reset_at) })}
+            </span>
+          )}
+        </>
+      }
+    />
+  );
+}
+
+function CodexQuotaDetails({ value, ringTitle }: {
+  value: CodexUsage;
+  ringTitle: (label: string, window: UsageWindow) => string;
+}) {
+  const { t } = useTranslation();
+  const plan = value.plan_type?.trim().toLowerCase() ?? '';
+  let planLabel = prettifyPlan(plan);
+  if (plan === 'ent26' || plan === 'enterprise' || plan.startsWith('enterprise_')) {
+    planLabel = t('agentUsage.codexEnterprise');
+  } else if (plan === 'team' || plan === 'business' || plan.startsWith('self_serve_business_')) {
+    planLabel = t('agentUsage.codexBusiness');
+  } else if (plan === 'education' || plan === 'edu' || plan.startsWith('edu_')) {
+    planLabel = t('agentUsage.codexEducation');
+  }
+  const email = value.email?.trim();
+  const planChip = <span className="usage-inline-plan">{planLabel || t('agentUsage.codexAccount')}</span>;
+  const hasRateWindow = Boolean(value.primary_window || value.secondary_window);
+  const showResetCredits = value.reset_credits > 0 || (hasRateWindow && !value.spend_limit);
+
+  return (
+    <>
+      {value.version && <span className="usage-inline-ver">{value.version}</span>}
+      {email ? <HoverTip tip={email}>{planChip}</HoverTip> : planLabel && planChip}
+      {value.spend_limit && <CodexSpendLimitPill limit={value.spend_limit} />}
+      {[value.primary_window, value.secondary_window].map((window, index) => {
+        if (!window) return null;
+        const label = formatWindowLabel(window.limit_window_seconds);
+        return <UsageRing key={index} percent={window.used_percent} label={label} title={ringTitle(label, window)} />;
+      })}
+      {!hasRateWindow && !value.spend_limit && (
+        <span className="usage-lane-label">{t('agentUsage.codexUsageUnavailable')}</span>
+      )}
+      {showResetCredits && (
+        <UsageRing
+          percent={value.reset_credits > 0 ? 100 : 0}
+          label={String(value.reset_credits)}
+          tone={value.reset_credits > 0 ? 'credit' : 'credit-empty'}
+          title={
+            <>
+              <span className="usage-tip-line usage-tip-head">
+                {t('agentUsage.resetCreditsLeft', { count: value.reset_credits })}
+              </span>
+              {(value.reset_credit_expiries ?? []).map((expiry, index) => (
+                <span key={index} className="usage-tip-line">
+                  {t('agentUsage.creditExpiry', { time: formatQuotaDate(expiry) })}
+                </span>
+              ))}
+            </>
+          }
+        />
+      )}
+    </>
+  );
 }
 
 /** Compact inline usage strip shown in the composer footer (after the
@@ -566,38 +678,7 @@ function AgentQuotaCard({ provider, command, refreshKey }: { provider: AgentUsag
       {loading && !current ? (
         <span className="usage-spin" aria-label={t('agentUsage.loading')} />
       ) : provider === 'codex' && codex ? (
-        <>
-          {codex.version && <span className="usage-inline-ver">{codex.version}</span>}
-          {[codex.primary_window, codex.secondary_window].map((window, index) => {
-            if (!window) return null;
-            const label = formatWindowLabel(window.limit_window_seconds);
-            return (
-              <UsageRing
-                key={index}
-                percent={window.used_percent}
-                label={label}
-                title={ringTitle(label, window)}
-              />
-            );
-          })}
-          <UsageRing
-            percent={codex.reset_credits > 0 ? 100 : 0}
-            label={String(codex.reset_credits)}
-            tone={codex.reset_credits > 0 ? 'credit' : 'credit-empty'}
-            title={
-              <>
-                <span className="usage-tip-line usage-tip-head">
-                  {t('agentUsage.resetCreditsLeft', { count: codex.reset_credits })}
-                </span>
-                {(codex.reset_credit_expiries ?? []).map((e, i) => (
-                  <span key={i} className="usage-tip-line">
-                    {t('agentUsage.creditExpiry', { time: formatExpiry(e) })}
-                  </span>
-                ))}
-              </>
-            }
-          />
-        </>
+        <CodexQuotaDetails value={codex} ringTitle={ringTitle} />
       ) : provider === 'claude' && claude ? (
         <>
           {claude.version && <span className="usage-inline-ver">{claude.version}</span>}
@@ -684,7 +765,7 @@ function AgentQuotaCard({ provider, command, refreshKey }: { provider: AgentUsag
                 )}
                 {qoder.expires_at ? (
                   <span className="usage-tip-line">
-                    {t('agentUsage.qoderExpires', { time: formatExpiry(qoder.expires_at) })}
+                    {t('agentUsage.qoderExpires', { time: formatQuotaDate(qoder.expires_at) })}
                   </span>
                 ) : null}
                 {qoder.quota_exceeded && (
@@ -810,7 +891,7 @@ function AgentQuotaCard({ provider, command, refreshKey }: { provider: AgentUsag
                 <UsageLanePill
                   key={label}
                   label={label}
-                  value={value}
+                  usedPercent={value.used_percent}
                   emphasis={emphasis}
                   tip={ringTitle(label, value, withDate)}
                 />

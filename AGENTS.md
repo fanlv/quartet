@@ -223,6 +223,7 @@ Go tests: `go test ./...`
 - `src/types/` — 与后端 `types/model` 对应的协议、消息与 graph 类型。
 - `e2e/` — Playwright 用例与 fixtures。
 - Agent 用量条（`AgentUsageCard`，输入框底部）展示顺序规范：所有 provider 一律**先显示 CLI 版本号，再显示套餐 / 额度 / 金额信息**；用量 payload 应携带版本号（后端并行探测 `<bin> --version`），payload 缺版本时用探测结果兜底，但顺序不变。
+- Agent 的套餐和用量展示可参考 Magpie。Codex 工作区账号可按个人支出额度展示已用量、上限、剩余额度和重置时间。 [Magpie 项目](https://github.com/yetone/magpie) · [Codex 工作区用量案例](https://github.com/yetone/magpie/issues/4259)
 
 ### 其他
 

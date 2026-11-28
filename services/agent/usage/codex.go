@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,6 +44,7 @@ type codexUsageResp struct {
 		PrimaryWindow   *codexWindow `json:"primary_window"`
 		SecondaryWindow *codexWindow `json:"secondary_window"`
 	} `json:"rate_limit"`
+	SpendControl          *codexSpendControl `json:"spend_control"`
 	RateLimitResetCredits struct {
 		AvailableCount int `json:"available_count"`
 	} `json:"rate_limit_reset_credits"`
@@ -52,6 +55,19 @@ type codexWindow struct {
 	LimitWindowSeconds int64   `json:"limit_window_seconds"`
 	ResetAfterSeconds  int64   `json:"reset_after_seconds"`
 	ResetAt            int64   `json:"reset_at"`
+}
+
+type codexSpendControl struct {
+	Reached         bool `json:"reached"`
+	IndividualLimit *struct {
+		Unit              string          `json:"unit"`
+		Limit             json.RawMessage `json:"limit"`
+		Used              json.RawMessage `json:"used"`
+		Remaining         json.RawMessage `json:"remaining"`
+		UsedPercent       json.RawMessage `json:"used_percent"`
+		ResetAt           int64           `json:"reset_at"`
+		ResetAfterSeconds int64           `json:"reset_after_seconds"`
+	} `json:"individual_limit"`
 }
 
 // codexResetCreditsResp is the rate-limit-reset-credits endpoint payload. Each
@@ -127,6 +143,7 @@ func (s *serviceImpl) CodexUsage(ctx context.Context) (*model.CodexUsage, error)
 	if err := json.Unmarshal(body, &u); err != nil {
 		return nil, fmt.Errorf("parse ChatGPT usage response failed: %w (body: %s)", err, string(body))
 	}
+	spendLimit := u.SpendControl.usageLimit()
 
 	// Prefer the reset-credits endpoint's count (it's the source of the expiry
 	// list, so they always agree); fall back to the usage endpoint's aggregate.
@@ -142,9 +159,57 @@ func (s *serviceImpl) CodexUsage(ctx context.Context) (*model.CodexUsage, error)
 		Version:             <-verCh,
 		PrimaryWindow:       toUsageWindow(u.RateLimit.PrimaryWindow),
 		SecondaryWindow:     toUsageWindow(u.RateLimit.SecondaryWindow),
+		SpendLimit:          spendLimit,
 		ResetCredits:        resetCount,
 		ResetCreditExpiries: credits.expiries,
 	}, nil
+}
+
+func (s *codexSpendControl) usageLimit() *model.CodexSpendLimit {
+	if s == nil {
+		return nil
+	}
+	quota := model.CodexSpendLimit{Reached: s.Reached}
+	if limit := s.IndividualLimit; limit != nil {
+		quota.Unit = strings.TrimSpace(limit.Unit)
+		quota.Limit = codexSpendAmount(limit.Limit)
+		quota.Used = codexSpendAmount(limit.Used)
+		quota.Remaining = codexSpendAmount(limit.Remaining)
+		quota.UsedPercent = codexSpendAmount(limit.UsedPercent)
+		if quota.Limit != nil && quota.Used != nil {
+			if *quota.Limit > 0 {
+				percent := math.Min(100, *quota.Used / *quota.Limit * 100)
+				quota.UsedPercent = &percent
+			}
+			if quota.Remaining == nil {
+				remaining := max(0, *quota.Limit-*quota.Used)
+				quota.Remaining = &remaining
+			}
+		}
+		quota.ResetAt = limit.ResetAt
+		if quota.ResetAt <= 0 && limit.ResetAfterSeconds > 0 {
+			quota.ResetAt = time.Now().Unix() + limit.ResetAfterSeconds
+		}
+	}
+	if quota.Limit == nil && quota.Used == nil && quota.Remaining == nil && quota.UsedPercent == nil && !quota.Reached {
+		return nil
+	}
+	return &quota
+}
+
+// The usage endpoint may encode spend amounts as strings or JSON numbers.
+func codexSpendAmount(raw json.RawMessage) *float64 {
+	value := string(raw)
+	if len(raw) > 0 && raw[0] == '"' {
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return nil
+		}
+	}
+	amount, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || amount < 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return nil
+	}
+	return &amount
 }
 
 // codexResetCreditsAsync fetches the reset-credit detail on a goroutine and

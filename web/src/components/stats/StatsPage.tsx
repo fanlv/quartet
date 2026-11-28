@@ -134,7 +134,6 @@ function isUnknownModelLabel(value?: string): boolean {
 }
 
 interface StatsPageProps {
-  onClose: () => void;
   currentWorkspaceId?: string;
   onJumpToWorkspace?: (workspaceId: string) => void;
 }
@@ -176,7 +175,7 @@ function rangeDays(from: string, to: string): number {
   return Math.round((t.getTime() - f.getTime()) / 86_400_000) + 1;
 }
 
-export function StatsPage({ onClose, currentWorkspaceId, onJumpToWorkspace }: StatsPageProps) {
+export function StatsPage({ currentWorkspaceId, onJumpToWorkspace }: StatsPageProps) {
   const { t, i18n } = useTranslation();
   const [preset, setPreset] = useState<RangePreset>('30d');
   const [customFrom, setCustomFrom] = useState<string>(shiftDate(29));
@@ -267,42 +266,40 @@ export function StatsPage({ onClose, currentWorkspaceId, onJumpToWorkspace }: St
   return (
     <main className="stats-page">
       <div className="stats-shell">
-        <header className="stats-header">
-          <h2 className="stats-title">{t('stats.title')}</h2>
-          <div className="stats-range">
-            <div className="stats-segmented">
-              {(['7d', '30d', '90d', 'all', 'custom'] as RangePreset[]).map((p) => (
-                <button
-                  key={p}
-                  className={`stats-segmented-btn ${preset === p ? 'active' : ''}`}
-                  onClick={() => setPreset(p)}
-                >
-                  {t(`stats.range${p === '7d' ? '7d' : p === '30d' ? '30d' : p === '90d' ? '90d' : p === 'all' ? 'All' : 'Custom'}`)}
-                </button>
-              ))}
-            </div>
-            {preset === 'custom' && (
-              <div className="stats-custom-range">
-                <input
-                  type="date"
-                  aria-label={t('stats.customFrom')}
-                  value={customFrom}
-                  max={customTo || undefined}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                />
-                <span className="stats-custom-sep">→</span>
-                <input
-                  type="date"
-                  aria-label={t('stats.customTo')}
-                  value={customTo}
-                  min={customFrom || undefined}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                />
-              </div>
-            )}
+        <div className="stats-toolbar" role="group" aria-label={t('stats.rangeLabel')}>
+          <div className="stats-segmented">
+            {(['7d', '30d', '90d', 'all', 'custom'] as RangePreset[]).map((p) => (
+              <button
+                type="button"
+                key={p}
+                className={`stats-segmented-btn ${preset === p ? 'active' : ''}`}
+                aria-pressed={preset === p}
+                onClick={() => setPreset(p)}
+              >
+                {t(`stats.range${p === 'all' ? 'All' : p === 'custom' ? 'Custom' : p}`)}
+              </button>
+            ))}
           </div>
-          <button className="stats-close" onClick={onClose} aria-label={t('common.close')}>×</button>
-        </header>
+          {preset === 'custom' && (
+            <div className="stats-custom-range">
+              <input
+                type="date"
+                aria-label={t('stats.customFrom')}
+                value={customFrom}
+                max={customTo || undefined}
+                onChange={(e) => setCustomFrom(e.target.value)}
+              />
+              <span className="stats-custom-sep">→</span>
+              <input
+                type="date"
+                aria-label={t('stats.customTo')}
+                value={customTo}
+                min={customFrom || undefined}
+                onChange={(e) => setCustomTo(e.target.value)}
+              />
+            </div>
+          )}
+        </div>
 
         <div className="stats-body">
           {loading && !report && <StatsSkeleton />}
