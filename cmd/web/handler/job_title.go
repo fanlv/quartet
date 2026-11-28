@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/pkg/safe"
+	"github.com/fanlv/quartet/pkg/strutil"
 	graphsvc "github.com/fanlv/quartet/services/graph"
+	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -34,8 +38,9 @@ const titleCreatePrompt = `你是一个标题生成器。根据用户输入的�
 - 如果消息是一个**任务指令**，提取任务目标作为标题。
 - 如果消息是一段**描述或讨论**，提取核心主题作为标题。
 - 如果消息包含**代码或技术内容**，提取技术主题和动作作为标题。
+- 如果提供了附件文件名，用它们理解正文引用的对象，并以消息正文的主要语言概括任务。应用会在标题里显示附件名，摘要无需重复文件名。
 - 如果消息**过短或语义模糊**（如 "你好"、"嗯"），直接使用原文或输出 "闲聊"。
-用户的内容如下（帮我把把下面内容生成一个标题，只要标题内容，不要输出其他东西，我会把你输出的内容做标题）：
+请根据下面的内容生成标题，仅输出标题本身：
 `
 
 // titleCreateFromGraphPrompt 用于 Graph Workflow 运行生成 Job 标题。输入不再是
@@ -84,10 +89,104 @@ const titleCircuitBreakerThreshold = 3
 // breaker enters half-open state and allows a single probe request through.
 const titleCircuitBreakerCooldown = 5 * time.Minute
 
-// asyncUpdateJobTitle schedules title generation for an interactive Job using the
-// default title prompt, falling back to the raw message when generation fails.
-func (h *Handler) asyncUpdateJobTitle(ctx context.Context, jobID string, userMessage string) {
-	h.asyncUpdateJobTitleWith(ctx, jobID, userMessage, titleCreatePrompt, fallbackTitleFromMessage(userMessage))
+type jobTitleInput struct {
+	systemPrompt    string
+	userMessage     string
+	fallbackTitle   string
+	attachmentTitle string
+}
+
+// updateAcceptedJobTitle is shared by direct sends and queued dispatch.
+func (h *Handler) updateAcceptedJobTitle(ctx context.Context, jobID, currentTitle string, messages []model.RequestMessage) {
+	if len(messages) == 0 || (currentTitle != "" && currentTitle != consts.DefaultJobTitle) {
+		return
+	}
+
+	input, pendingTitle := interactiveJobTitleInput(messages)
+	if pendingTitle != "" {
+		if err := h.applyJobTitle(jobID, pendingTitle); err != nil {
+			logger.Errorf(ctx, "[title] apply pending title failed: jobId=%s err=%v", jobID, err)
+		} else if pendingTitle == input.fallbackTitle {
+			input.fallbackTitle = ""
+		}
+	}
+	h.asyncUpdateJobTitle(ctx, jobID, input)
+}
+
+func interactiveJobTitleInput(messages []model.RequestMessage) (jobTitleInput, string) {
+	var parts, filenames []string
+	for _, msg := range messages {
+		isFilePlaceholder := len(msg.FileAttachments) > 0 && strings.TrimSpace(msg.Content) == "[file]"
+		if msg.Content != "" && !isFilePlaceholder {
+			parts = append(parts, msg.Content)
+		}
+		for _, file := range msg.FileAttachments {
+			if name := strings.Join(strings.Fields(file.Name), " "); name != "" {
+				filenames = append(filenames, name)
+			}
+		}
+	}
+	message := strings.Join(parts, "\n")
+	input := jobTitleInput{
+		systemPrompt:  titleCreatePrompt,
+		userMessage:   message,
+		fallbackTitle: fallbackTitleFromMessage(message),
+	}
+	if len(filenames) == 0 {
+		return input, strutil.TruncateRunes(messages[0].Content, 30)
+	}
+
+	input.attachmentTitle = titleFromAttachmentNames(filenames)
+	input.fallbackTitle = titleWithAttachments(input.fallbackTitle, input.attachmentTitle)
+	input.userMessage = ""
+	if strings.TrimSpace(message) != "" {
+		input.userMessage = fmt.Sprintf("附件文件名：%q\n\n消息正文：\n%s", filenames, message)
+	}
+	return input, input.fallbackTitle
+}
+
+// Leave room for an attachment count so the leading filenames fit in the chat header.
+func titleFromAttachmentNames(filenames []string) string {
+	const maxRunes = 36
+	var names, more string
+	for i, name := range filenames {
+		suffix := ""
+		if remaining := len(filenames) - i - 1; remaining > 0 {
+			suffix = fmt.Sprintf(" +%d", remaining)
+		}
+		if i == 0 {
+			names = truncateTitleFilename(name, maxRunes-utf8.RuneCountInString(suffix))
+		} else {
+			joined := names + ", " + name
+			if utf8.RuneCountInString(joined+suffix) > maxRunes {
+				break
+			}
+			names = joined
+		}
+		more = suffix
+	}
+	return names + more
+}
+
+func truncateTitleFilename(name string, maxRunes int) string {
+	if utf8.RuneCountInString(name) <= maxRunes {
+		return name
+	}
+	ext := filepath.Ext(name)
+	if stemRunes := maxRunes - utf8.RuneCountInString(ext) - 1; stemRunes > 0 {
+		return strutil.TruncateRunes(strings.TrimSuffix(name, ext), stemRunes) + "…" + ext
+	}
+	return strutil.TruncateRunes(name, maxRunes-1) + "…"
+}
+
+func titleWithAttachments(summary, attachmentTitle string) string {
+	if attachmentTitle == "" {
+		return summary
+	}
+	if summary == "" || summary == attachmentTitle {
+		return attachmentTitle
+	}
+	return strutil.TruncateRunes(attachmentTitle+" · "+summary, jobTitleMaxLen)
 }
 
 // asyncUpdateGraphJobTitle schedules title generation for a Graph Workflow Job.
@@ -95,14 +194,17 @@ func (h *Handler) asyncUpdateJobTitle(ctx context.Context, jobID string, userMes
 // graphsvc.BuildTitleInput (no longer the raw workflow JSON), and the fallback
 // is derived from the first Prompt node's opening text.
 func (h *Handler) asyncUpdateGraphJobTitle(ctx context.Context, jobID string, in graphsvc.TitleInput) {
-	h.asyncUpdateJobTitleWith(ctx, jobID, in.Summary, titleCreateFromGraphPrompt, fallbackTitleFromMessage(in.FallbackSeed))
+	h.asyncUpdateJobTitle(ctx, jobID, jobTitleInput{
+		systemPrompt:  titleCreateFromGraphPrompt,
+		userMessage:   in.Summary,
+		fallbackTitle: fallbackTitleFromMessage(in.FallbackSeed),
+	})
 }
 
-// asyncUpdateJobTitleWith runs title generation in the background using the
-// given system prompt. fallbackTitle is applied when every attempt fails; pass
-// "" to skip the fallback (i.e. leave the default title in place).
-func (h *Handler) asyncUpdateJobTitleWith(ctx context.Context, jobID string, userMessage string, systemPrompt string, fallbackTitle string) {
-	if userMessage == "" {
+// asyncUpdateJobTitle runs title generation in the background and applies any
+// supplied fallback after the final failed attempt.
+func (h *Handler) asyncUpdateJobTitle(ctx context.Context, jobID string, input jobTitleInput) {
+	if input.userMessage == "" {
 		return
 	}
 
@@ -136,7 +238,7 @@ func (h *Handler) asyncUpdateJobTitleWith(ctx context.Context, jobID string, use
 		return
 	}
 
-	logger.Debugf(ctx, "[title] schedule: jobId=%s msgLen=%d isProbe=%v", jobID, len(userMessage), isProbe)
+	logger.Debugf(ctx, "[title] schedule: jobId=%s msgLen=%d isProbe=%v", jobID, len(input.userMessage), isProbe)
 
 	safe.Go(ctx, func() {
 		defer h.titleInFlight.Delete(jobID)
@@ -191,8 +293,8 @@ func (h *Handler) asyncUpdateJobTitleWith(ctx context.Context, jobID string, use
 				return
 			}
 
-			logger.Debugf(ctx, "[title] calling doUpdateJobTitle: jobId=%s attempt=%d/%d userMsgLen=%d", jobID, attempt, totalAttempts, len(userMessage))
-			lastErr = h.doUpdateJobTitle(ctx, jobID, userMessage, systemPrompt)
+			logger.Debugf(ctx, "[title] calling doUpdateJobTitle: jobId=%s attempt=%d/%d userMsgLen=%d", jobID, attempt, totalAttempts, len(input.userMessage))
+			lastErr = h.doUpdateJobTitle(ctx, jobID, input)
 			if lastErr == nil {
 				h.titleFailCount.Store(0) // reset circuit breaker on success
 				h.titleOpenSince.Store(0) // close circuit
@@ -219,19 +321,18 @@ func (h *Handler) asyncUpdateJobTitleWith(ctx context.Context, jobID string, use
 			logger.Infof(ctx, "[title] ctx done after retries, skipping fallback: jobId=%s", jobID)
 			return
 		}
-		if fallbackTitle == "" {
-			logger.Infof(ctx, "[title] no fallback available, giving up: jobId=%s", jobID)
+		if input.fallbackTitle == "" {
 			return
 		}
-		if err := h.applyJobTitle(jobID, fallbackTitle); err != nil {
+		if err := h.applyJobTitle(jobID, input.fallbackTitle); err != nil {
 			logger.Warnf(ctx, "[title] apply fallback failed: jobId=%s err=%v", jobID, err)
 			return
 		}
-		logger.Infof(ctx, "[title] applied fallback after %d failed attempts: jobId=%s title=%q", totalAttempts, jobID, fallbackTitle)
+		logger.Infof(ctx, "[title] applied fallback after %d failed attempts: jobId=%s title=%q", totalAttempts, jobID, input.fallbackTitle)
 	})
 }
 
-func (h *Handler) doUpdateJobTitle(ctx context.Context, jobID string, userMessage string, systemPrompt string) error {
+func (h *Handler) doUpdateJobTitle(ctx context.Context, jobID string, input jobTitleInput) error {
 	logger.Debugf(ctx, "[title] doUpdateJobTitle enter: jobId=%s", jobID)
 
 	settings, err := h.settingsService.GetSettings()
@@ -253,11 +354,12 @@ func (h *Handler) doUpdateJobTitle(ctx context.Context, jobID string, userMessag
 	logger.Debugf(ctx, "[title] calling generateText: jobId=%s agentId=%s modelId=%s thought=%s",
 		jobID, titleAgent.AgentID, titleAgent.ModelID, titleAgent.ACPThoughtLevel)
 	start := time.Now()
-	title, err := h.generateText(ctx, *titleAgent, systemPrompt, userMessage)
+	title, err := h.generateText(ctx, *titleAgent, input.systemPrompt, input.userMessage)
 	if err != nil {
 		return fmt.Errorf("generate title failed (agentId=%s elapsed=%s): %w", titleAgent.AgentID, time.Since(start).Round(time.Millisecond), err)
 	}
 
+	title = titleWithAttachments(title, input.attachmentTitle)
 	logger.Infof(ctx, "[title] generated: jobId=%s title=%q", jobID, title)
 
 	if err := h.applyJobTitle(jobID, title); err != nil {

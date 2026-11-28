@@ -98,6 +98,18 @@ export interface RunAgentInput {
 }
 
 export interface ScheduleInfo {
+  kind?: 'graph' | 'prompt';
+  prompt?: string;
+  agentId?: string;
+  modelId?: string;
+  runAt?: string;
+  timeZone?: string;
+  endDate?: string;
+  maxRuns?: number;
+  planState?: string;
+  stateReason?: string;
+  workflowVersion?: string;
+  approvalPreview?: string;
   id: string;
   name: string;
   enabled: boolean;

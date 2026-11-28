@@ -291,6 +291,7 @@ func (s *serviceImpl) SetGraphRunState(_ context.Context, jobID, graphRunID stri
 		}
 		existing.Mode = model.JobModeGraph
 		existing.Status = status
+		existing.GraphStatus = graphStatus
 		if startedAt > 0 {
 			existing.StartedAt = startedAt
 		}
@@ -307,6 +308,7 @@ func (s *serviceImpl) SetGraphRunState(_ context.Context, jobID, graphRunID stri
 	cp := existing.DeepCopy()
 	cp.Mode = model.JobModeGraph
 	cp.GraphRunID = graphRunID
+	cp.GraphStatus = graphStatus
 	cp.Status = status
 	if startedAt > 0 {
 		cp.StartedAt = startedAt
@@ -337,6 +339,7 @@ func (s *serviceImpl) SetGraphRunState(_ context.Context, jobID, graphRunID stri
 	if cur, ok := s.jobs[jobID]; ok && cur == existing {
 		existing.Mode = cp.Mode
 		existing.GraphRunID = cp.GraphRunID
+		existing.GraphStatus = cp.GraphStatus
 		existing.Status = cp.Status
 		existing.StartedAt = cp.StartedAt
 		existing.FinishedAt = cp.FinishedAt

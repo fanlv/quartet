@@ -1,758 +1,104 @@
-/* ScheduleEditModal
-   Visual language aligned with the rest of the app (Settings / Workspaces):
-   forest-green primary, botanical neutrals, green focus rings, soft shadows. */
-.schedule-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(17, 24, 39, 0.45);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  z-index: 1000;
-  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.schedule-modal {
-  background: var(--surface);
-  border-radius: 16px;
-  width: 100%;
-  max-width: 720px;
-  max-height: min(94vh, calc(100% - 24px));
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 24px 64px rgba(17, 24, 39, 0.18), 0 2px 8px rgba(17, 24, 39, 0.06);
-  margin: min(6vh, 48px) 0 12px;
-  flex-shrink: 0;
-  overflow: hidden;
-}
-
-.schedule-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20px 24px 16px;
-  border-bottom: 1px solid #e7eee9;
-}
-
-.schedule-modal-header h2 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 600;
-  color: #0f1812;
-  letter-spacing: -0.01em;
-}
-
-.schedule-modal-close {
-  width: 30px;
-  height: 30px;
-  border: none;
-  background: transparent;
-  font-size: 22px;
-  line-height: 1;
-  color: #89968d;
-  cursor: pointer;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s, color 0.15s;
-}
-
-.schedule-modal-close:hover {
-  background: #edf3ee;
-  color: #344338;
-}
-
-.schedule-modal-body {
+.timer-page {
   flex: 1;
-  overflow-y: auto;
-  padding: 16px 24px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 13px 20px;
-  align-content: start;
-}
-
-/* Wide content (template + preview, cron, run info, advanced, errors) spans
-   both columns; short fields default to a single grid cell so they pair up. */
-.schedule-field-full,
-.schedule-advanced,
-.schedule-error {
-  grid-column: 1 / -1;
-}
-
-.schedule-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.schedule-field > label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #4a5a4f;
-  letter-spacing: 0.01em;
-}
-
-.schedule-field input[type="text"],
-.schedule-field input[type="number"] {
-  padding: 9px 12px;
-  border: 1px solid #d5dfd7;
-  border-radius: 9px;
-  font-size: 14px;
-  color: #1b2920;
-  outline: none;
-  background: var(--surface);
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.schedule-field input::placeholder {
-  color: #b3bac5;
-}
-
-.schedule-field input:focus {
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
-}
-
-.schedule-field-row {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.schedule-field-hint {
-  font-size: 12px;
-  color: #89968d;
-  line-height: 1.4;
-}
-
-/* Toggle switch */
-.schedule-toggle {
-  width: 44px;
-  height: 24px;
-  border-radius: 999px;
-  border: none;
-  cursor: pointer;
-  position: relative;
-  transition: background 0.2s;
-  padding: 0;
-  flex-shrink: 0;
-}
-
-.schedule-toggle.on {
-  background: var(--accent);
-}
-
-.schedule-toggle.off {
-  background: #cdd9d0;
-}
-
-.schedule-toggle-thumb {
-  position: absolute;
-  top: 2px;
-  width: 20px;
-  height: 20px;
-  background: var(--surface);
-  border-radius: 50%;
-  transition: left 0.2s;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-.schedule-toggle.on .schedule-toggle-thumb {
-  left: 22px;
-}
-
-.schedule-toggle.off .schedule-toggle-thumb {
-  left: 2px;
-}
-
-/* Workspace bind checkbox (create view) */
-.schedule-ws-bind {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: #4a5a4f;
-  cursor: pointer;
-  max-width: 60%;
-  text-align: right;
-  justify-content: flex-end;
-}
-
-.schedule-ws-bind input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.schedule-ws-bind input[type="checkbox"]:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-/* Select */
-.schedule-select {
-  padding: 9px 12px;
-  border: 1px solid #d5dfd7;
-  border-radius: 9px;
-  font-size: 14px;
-  color: #1b2920;
-  outline: none;
-  background: var(--surface);
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.schedule-select:focus {
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
-}
-
-.schedule-no-templates {
-  color: #89968d;
-  font-size: 13px;
-  padding: 10px 12px;
-  background: #f9fafb;
-  border: 1px dashed #d5dfd7;
-  border-radius: 9px;
-}
-
-.schedule-load-error {
-  color: #b91c1c;
-  font-size: 13px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  padding: 10px 12px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 9px;
-}
-
-.schedule-workflow-warnings {
-  color: #92400e;
-  font-size: 12px;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-  padding: 10px 12px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-radius: 9px;
-}
-
-.schedule-workflow-warnings-title {
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.schedule-workflow-warning-item + .schedule-workflow-warning-item {
-  margin-top: 3px;
-}
-
-/* Agent / Model / Mode selector row */
-.schedule-selectors-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: flex-start;
-}
-
-.schedule-selectors-row .chat-model-selector {
-  position: relative;
-}
-
-/* Fixed-position dropdown portaled to body */
-.schedule-fixed-dropdown {
-  position: fixed !important;
-  bottom: auto !important;
-  max-height: 240px;
-  z-index: 1100;
-}
-
-.schedule-config-preview {
-  font-size: 12px;
-  color: var(--accent-hover);
-  background: var(--accent-soft-surface);
-  border: 1px solid #dcf2e2;
-  padding: 7px 11px;
-  border-radius: 8px;
-}
-
-.schedule-config-preview-workspace {
-  margin-top: 3px;
-  color: #46564b;
-}
-
-/* Bound workspace (edit view) */
-.schedule-ws-bound {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 13px;
-  color: #344338;
-  background: #fafbfc;
-  border: 1px solid #e7eee9;
-  padding: 10px 12px;
-  border-radius: 9px;
-}
-
-.schedule-ws-bound-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.schedule-ws-bound-name {
-  font-weight: 600;
-  color: #1b2920;
-}
-
-.schedule-ws-bound-workdir {
-  color: #89968d;
-  font-size: 12px;
-  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Advanced */
-.schedule-advanced {
-  border: 1px solid #e7eee9;
-  border-radius: 10px;
-  padding: 0;
-  background: #fafbfc;
-  transition: border-color 0.15s;
-}
-
-.schedule-advanced[open] {
-  border-color: #d5dfd7;
-}
-
-.schedule-advanced > summary {
-  padding: 11px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #4a5a4f;
-  cursor: pointer;
-  user-select: none;
-  list-style: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.schedule-advanced > summary::-webkit-details-marker {
-  display: none;
-}
-
-.schedule-advanced > summary::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-right: 1.5px solid #89968d;
-  border-bottom: 1.5px solid #89968d;
-  transform: rotate(-45deg);
-  transition: transform 0.15s;
-}
-
-.schedule-advanced[open] > summary::before {
-  transform: rotate(45deg);
-}
-
-.schedule-advanced-fields {
-  padding: 4px 14px 14px;
-  display: flex;
-  flex-direction: row;
-  gap: 24px;
-}
-
-.schedule-advanced-fields .schedule-field {
-  gap: 5px;
-  flex: 1;
-  min-width: 0;
-}
-
-.schedule-advanced-fields input[type="number"] {
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid #d5dfd7;
-  border-radius: 8px;
-  font-size: 13px;
-  background: var(--surface);
-}
-
-/* Run info — paired half-width next to the bound workspace; stacked lines. */
-.schedule-run-info {
-  font-size: 13px;
-  color: #4a5a4f;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  background: #fafbfc;
-  border: 1px solid #e7eee9;
-  padding: 10px 14px;
-  border-radius: 10px;
-}
-
-.schedule-run-info > div {
-  display: flex;
-  gap: 6px;
-  min-width: 0;
-}
-
-.schedule-run-error {
-  display: flex;
-  flex-direction: column !important;
-  gap: 6px !important;
-  margin-top: 4px;
-  color: #991b1b;
-}
-
-.schedule-run-error span {
-  font-weight: 600;
-}
-
-.schedule-run-error pre {
-  margin: 0;
-  max-height: 140px;
+  min-height: 0;
   overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
-  font-size: 12px;
-  line-height: 1.45;
-  padding: 8px 10px;
-  background: #fff7f7;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
+  width: min(1120px, 100%);
+  margin-inline: auto;
+  padding: clamp(16px, 3vw, 32px);
+  color: var(--fg);
 }
-
-.schedule-run-link {
-  align-self: flex-start;
-  margin-top: 4px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--accent-hover);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.schedule-run-link:hover {
-  text-decoration: underline;
-}
-
-/* Error */
-.schedule-error {
-  color: #dc2626;
-  font-size: 13px;
-  padding: 9px 12px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
-}
-
-/* Footer */
-.schedule-modal-footer {
+.timer-toolbar, .timer-filters, .timer-actions, .timer-editor header, .timer-editor footer {
   display: flex;
   align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.timer-toolbar, .timer-editor header {
   justify-content: space-between;
-  padding: 16px 24px;
-  border-top: 1px solid #e7eee9;
-  background: #fcfcfd;
 }
-
-.schedule-modal-footer-right {
-  display: flex;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.schedule-btn {
-  padding: 8px 18px;
-  border-radius: 9px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  border: 1px solid transparent;
-  transition: background 0.15s, border-color 0.15s, transform 0.1s;
-}
-
-.schedule-btn:active {
-  transform: scale(0.97);
-}
-
-.schedule-btn-cancel {
+.timer-toolbar nav { display: flex; gap: 5px; }
+.timer-page button, .timer-editor button, .timer-actions a {
+  padding: 7px 12px;
+  min-height: 36px;
+  color: var(--fg);
   background: var(--surface);
-  color: #344338;
-  border-color: #d5dfd7;
-}
-
-.schedule-btn-cancel:hover {
-  background: #f9fafb;
-  border-color: #cdd9d0;
-}
-
-.schedule-btn-save {
-  background: var(--accent);
-  color: #fff;
-}
-
-.schedule-btn-save:hover {
-  background: var(--accent-hover);
-}
-
-.schedule-btn-save:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.schedule-btn-save:disabled:active {
-  transform: none;
-}
-
-.schedule-btn-trigger {
-  background: var(--accent-soft-surface);
-  color: var(--accent-hover);
-  border-color: #dcf2e2;
-}
-
-.schedule-btn-trigger:hover {
-  background: #dcf2e2;
-  border-color: #b7dfc1;
-}
-
-/* CronInput */
-.cron-input {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.cron-input-tabs {
-  display: flex;
-  gap: 6px;
-}
-
-.cron-tab {
-  padding: 4px 14px;
-  border: 1px solid #d5dfd7;
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: var(--surface);
-  font-size: 13px;
-  font-weight: 500;
+  font: inherit;
   cursor: pointer;
-  color: #66746b;
-  transition: all 0.15s;
 }
-
-.cron-tab:hover {
-  border-color: #cdd9d0;
-  background: #f9fafb;
-}
-
-.cron-tab.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
-}
-
-.cron-tab.active:hover {
-  background: var(--accent-hover);
-}
-
-.cron-presets {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-}
-
-.cron-preset-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 6px 10px;
-  border: 1px solid #d5dfd7;
-  border-radius: 8px;
-  background: var(--surface);
-  cursor: pointer;
-  transition: all 0.15s;
-  min-width: 0;
-}
-
-.cron-preset-btn:hover {
-  border-color: #b7dfc1;
-  background: #f9fafb;
-}
-
-.cron-preset-btn.active {
-  border-color: var(--accent);
-  background: var(--accent-soft-surface);
-  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.1);
-}
-
-.cron-preset-label {
-  font-size: 12.5px;
-  font-weight: 500;
-  color: #1b2920;
-}
-
-.cron-preset-btn.active .cron-preset-label {
-  color: var(--accent-hover);
-}
-
-/* Description hidden in the modal to keep preset cards single-line and the
-   form compact; the human-readable cron label below already explains the
-   selected expression. */
-.cron-preset-desc {
-  display: none;
-}
-
-.cron-custom {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.cron-custom-input {
-  padding: 9px 12px;
-  border: 1px solid #d5dfd7;
-  border-radius: 9px;
-  font-size: 14px;
-  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
-  outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.cron-custom-input:focus {
+.timer-page button:disabled, .timer-editor button:disabled { opacity: .5; cursor: default; }
+.timer-page button[aria-current="page"] {
+  color: var(--accent-deep);
   border-color: var(--accent-border);
-  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.12);
+  background: var(--accent-soft);
 }
-
-.cron-custom-input.error {
-  border-color: #f87171;
+.timer-page button.timer-primary, .timer-editor button.timer-primary {
+  background: var(--accent-deep);
+  color: var(--accent-fg);
+  border-color: transparent;
 }
-
-.cron-custom-input.error:focus {
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+.timer-filters { margin-top: 16px; align-items: end; }
+.timer-filters label, .timer-fields label { display: grid; gap: 5px; color: var(--muted); font-size: .9em; }
+.timer-filters select, .timer-fields :is(input:not([type="checkbox"]), select, textarea) {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 9px;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  font: inherit;
 }
-
-.cron-error {
-  color: #dc2626;
-  font-size: 12px;
+.timer-records { margin-top: 16px; }
+.timer-records > * { border: 1px solid var(--border); background: var(--surface); border-radius: 9px; margin-bottom: 8px; }
+.timer-records .timer-entry {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.35fr) repeat(3, minmax(100px, 1fr));
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  gap: 12px;
+  padding: 14px;
+  overflow-wrap: anywhere;
+  border: 0;
+  font-size: .94em;
 }
-
-.cron-help {
-  font-size: 11px;
-  color: #89968d;
+.timer-entry span { color: var(--muted); }
+.timer-entry:not(.timer-session) { cursor: pointer; }
+.timer-entry-body { padding: 14px; }
+.timer-records .timer-entry-body { border-top: 1px solid var(--border); }
+.timer-details { display: grid; grid-template-columns: minmax(100px, max-content) 1fr; gap: 6px 16px; margin: 0 0 14px; }
+.timer-details dt { color: var(--muted); }
+.timer-details dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.timer-error { color: var(--danger); background: var(--danger-soft); white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px; border-radius: 6px; }
+.timer-notice { color: var(--accent-deep); overflow-wrap: anywhere; }
+.timer-empty { color: var(--muted); padding: 20px 0; }
+.timer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2600;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, .42);
 }
-
-.cron-human-label {
-  font-size: 13px;
-  color: var(--accent-hover);
-  font-weight: 500;
+.timer-editor {
+  width: min(640px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
 }
-
-/* Responsive */
-@media (max-width: 768px) {
-  .schedule-modal {
-    max-width: 100%;
-    max-height: calc(100% - 24px);
-    border-radius: 16px;
-    margin-top: 0;
-  }
-
-  .schedule-modal-overlay {
-    padding: max(12px, env(safe-area-inset-top, 0px)) 12px max(12px, env(safe-area-inset-bottom, 0px));
-  }
-
-  .schedule-modal-body {
-    padding: 16px;
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-
-  .schedule-advanced-fields {
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  .schedule-modal-header {
-    padding: 16px 16px 12px;
-  }
-
-  .schedule-modal-footer {
-    padding: 12px 16px;
-  }
-
-  .cron-presets {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 6px;
-  }
-
-  .cron-preset-btn {
-    min-width: 0;
-    padding: 7px 9px;
-  }
-
-  .schedule-selectors-row {
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .schedule-selectors-row .chat-model-selector {
-    width: 100%;
-  }
-
-  .schedule-selectors-row .model-tag {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  .schedule-selectors-row .model-dropdown {
-    width: 100%;
-  }
-
-  /* The workspace-binding row pairs a label with a long right-aligned hint.
-     Side by side on a phone the hint wraps to four ragged lines next to a
-     two-line label; stack them instead. The toggle rows (label + switch) keep
-     the side-by-side layout, hence the :has() scope. */
-  .schedule-field-row:has(.schedule-ws-bind) {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-
-  .schedule-field-row .schedule-ws-bind {
-    max-width: 100%;
-    align-items: flex-start;
-    justify-content: flex-start;
-    text-align: left;
-  }
-
-  .schedule-field-row .schedule-ws-bind input[type="checkbox"] {
-    margin-top: 2px;
-  }
-}
-
-/* iPad */
-@media (min-width: 769px) and (max-width: 1024px) {
-  .schedule-modal {
-    max-width: 640px;
-    margin-top: min(8vh, 56px);
-  }
+.timer-editor h2 { margin: 0; font-size: 1.15rem; }
+.timer-editor form { margin-top: 16px; }
+.timer-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.timer-field-wide { grid-column: 1 / -1; }
+.timer-fields .timer-checkbox { display: flex; align-items: center; }
+.timer-editor footer { justify-content: flex-end; margin-top: 16px; }
+@media (max-width: 620px) {
+  .timer-records .timer-entry { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .timer-toolbar nav { flex-wrap: wrap; }
 }

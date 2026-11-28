@@ -25,7 +25,6 @@ import (
 	svcacp "github.com/fanlv/quartet/services/agent/acp"
 	acpprobe "github.com/fanlv/quartet/services/agent/probe"
 	"github.com/fanlv/quartet/services/auth"
-	"github.com/fanlv/quartet/services/schedule"
 	"github.com/fanlv/quartet/types/consts"
 	"github.com/hertz-contrib/cors"
 	http2config "github.com/hertz-contrib/http2/config"
@@ -327,15 +326,10 @@ func main() {
 		logger.Fatalf(ctx, "bind probe failed on %s: %v (is another quartet instance already running?)", addr, err)
 	}
 
-	// Initialize and start the scheduler (reuse handler's schedule service to share state)
-	var scheduler *schedule.Scheduler
 	if !startupCheck {
-		schSvc := h.GetScheduleService()
-		trigger := h.ScheduleTrigger
-		scheduler = schedule.NewScheduler(schSvc, trigger)
-		h.SetScheduler(scheduler)
-		scheduler.Start(ctx)
-		defer scheduler.Stop()
+		if err := h.StartTimers(ctx); err != nil {
+			logger.Fatalf(ctx, "Initialize timers: %v", err)
+		}
 	}
 
 	// Spin() swallows Run() errors and then returns silently; if the listener

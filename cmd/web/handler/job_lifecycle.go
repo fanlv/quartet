@@ -211,6 +211,11 @@ func (h *Handler) deleteMarkedJob(ctx context.Context, job *model.Job) error {
 	if updated, ok := h.jobService.Get(job.ID); ok {
 		job = updated
 	}
+	if h.timers != nil {
+		if err := h.timers.PreserveJob(job); err != nil {
+			return fmt.Errorf("preserve timer execution before deleting job: %w", err)
+		}
+	}
 	if err := h.cleanupSessions(job.WorkspaceID, job.ID, jobAllSessionIDs(job)); err != nil {
 		return err
 	}

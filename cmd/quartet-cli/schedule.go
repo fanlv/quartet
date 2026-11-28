@@ -4,14 +4,17 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
+
+	"github.com/google/uuid"
 	"strings"
 	"time"
 
 	"github.com/fanlv/quartet/types/model"
 )
 
-const scheduleUsage = `quartet-cli schedule — manage scheduled tasks (cron → graph workflow)
+const scheduleUsage = `quartet-cli schedule — manage Prompt and Graph timers
 
 Usage:
   quartet-cli schedule <command> [flags]
@@ -22,8 +25,11 @@ Commands:
   get        Print one scheduled task as JSON
   update     Update a scheduled task (only the flags you pass change)
   delete     Delete a scheduled task
-  toggle     Flip a scheduled task's machine-local enabled state
-  run        Trigger a scheduled task immediately (respects max-concurrent)
+  enable     Authorize and enable a timer on this backend
+  disable    Disable a timer on this backend
+  run        Trigger a timer immediately
+  history    List execution records (including deleted timers)
+  sessions   List sessions produced by timer executions
 
 Run "quartet-cli schedule <command> -h" for command-specific flags.
 `
@@ -47,8 +53,10 @@ func runScheduleGroup(args []string) error {
 		return cmdScheduleUpdate(rest)
 	case "delete", "rm":
 		return cmdScheduleDelete(rest)
-	case "toggle":
-		return cmdScheduleToggle(rest)
+	case "enable", "disable", "toggle":
+		return cmdScheduleActivation(cmd, rest)
+	case "history", "sessions":
+		return cmdTimerHistory(cmd, rest)
 	case "run":
 		return cmdScheduleRun(rest)
 	case "-h", "--help", "help":
@@ -60,53 +68,66 @@ func runScheduleGroup(args []string) error {
 	}
 }
 
-// cmdScheduleCreate creates a cron-scheduled graph-workflow run. Unlike
-// workflows, scheduled tasks carry no library tag, so there is no
-// agent/user boundary to enforce here.
+type timerFlags struct {
+	name, cron, workflow, prompt, agent, modelID, workspace, workdir, once, zone, endDate *string
+	maxRuns, maxConcurrent, timeout                                                       *int
+}
+
+func addTimerFlags(fs *flag.FlagSet) timerFlags {
+	return timerFlags{
+		name:          fs.String("name", "", "timer name"),
+		cron:          fs.String("cron", "", "five-field Cron expression"),
+		workflow:      fs.String("workflow", "", "saved Graph workflow ID"),
+		prompt:        fs.String("prompt", "", "prompt text"),
+		agent:         fs.String("agent", "", "Agent ID for a prompt"),
+		modelID:       fs.String("model", "", "model ID for a prompt"),
+		workspace:     fs.String("workspace", "", "workspace ID (default: backend default)"),
+		workdir:       fs.String("workdir", "", "working directory (default: workspace directory)"),
+		once:          fs.String("once", "", "one-time date and time (YYYY-MM-DDTHH:MM or RFC3339)"),
+		zone:          fs.String("timezone", "", "IANA time zone (default: backend local)"),
+		endDate:       fs.String("end-date", "", "inclusive end date (YYYY-MM-DD)"),
+		maxRuns:       fs.Int("max-runs", 0, "maximum accepted executions; 0 = unlimited"),
+		maxConcurrent: fs.Int("max-concurrent", 0, "maximum concurrent runs; 0 = backend default"),
+		timeout:       fs.Int("timeout", 0, "prompt timeout in minutes; 0 = unlimited"),
+	}
+}
+
 func cmdScheduleCreate(args []string) error {
 	fs := flag.NewFlagSet("create", flag.ContinueOnError)
-	name := fs.String("name", "", "task name (required)")
-	cron := fs.String("cron", "", `cron expression, 5 fields "M H DoM Mon DoW" in the backend's local time (required)`)
-	workflow := fs.String("workflow", "", "graph workflow ID to run (required; see quartet-cli workflow list)")
-	workspace := fs.String("workspace", "", "workspace ID to run in (optional; see quartet-cli workspace list)")
-	workdir := fs.String("workdir", "", "working directory override (optional)")
-	maxConcurrent := fs.Int("max-concurrent", 0, "max concurrent runs; 0 = backend default")
-	timeout := fs.Int("timeout", 0, "run timeout in minutes; 0 = backend default")
-	disabled := fs.Bool("disabled", false, "create the task disabled on this machine (default: enabled)")
-	fs.Usage = usageFor("schedule", fs, "create --name <n> --cron <expr> --workflow <id> [--workspace <id>] [--workdir <dir>] [--max-concurrent N] [--timeout M] [--disabled]",
-		"Create a scheduled task that runs a graph workflow on a cron schedule.")
+	o := addTimerFlags(fs)
+	disabled := fs.Bool("disabled", false, "save the timer disabled")
+	fs.Usage = usageFor("schedule", fs, "create --name <name> (--prompt <text> | --workflow <id>) (--cron <expr> | --once <time>) [flags]", "Create a timer.")
 	if err := parseFlagsNoArgs(fs, args); err != nil {
 		return err
 	}
-	if strings.TrimSpace(*name) == "" {
-		return fmt.Errorf("--name is required")
+	if (*o.prompt == "") == (*o.workflow == "") || (*o.cron == "") == (*o.once == "") {
+		return fmt.Errorf("specify exactly one execution target and one timing rule")
 	}
-	if strings.TrimSpace(*cron) == "" {
-		return fmt.Errorf("--cron is required")
+	kind := model.TimerGraph
+	if *o.prompt != "" {
+		kind = model.TimerPrompt
 	}
-	if strings.TrimSpace(*workflow) == "" {
-		return fmt.Errorf("--workflow is required (a scheduled task must reference a graph workflow)")
-	}
-
 	req := &model.CreateScheduleRequest{
-		Name:            *name,
-		CronExpr:        *cron,
-		GraphWorkflowID: strings.TrimSpace(*workflow),
-		WorkspaceID:     strings.TrimSpace(*workspace),
-		Workdir:         strings.TrimSpace(*workdir),
-		MaxConcurrent:   *maxConcurrent,
-		Timeout:         *timeout,
+		Name: *o.name, CronExpr: *o.cron, GraphWorkflowID: *o.workflow, WorkspaceID: *o.workspace,
+		Workdir: *o.workdir, MaxConcurrent: *o.maxConcurrent, Timeout: *o.timeout,
+		TimerSpec: model.TimerSpec{Kind: kind, Prompt: *o.prompt, AgentID: *o.agent, ModelID: *o.modelID,
+			RunAt: *o.once, TimeZone: *o.zone, EndDate: *o.endDate, MaxRuns: *o.maxRuns},
 	}
+	ctx, client := context.Background(), newClient()
 	if *disabled {
-		f := false
-		req.Enabled = &f
+		enabled := false
+		req.Enabled = &enabled
+	} else {
+		preview, err := client.previewSchedule(ctx, "", req)
+		if err != nil {
+			return err
+		}
+		req.ExpectedApproval = preview.ApprovalPreview
 	}
-
-	resp, err := newClient().createSchedule(context.Background(), req)
+	resp, err := client.createSchedule(ctx, req)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "created schedule %s\n", resp.Schedule.ID)
 	return printJSON(resp.Schedule)
 }
 
@@ -133,7 +154,7 @@ func cmdScheduleList(args []string) error {
 		return nil
 	}
 	for _, s := range resp.Schedules {
-		fmt.Printf("%s\t%s\t%s\t%s\tnext=%s\n", s.ID, enabledLabel(s.Enabled), s.CronExpr, s.Name, formatMillis(s.NextRunAt))
+		fmt.Printf("%s\t%s\t%s\t%s\tnext=%s\n", s.ID, s.PlanState, firstTimerValue(s.RunAt, s.CronExpr), s.Name, formatTimerMillis(s.NextRunAt, s.TimeZone))
 	}
 	return nil
 }
@@ -154,70 +175,73 @@ func cmdScheduleGet(args []string) error {
 	return printJSON(info)
 }
 
-// cmdScheduleUpdate updates a task. UpdateScheduleRequest is pointer-based, so
-// only explicitly-passed flags are sent (nil = leave unchanged).
 func cmdScheduleUpdate(args []string) error {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
-	name := fs.String("name", "", "new task name")
-	cron := fs.String("cron", "", "new cron expression")
-	workflow := fs.String("workflow", "", "new graph workflow ID")
-	workspace := fs.String("workspace", "", "new workspace ID")
-	workdir := fs.String("workdir", "", "new working directory")
-	maxConcurrent := fs.Int("max-concurrent", 0, "new max concurrent runs")
-	timeout := fs.Int("timeout", 0, "new run timeout in minutes")
-	enable := fs.Bool("enable", false, "enable the task on this machine")
-	disable := fs.Bool("disable", false, "disable the task on this machine")
-	fs.Usage = usageFor("schedule", fs, "update <scheduleId> [--name <n>] [--cron <expr>] [--workflow <id>] [--workspace <id>] [--workdir <dir>] [--max-concurrent N] [--timeout M] [--enable|--disable]",
-		"Update a scheduled task. Only the flags you pass are changed.")
+	o := addTimerFlags(fs)
+	enable := fs.Bool("enable", false, "enable the timer on this backend")
+	disable := fs.Bool("disable", false, "disable the timer on this backend")
+	fs.Usage = usageFor("schedule", fs, "update <scheduleId> [flags]", "Update the supplied timer fields.")
 	id, err := parseIDAndFlags(fs, args, "scheduleId")
 	if err != nil {
 		return err
 	}
-
 	set := setFlags(fs)
-	if !set["name"] && !set["cron"] && !set["workflow"] && !set["workspace"] && !set["workdir"] &&
-		!set["max-concurrent"] && !set["timeout"] && !set["enable"] && !set["disable"] {
-		return fmt.Errorf("nothing to update: pass at least one flag (see -h)")
+	if len(set) == 0 || *enable && *disable || set["workflow"] && set["prompt"] || set["once"] && set["cron"] {
+		return fmt.Errorf("provide at least one update and choose one value per option")
 	}
-	if *enable && *disable {
-		return fmt.Errorf("--enable and --disable are mutually exclusive")
-	}
-
 	req := &model.UpdateScheduleRequest{}
-	if set["name"] {
-		req.Name = name
+	for name, field := range map[string]struct {
+		value *string
+		dest  **string
+	}{
+		"name": {o.name, &req.Name}, "cron": {o.cron, &req.CronExpr}, "workflow": {o.workflow, &req.GraphWorkflowID},
+		"prompt": {o.prompt, &req.Prompt}, "agent": {o.agent, &req.AgentID}, "model": {o.modelID, &req.ModelID},
+		"workspace": {o.workspace, &req.WorkspaceID}, "workdir": {o.workdir, &req.Workdir}, "once": {o.once, &req.RunAt},
+		"timezone": {o.zone, &req.TimeZone}, "end-date": {o.endDate, &req.EndDate},
+	} {
+		if set[name] {
+			*field.dest = field.value
+		}
+	}
+	for name, field := range map[string]struct {
+		value *int
+		dest  **int
+	}{
+		"max-runs": {o.maxRuns, &req.MaxRuns}, "max-concurrent": {o.maxConcurrent, &req.MaxConcurrent}, "timeout": {o.timeout, &req.Timeout},
+	} {
+		if set[name] {
+			*field.dest = field.value
+		}
+	}
+	if set["prompt"] && *o.prompt != "" {
+		kind := model.TimerPrompt
+		req.Kind = &kind
+	} else if set["workflow"] && *o.workflow != "" {
+		kind := model.TimerGraph
+		req.Kind = &kind
 	}
 	if set["cron"] {
-		req.CronExpr = cron
-	}
-	if set["workflow"] {
-		req.GraphWorkflowID = workflow
-	}
-	if set["workspace"] {
-		req.WorkspaceID = workspace
-	}
-	if set["workdir"] {
-		req.Workdir = workdir
-	}
-	if set["max-concurrent"] {
-		req.MaxConcurrent = maxConcurrent
-	}
-	if set["timeout"] {
-		req.Timeout = timeout
+		once := ""
+		req.RunAt = &once
 	}
 	if *enable {
-		t := true
-		req.Enabled = &t
+		req.Enabled = enable
 	} else if *disable {
-		f := false
-		req.Enabled = &f
+		enabled := false
+		req.Enabled = &enabled
 	}
-
-	info, err := newClient().updateSchedule(context.Background(), id, req)
+	ctx, client := context.Background(), newClient()
+	if !*disable && (len(set) > 1 || !set["name"]) {
+		preview, err := client.previewSchedule(ctx, id, req)
+		if err != nil {
+			return err
+		}
+		req.ExpectedApproval = preview.ApprovalPreview
+	}
+	info, err := client.updateSchedule(ctx, id, req)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "updated schedule %s\n", id)
 	return printJSON(info)
 }
 
@@ -237,52 +261,92 @@ func cmdScheduleDelete(args []string) error {
 	return nil
 }
 
-// cmdScheduleToggle flips the current machine's enabled state and prints the result.
-func cmdScheduleToggle(args []string) error {
-	fs := flag.NewFlagSet("toggle", flag.ContinueOnError)
-	fs.Usage = usageFor("schedule", fs, "toggle <scheduleId>", "Flip a scheduled task's enabled state on this machine.")
+func cmdScheduleActivation(action string, args []string) error {
+	fs := flag.NewFlagSet(action, flag.ContinueOnError)
+	expected := fs.String("expected-approval", "", "approval preview from schedule get (protects against concurrent changes)")
+	fs.Usage = usageFor("schedule", fs, action+" <scheduleId> [--expected-approval <preview>]", "Update the local timer activation.")
 	id, err := parseIDAndFlags(fs, args, "scheduleId")
 	if err != nil {
 		return err
 	}
-
-	info, err := newClient().toggleSchedule(context.Background(), id)
+	ctx, client := context.Background(), newClient()
+	enabled := action == "enable"
+	if action == "toggle" || enabled && *expected == "" {
+		info, err := client.getSchedule(ctx, id)
+		if err != nil {
+			return err
+		}
+		if action == "toggle" {
+			enabled = !info.Enabled
+		}
+		if *expected == "" {
+			*expected = info.ApprovalPreview
+		}
+	}
+	info, err := client.updateSchedule(ctx, id, &model.UpdateScheduleRequest{Enabled: &enabled, ExpectedApproval: *expected})
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "schedule %s now %s\n", id, enabledLabel(info.Enabled))
 	return printJSON(info)
 }
 
-// cmdScheduleRun triggers a task immediately via the scheduler (respects
-// max-concurrent), prints the created job ID, and leaves a JSON handle on
-// stdout for scripting.
 func cmdScheduleRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	fs.Usage = usageFor("schedule", fs, "run <scheduleId>", "Trigger a scheduled task immediately. Prints the new job ID.")
+	submission := fs.String("request-id", uuid.NewString(), "reuse this ID when retrying the same request")
+	fs.Usage = usageFor("schedule", fs, "run <scheduleId> [--request-id <id>]", "Request an immediate execution.")
 	id, err := parseIDAndFlags(fs, args, "scheduleId")
 	if err != nil {
 		return err
 	}
-
-	resp, err := newClient().runSchedule(context.Background(), id)
+	resp, err := newClient().runSchedule(context.Background(), id, *submission)
 	if err != nil {
-		return err
+		return fmt.Errorf("request ID %s: %w", *submission, err)
 	}
-	fmt.Fprintf(os.Stderr, "triggered schedule %s (job %s)\n", id, resp.JobID)
 	return printJSON(resp)
 }
 
-// enabledLabel renders a task's enabled flag for table output.
-func enabledLabel(enabled bool) string {
-	if enabled {
-		return "on"
+func cmdTimerHistory(action string, args []string) error {
+	fs := flag.NewFlagSet(action, flag.ContinueOnError)
+	id := fs.String("timer", "", "timer ID")
+	workspace := fs.String("workspace", "", "workspace ID (history)")
+	state := fs.String("status", "", "execution status (history)")
+	execution := fs.String("execution", "", "execution ID (sessions)")
+	cursor := fs.String("cursor", "", "cursor returned by the previous page")
+	fs.Usage = usageFor("schedule", fs, action+" [flags]", "List timer execution records or sessions.")
+	if err := parseFlagsNoArgs(fs, args); err != nil {
+		return err
 	}
-	return "off"
+	endpoint := "executions"
+	if action == "sessions" {
+		endpoint = action
+	}
+	query := url.Values{"scheduleId": {*id}, "workspaceId": {*workspace}, "status": {*state}, "executionId": {*execution}, "cursor": {*cursor}}
+	raw, err := newClient().get(context.Background(), "/api/v1/schedule/"+endpoint, query)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(raw))
+	return nil
 }
 
-// formatMillis renders an optional UnixMilli timestamp in local time for
-// table output ("-" when absent).
+func firstTimerValue(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
+}
+
+func formatTimerMillis(ms *int64, zone string) string {
+	if ms == nil {
+		return "-"
+	}
+	location, err := time.LoadLocation(zone)
+	if err != nil {
+		location = time.Local
+	}
+	return time.UnixMilli(*ms).In(location).Format("2006-01-02 15:04 MST")
+}
+
 func formatMillis(ms *int64) string {
 	if ms == nil {
 		return "-"

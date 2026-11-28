@@ -797,6 +797,19 @@ async function waitForScheduleStatus(request: APIRequestContext, scheduleId: str
   }, { timeout: 30_000 }).toBe(expected)
 }
 
+async function waitForTimerJob(request: APIRequestContext, scheduleId: string, executionId: string) {
+  let jobId = ''
+  await expect.poll(async () => {
+    const result = await request.get('/api/v1/schedule/executions', {
+      headers: scheduleHeaders, params: { scheduleId, executionId },
+    })
+    expect(result.ok(), await result.text()).toBeTruthy()
+    jobId = (await result.json()).executions[0]?.jobId || ''
+    return jobId
+  }).toMatch(/^job-/)
+  return jobId
+}
+
 test('scheduled graph workflow triggers, releases concurrency, and records missing workflow failures', async ({ request }) => {
   const { localMemory } = await getE2ERunInfo()
   const workdir = path.join(localMemory, `e2e-graph-schedule-${Date.now()}`)
@@ -832,9 +845,9 @@ test('scheduled graph workflow triggers, releases concurrency, and records missi
   expect(createdSchedule.graphWorkflowId).toBe(workflow.id)
   const scheduleId = createdSchedule.id
 
-  const firstRunRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: scheduleHeaders })
+  const firstRunRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: scheduleHeaders, data: { clientRequestId: 'first' } })
   expect(firstRunRes.ok(), `first schedule run failed: ${firstRunRes.status()} ${await firstRunRes.text()}`).toBeTruthy()
-  const firstJobID = (await firstRunRes.json()).jobId as string
+  const firstJobID = await waitForTimerJob(request, scheduleId, (await firstRunRes.json()).id)
   expect(firstJobID).toMatch(/^job-/)
 
   await waitForJobStatus(request, firstJobID, scheduleHeaders, 'completed')
@@ -851,9 +864,9 @@ test('scheduled graph workflow triggers, releases concurrency, and records missi
   expect(afterFirst.lastTriggerError || '').toBe('')
   expect(afterFirst.runCount).toBeGreaterThanOrEqual(1)
 
-  const secondRunRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: scheduleHeaders })
+  const secondRunRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: scheduleHeaders, data: { clientRequestId: 'second' } })
   expect(secondRunRes.ok(), `second schedule run should prove concurrency was released: ${secondRunRes.status()} ${await secondRunRes.text()}`).toBeTruthy()
-  const secondJobID = (await secondRunRes.json()).jobId as string
+  const secondJobID = await waitForTimerJob(request, scheduleId, (await secondRunRes.json()).id)
   await waitForJobStatus(request, secondJobID, scheduleHeaders, 'completed')
   await waitForScheduleStatus(request, scheduleId, 'completed')
   const afterSecondRes = await request.get(`/api/v1/schedule/${scheduleId}`, { headers: scheduleHeaders })
@@ -871,23 +884,24 @@ test('scheduled graph workflow triggers, releases concurrency, and records missi
   })
   expect(deleteWorkflowRes.ok(), `workflow delete failed: ${deleteWorkflowRes.status()} ${await deleteWorkflowRes.text()}`).toBeTruthy()
 
-  const failedRunRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: scheduleHeaders })
-  expect(failedRunRes.status(), `expected missing workflow trigger to fail, got ${failedRunRes.status()}: ${await failedRunRes.text()}`).toBe(409)
-  const failureText = await failedRunRes.text()
-  expect(failureText).toContain(workflow.id)
+  const failedRunRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: scheduleHeaders, data: { clientRequestId: 'fail' } })
+  expect(failedRunRes.ok()).toBeTruthy()
+  const failedRecord = await failedRunRes.json()
+  expect(failedRecord.status).toBe('failed')
+  expect(failedRecord.error).toContain(workflow.id)
 
   const failedScheduleRes = await request.get(`/api/v1/schedule/${scheduleId}`, { headers: scheduleHeaders })
   expect(failedScheduleRes.ok(), `schedule get failed: ${failedScheduleRes.status()} ${await failedScheduleRes.text()}`).toBeTruthy()
   const failedSchedule = await failedScheduleRes.json()
   expect(failedSchedule.lastStatus).toBe('failed')
-  expect(failedSchedule.lastRunJobID).toBe(secondJobID)
+  expect(failedSchedule.lastRunJobID).toBeUndefined()
   expect(failedSchedule.lastTriggerError).toContain(workflow.id)
   expect(failedSchedule.lastTriggerError).toContain('workflow')
   expect(failedSchedule.runCount).toBe(afterSecond.runCount + 1)
 
-  const retryFailureRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: scheduleHeaders })
-  expect(retryFailureRes.status(), `expected repeated missing workflow trigger to fail without a leaked concurrency slot, got ${retryFailureRes.status()}: ${await retryFailureRes.text()}`).toBe(409)
-  expect(await retryFailureRes.text()).toContain(workflow.id)
+  const retryFailureRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: scheduleHeaders, data: { clientRequestId: 'another-failure' } })
+  expect(retryFailureRes.ok()).toBeTruthy()
+  expect((await retryFailureRes.json()).error).toContain(workflow.id)
 
   const replacementWorkflowRes = await request.post('/api/v1/graph/workflow', {
     headers: scheduleHeaders,
@@ -908,9 +922,9 @@ test('scheduled graph workflow triggers, releases concurrency, and records missi
   })
   expect(updateScheduleRes.ok(), `schedule update failed: ${updateScheduleRes.status()} ${await updateScheduleRes.text()}`).toBeTruthy()
 
-  const recoveryRunRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: scheduleHeaders })
+  const recoveryRunRes = await request.post(`/api/v1/schedule/${scheduleId}/run`, { headers: scheduleHeaders, data: { clientRequestId: 'recovery' } })
   expect(recoveryRunRes.ok(), `schedule run after replacing workflow failed: ${recoveryRunRes.status()} ${await recoveryRunRes.text()}`).toBeTruthy()
-  const recoveryJobID = (await recoveryRunRes.json()).jobId as string
+  const recoveryJobID = await waitForTimerJob(request, scheduleId, (await recoveryRunRes.json()).id)
   await waitForJobStatus(request, recoveryJobID, scheduleHeaders, 'completed')
   await waitForScheduleStatus(request, scheduleId, 'completed')
 

@@ -828,14 +828,38 @@ struct APIClient: @unchecked Sendable {
         try await request(path: "api/v1/schedule/\(id)", method: "PUT", body: body)
     }
 
-    func toggleSchedule(id: String) async throws -> ScheduleInfo {
-        let body = EmptyRequest()
-        return try await request(path: "api/v1/schedule/\(id)/toggle", method: "POST", body: body)
+    func previewSchedule(id: String?, body: ScheduleMutationRequest) async throws -> ScheduleInfo {
+        let path = id.map { "api/v1/schedule/\($0)/preview" } ?? "api/v1/schedule/preview"
+        return try await request(path: path, method: "POST", body: body)
     }
 
-    func runSchedule(id: String) async throws -> ScheduleRunResponse {
-        let body = EmptyRequest()
-        return try await request(path: "api/v1/schedule/\(id)/run", method: "POST", body: body)
+    func setTimerEnabled(id: String, enabled: Bool, approval: String?) async throws -> ScheduleInfo {
+        let body = TimerActivationRequest(enabled: enabled, expectedApproval: approval)
+        return try await request(path: "api/v1/schedule/\(id)", method: "PUT", body: body)
+    }
+
+    func runSchedule(id: String, intent: String) async throws -> ScheduleRunResponse {
+        try await request(path: "api/v1/schedule/\(id)/run", method: "POST", body: TimerRunRequest(clientRequestId: intent))
+    }
+
+    func timerExecutions(
+        scheduleId: String?, executionId: String?, workspaceId: String, status: String, cursor: String
+    ) async throws -> TimerExecutionPage {
+        try await request(path: "api/v1/schedule/executions", query: [
+            URLQueryItem(name: "scheduleId", value: scheduleId ?? ""),
+            URLQueryItem(name: "executionId", value: executionId ?? ""),
+            URLQueryItem(name: "workspaceId", value: workspaceId),
+            URLQueryItem(name: "status", value: status),
+            URLQueryItem(name: "cursor", value: cursor)
+        ])
+    }
+
+    func timerSessions(scheduleId: String?, executionId: String?, cursor: String) async throws -> TimerSessionPage {
+        try await request(path: "api/v1/schedule/sessions", query: [
+            URLQueryItem(name: "scheduleId", value: scheduleId ?? ""),
+            URLQueryItem(name: "executionId", value: executionId ?? ""),
+            URLQueryItem(name: "cursor", value: cursor)
+        ])
     }
 
     func deleteSchedule(id: String) async throws {

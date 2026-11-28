@@ -159,6 +159,8 @@ interface ChatInputProps {
   overrideThoughtLevelId?: string | null;
   totalTokens?: number;
   tokenUsageEstimated?: boolean;
+  usageAgentType?: string;
+  usageRefreshKey?: number;
   /** Timestamp of the first message in the current round (for total duration display). */
   roundStartedAt?: number;
   /** Timestamp when the last message in the current round finished. Undefined = still running. */
@@ -232,6 +234,8 @@ export function ChatInput({
   overrideThoughtLevelId,
   totalTokens = 0,
   tokenUsageEstimated = true,
+  usageAgentType,
+  usageRefreshKey,
   roundStartedAt,
   roundFinishedAt,
   totalDurationBaseMs,
@@ -1203,10 +1207,10 @@ export function ChatInput({
                 <path d="m21.4 11.6-8.9 8.9a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5" />
               </svg>
             </button>
-            {selectedAgent && (
+            {usageAgentType && (
               <AgentUsageCard
-                agentType={selectedAgent.type}
-                displayName={selectedAgent.display_name}
+                agentType={usageAgentType}
+                refreshKey={usageRefreshKey}
               />
             )}
           </div>

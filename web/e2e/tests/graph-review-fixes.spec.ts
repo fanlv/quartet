@@ -1035,12 +1035,14 @@ test('graph review #42: schedule modal surfaces graph workflow list warnings', a
   await expect(page.getByTestId('auth-gate')).toHaveCount(0)
   await expect(page.getByTestId('home-content')).toBeVisible({ timeout: 10_000 })
 
-  await page.getByRole('button', { name: /New Task/ }).click()
-  await expect(page.getByRole('heading', { name: 'New Scheduled Task' })).toBeVisible()
+  await page.getByRole('button', { name: 'Timer management' }).click()
+  await page.getByRole('button', { name: 'New timer' }).click()
+  await expect(page.getByRole('heading', { name: 'New timer' })).toBeVisible()
   const warningBlock = page.getByTestId('schedule-graph-workflow-warnings')
   await expect(warningBlock).toBeVisible({ timeout: 10_000 })
   await expect(warningBlock).toContainText(corruptName)
   await expect(warningBlock).toContainText(/invalid character|JSON/i)
+  await fs.rm(path.join(workflowsDir, corruptName))
 })
 
 test('graph review #45: undo clears stale validation errors after restoring the canvas', async ({ page, request }) => {
@@ -2607,22 +2609,23 @@ test('graph review #49: schedule modal displays full save and trigger errors', a
   })
   await page.goto(`/?workspaceId=${workspace.workspaceId}`)
   await expect(page.getByTestId('home-content')).toBeVisible({ timeout: 10_000 })
-  await page.getByRole('button', { name: /New Task/ }).click()
-  await expect(page.getByRole('heading', { name: 'New Scheduled Task' })).toBeVisible()
-  await page.locator('.schedule-select').first().selectOption(workflow.id)
-  await expect(page.locator('.schedule-config-preview')).toContainText(`E2E GraphFix schedule-full-errors`)
-  await page.locator('.schedule-modal-body input[type="text"]').fill(`e2e-schedule-save-error-${Date.now()}`)
+  await page.getByRole('button', { name: 'Timer management' }).click()
+  await page.getByRole('button', { name: 'New timer' }).click()
+  await expect(page.getByRole('heading', { name: 'New timer' })).toBeVisible()
+  await page.getByRole('dialog').getByRole('combobox', { name: 'Graph workflow', exact: true }).selectOption(workflow.id)
+  await page.getByLabel('Name', { exact: true }).fill(`e2e-schedule-save-error-${Date.now()}`)
+  await page.getByLabel('Enable automatic execution').uncheck()
   await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.locator('.schedule-error')).toContainText('plain schedule create failure: keep this exact text')
+  await expect(page.getByRole('dialog').getByRole('alert')).toContainText('plain schedule create failure: keep this exact text')
   await page.unroute('**/api/v1/schedule/create')
-  await page.getByRole('button', { name: 'Cancel' }).click()
+  await page.getByRole('button', { name: 'Close' }).click()
 
   const createSchedule = await request.post('/api/v1/schedule/create', {
     headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
     data: {
       name: `e2e-schedule-trigger-error-${Date.now()}`,
       cronExpr: '0 9 * * *',
-      enabled: true,
+      enabled: false,
       maxConcurrent: 1,
       timeout: 0,
       graphWorkflowId: workflow.id,
@@ -2632,10 +2635,9 @@ test('graph review #49: schedule modal displays full save and trigger errors', a
   expect(createSchedule.ok(), `schedule create failed: ${createSchedule.status()} ${await createSchedule.text()}`).toBeTruthy()
   const schedule = (await createSchedule.json()).schedule as { id: string; name: string }
 
-  await page.goto(`/?workspaceId=${workspace.workspaceId}`)
+  await page.goto(`/?workspaceId=${workspace.workspaceId}&view=timers`)
   await expect(page.getByText(schedule.name)).toBeVisible({ timeout: 10_000 })
   await page.getByText(schedule.name).click()
-  await expect(page.getByRole('heading', { name: 'Edit Scheduled Task' })).toBeVisible()
   await page.route(`**/api/v1/schedule/${schedule.id}/run`, async (route) => {
     await route.fulfill({
       status: 409,
@@ -2643,8 +2645,8 @@ test('graph review #49: schedule modal displays full save and trigger errors', a
       body: JSON.stringify({ error: 'json trigger failure from error field' }),
     })
   })
-  await page.getByRole('button', { name: 'Run Now' }).click()
-  await expect(page.locator('.schedule-error')).toContainText('json trigger failure from error field')
+  await page.getByRole('button', { name: 'Run now' }).click()
+  await expect(page.getByText(/json trigger failure from error field/)).toBeVisible()
 })
 
 test('graph review #49b: schedule Trigger Now is disabled while the request is pending', async ({ page, request }) => {
@@ -2655,7 +2657,7 @@ test('graph review #49b: schedule Trigger Now is disabled while the request is p
     data: {
       name: `e2e-schedule-trigger-pending-${Date.now()}`,
       cronExpr: '0 9 * * *',
-      enabled: true,
+      enabled: false,
       maxConcurrent: 1,
       timeout: 0,
       graphWorkflowId: workflow.id,
@@ -2677,24 +2679,23 @@ test('graph review #49b: schedule Trigger Now is disabled while the request is p
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ status: 'triggered', jobId: 'job-e2e-pending-trigger' }),
+      body: JSON.stringify({ id: 'execution-e2e-pending-trigger', status: 'accepted' }),
     })
   })
 
-  await page.goto(`/?workspaceId=${workspace.workspaceId}`)
+  await page.goto(`/?workspaceId=${workspace.workspaceId}&view=timers`)
   await expect(page.getByText(schedule.name)).toBeVisible({ timeout: 10_000 })
   await page.getByText(schedule.name).click()
-  await expect(page.getByRole('heading', { name: 'Edit Scheduled Task' })).toBeVisible()
 
-  const trigger = page.getByRole('button', { name: 'Run Now' })
-  await trigger.click()
-  await expect(page.getByRole('button', { name: 'Running...' })).toBeDisabled()
-  await expect.poll(() => runCalls).toBe(1)
-  await page.getByRole('button', { name: 'Running...' }).click({ force: true })
-  await expect.poll(() => runCalls).toBe(1)
-
-  releaseRun?.()
-  await expect(page.getByRole('heading', { name: 'Edit Scheduled Task' })).toHaveCount(0, { timeout: 10_000 })
+  const trigger = page.getByRole('button', { name: 'Run now' })
+  try {
+    await trigger.click()
+    await expect(trigger).toBeDisabled()
+    await expect.poll(() => runCalls).toBe(1)
+  } finally {
+    releaseRun?.()
+  }
+  await expect(page.locator('.timer-toolbar').getByRole('button', { name: 'Executions', exact: true })).toHaveAttribute('aria-current', 'page')
   expect(runCalls).toBe(1)
 })
 

@@ -23,6 +23,8 @@ const (
 
 // Environment variable keys
 const (
+	EnvKeyTimeZone                = "TZ"                         // process local time zone used when timer time zones are omitted
+	EnvKeyCLISessionFile          = "QUARTET_CLI_SESSION_FILE"   // override the client credential store path
 	EnvKeyListenAddr              = "QUARTET_LISTEN_ADDR"        // override default listen addr; always wins over the cert-based default (443 vs 8090)
 	EnvKeyLogHTTPBody             = "QUARTET_LOG_HTTP_BODY"      // opt-in to log request/response bodies (noisy, may leak secrets; disabled by default)
 	EnvKeyLogLevel                = "QUARTET_LOG_LEVEL"          // initial log level: debug|info|warn|error (default info)

@@ -475,6 +475,18 @@ struct ScheduleInfo: Codable, Identifiable, Hashable, Sendable {
     var name: String
     var enabled: Bool
     var cronExpr: String
+    var kind: String?
+    var prompt: String?
+    var agentId: String?
+    var modelId: String?
+    var runAt: String?
+    var timeZone: String?
+    var endDate: String?
+    var maxRuns: Int?
+    var planState: String?
+    var stateReason: String?
+    var workflowVersion: String?
+    var approvalPreview: String?
     var graphWorkflowId: String?
     var workspaceId: String?
     var workdir: String?
@@ -507,6 +519,83 @@ struct ScheduleMutationRequest: Encodable, Sendable {
     let workdir: String
     let maxConcurrent: Int
     let timeout: Int
+    var kind: String?
+    var prompt: String?
+    var agentId: String?
+    var modelId: String?
+    var runAt: String?
+    var timeZone: String?
+    var endDate: String?
+    var maxRuns: Int?
+    var expectedApproval: String?
+}
+
+struct TimerActivationRequest: Encodable, Sendable {
+    let enabled: Bool
+    let expectedApproval: String?
+}
+
+struct TimerRunRequest: Encodable, Sendable {
+    let clientRequestId: String
+}
+
+struct TimerExecution: Decodable, Identifiable, Sendable {
+    struct Configuration: Decodable, Sendable {
+        let prompt: String?
+        let graphWorkflowId: String?
+        let workflowVersion: String?
+        let workdir: String?
+        let agentId: String?
+        let modelId: String?
+        let runAt: String?
+        let cronExpr: String
+        let timeZone: String?
+        let endDate: String?
+        let maxConcurrent: Int?
+        let timeout: Int?
+    }
+    let id: String
+    let scheduleId: String
+    let name: String
+    let kind: String
+    let workspaceId: String?
+    let jobId: String?
+    let trigger: String
+    let status: String
+    let error: String?
+    let detailsError: String?
+    let triggeredAt: String?
+    let scheduledAt: String?
+    let missedThrough: String?
+    let startedAt: String?
+    let finishedAt: String?
+    let configuration: Configuration?
+}
+
+struct TimerExecutionPage: Decodable, Sendable {
+    let executions: [TimerExecution]
+    let nextCursor: String
+}
+
+struct TimerSession: Decodable, Identifiable, Sendable {
+    struct Iteration: Decodable, Sendable { let index: Int }
+    let id: String
+    let scheduleId: String
+    let scheduleName: String
+    let executionId: String
+    let jobId: String
+    let agentId: String?
+    let modelId: String?
+    let title: String
+    let createdAt: String
+    let nodeId: String?
+    let nodeName: String?
+    let loop: [Iteration]?
+}
+
+struct TimerSessionPage: Decodable, Sendable {
+    let sessions: [TimerSession]
+    let nextCursor: String
 }
 
 struct ScheduleRunResponse: Decodable, Sendable {

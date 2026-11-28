@@ -40,6 +40,8 @@ const StatsPage = lazy(() =>
   import('./components/stats/StatsPage').then((module) => ({ default: module.StatsPage })),
 );
 
+const TimerManagement = lazy(() => import('./components/TimerManagement'));
+
 function LazyPageFallback() {
   const { t } = useTranslation();
   return <div className="app-lazy-loading" role="status">{t('common.loading')}</div>;
@@ -73,6 +75,7 @@ function WorkspaceApp() {
   const [initialAcpThoughtLevel, setInitialAcpThoughtLevel] = useState<string | undefined>();
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('general');
+  const [showTimers, setShowTimers] = useState(() => new URLSearchParams(window.location.search).get('view') === 'timers');
   const [showStats, setShowStats] = useState(() => getStatsOpenFromUrl());
   const [showGraph, setShowGraph] = useState(() => getGraphOpenFromUrl());
   const graphDirtyRef = useRef(false);
@@ -122,6 +125,7 @@ function WorkspaceApp() {
       const wsId = getWorkspaceIdFromUrl();
       const sid = getSessionIdFromUrl();
       setShowGraph(graphOpen);
+      setShowTimers(new URLSearchParams(window.location.search).get('view') === 'timers');
       setShowStats(getStatsOpenFromUrl());
       setCurrentJobId(jobId);
       setInitialSessionId(sid);
@@ -375,6 +379,10 @@ function WorkspaceApp() {
     const url = new URL(window.location.href);
     url.searchParams.delete('jobId');
     url.searchParams.delete('sessionId');
+    if (url.searchParams.has('timerExecutionId')) {
+      url.searchParams.set('view', 'timers');
+      setShowTimers(true);
+    }
     window.history.pushState({}, '', url.toString());
     setInitialMessage(null);
     initialMessageClientIdRef.current = undefined;
@@ -853,12 +861,31 @@ function WorkspaceApp() {
     setShowSettings(false);
     setHomeRefreshKey((key) => key + 1);
   }, []);
+  const handleOpenTimers = useCallback(() => {
+    if (showGraph && graphDirtyRef.current && !window.confirm(t('graph.messages.discardUnsavedConfirm'))) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('jobId');
+    url.searchParams.delete('sessionId');
+    url.searchParams.set('view', 'timers');
+    window.history.pushState({}, '', url);
+    setShowChat(false);
+    setShowGraph(false);
+    setShowStats(false);
+    setShowTimers(true);
+  }, [showGraph, t]);
+  const handleCloseTimers = useCallback(() => {
+    const url = new URL(window.location.href);
+    for (const key of ['view', 'timerTab', 'timerScheduleId', 'timerExecutionId']) url.searchParams.delete(key);
+    window.history.pushState({}, '', url);
+    setShowTimers(false);
+  }, []);
   const handleOpenStats = useCallback(() => {
     if (showGraph && graphDirtyRef.current && !window.confirm(t('graph.messages.discardUnsavedConfirm'))) {
       return;
     }
     setShowGraph(false);
     setShowStats(true);
+    setShowTimers(false);
     updateUrlWithStats(true);
   }, [showGraph, t]);
   const handleCloseStats = useCallback(() => {
@@ -871,6 +898,7 @@ function WorkspaceApp() {
     setCurrentJobId(undefined);
     setInitialSessionId(undefined);
     setShowStats(false);
+    setShowTimers(false);
     setShowGraph(true);
     updateUrlWithGraph(true);
   }, []);
@@ -978,7 +1006,16 @@ function WorkspaceApp() {
           </button>
         </div>
       )}
-      {showStats && principal?.permissions.includes('stats.read') ? (
+      {showTimers && principal?.permissions.includes('schedule.read') ? (
+        <div className="app-main">
+          <HomeNavigation activeView="timers" pageTitle={t('timers.title')} onHome={handleCloseTimers}
+            onOpenTimers={handleOpenTimers} onOpenSettings={handleOpenSettings}
+            onOpenStats={principal.permissions.includes('stats.read') ? handleOpenStats : undefined}
+            onOpenGraph={principal.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
+          />
+          <Suspense fallback={<LazyPageFallback />}><TimerManagement permissions={principal.permissions} /></Suspense>
+        </div>
+      ) : showStats && principal?.permissions.includes('stats.read') ? (
         <div className="app-main">
           <HomeNavigation
             workspaceTitle={currentWorkspace?.title}
@@ -986,6 +1023,7 @@ function WorkspaceApp() {
             refreshKey={homeRefreshKey}
             activeView="stats"
             onHome={handleCloseStats}
+            onOpenTimers={principal.permissions.includes('schedule.read') ? handleOpenTimers : undefined}
             onOpenSettings={handleOpenSettings}
             onOpenStats={handleOpenStats}
             onOpenGraph={principal?.permissions.includes('workflow.read') ? handleOpenGraph : undefined}
@@ -1011,6 +1049,7 @@ function WorkspaceApp() {
               onOpenSettings={handleOpenSettings}
               onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
               onOpenGraph={handleOpenGraph}
+              onOpenTimers={principal.permissions.includes('schedule.read') ? handleOpenTimers : undefined}
               onRunStarted={handleGraphRunStarted}
             />
           </Suspense>
@@ -1060,6 +1099,7 @@ function WorkspaceApp() {
               onSelectWorkspace={handleSelectWorkspace}
               onSelectJob={handleSelectJob}
               onOpenSettings={handleOpenSettings}
+              onOpenTimers={principal?.permissions.includes('schedule.read') ? handleOpenTimers : undefined}
               onOpenAgentSettings={principal?.permissions.includes('agent.manage') ? handleOpenAgentSettings : undefined}
               onOpenStats={principal?.permissions.includes('stats.read') ? handleOpenStats : undefined}
               onOpenGraph={principal?.permissions.includes('workflow.read') ? handleOpenGraph : undefined}

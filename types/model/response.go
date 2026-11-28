@@ -341,6 +341,11 @@ type ListWorkspacesResponse struct {
 // ---- Scheduled Task responses ----
 
 type ScheduleInfo struct {
+	PlanState       string `json:"planState,omitempty"`
+	StateReason     string `json:"stateReason,omitempty"`
+	WorkflowVersion string `json:"workflowVersion,omitempty"`
+	ApprovalPreview string `json:"approvalPreview,omitempty"`
+	TimerSpec
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	// Enabled is the effective activation state on the responding machine.

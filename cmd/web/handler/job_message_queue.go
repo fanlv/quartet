@@ -7,7 +7,6 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/fanlv/quartet/pkg/httputil"
-	"github.com/fanlv/quartet/pkg/logger"
 	"github.com/fanlv/quartet/services/job"
 	"github.com/fanlv/quartet/types/model"
 )
@@ -120,15 +119,7 @@ func (h *Handler) prepareQueuedJobDispatch(ctx context.Context, jobID string, it
 			h.maybeUpdateSessionModel(opts.SessionID, req.ModelID)
 			h.maybeUpdateSessionACPFields(opts.SessionID, req.ACPMode, req.ACPThoughtLevel)
 		}
-		pendingTitle, userMessage, needSave, shouldRefine := h.planJobTitleUpdate(j, &req)
-		if needSave {
-			if err := h.jobService.UpdateTitle(acceptedJobID, pendingTitle); err != nil {
-				logger.Errorf(acceptedCtx, "[job.queue] update title failed: jobId=%s err=%v", acceptedJobID, err)
-			}
-		}
-		if shouldRefine {
-			h.asyncUpdateJobTitle(acceptedCtx, acceptedJobID, userMessage)
-		}
+		h.updateAcceptedJobTitle(acceptedCtx, acceptedJobID, j.Title, req.Messages)
 		return nil
 	}
 	return runner, opts, nil

@@ -17,6 +17,7 @@ import (
 	"github.com/fanlv/quartet/pkg/logger"
 	graphsvc "github.com/fanlv/quartet/services/graph"
 	"github.com/fanlv/quartet/services/job"
+	"github.com/fanlv/quartet/services/schedule"
 	"github.com/fanlv/quartet/types/model"
 	"github.com/google/uuid"
 )
@@ -738,11 +739,18 @@ func (h *Handler) ResumeJobGraphRun(ctx context.Context, c *app.RequestContext) 
 		return
 	}
 	runner := newJobRunner(h, j)
-	run, err := h.graphService.ResumeRun(ctx, runID, runner, h.jobService)
+	var run *model.GraphRun
+	resume := func() error {
+		var err error
+		run, err = h.graphService.ResumeRun(ctx, runID, runner, h.jobService)
+		return err
+	}
+	err := h.resumeTimerGraph(ctx, j, resume)
 	if err != nil {
 		httputil.MapError(c, err, []httputil.ErrorMapping{
 			{Err: graphsvc.ErrGraphRunNotFound, Status: http.StatusNotFound},
 			{Err: graphsvc.ErrGraphRunNotResumable, Status: http.StatusConflict},
+			{Err: schedule.ErrScheduleMaxConcurrent, Status: http.StatusConflict},
 			{Err: graphsvc.ErrGraphRunnerMissing, Status: http.StatusBadRequest},
 		})
 		return
@@ -760,11 +768,18 @@ func (h *Handler) ContinueJobGraphRun(ctx context.Context, c *app.RequestContext
 		return
 	}
 	runner := newJobRunner(h, j)
-	run, err := h.graphService.ContinueRun(ctx, runID, runner, h.jobService)
+	var run *model.GraphRun
+	resume := func() error {
+		var err error
+		run, err = h.graphService.ContinueRun(ctx, runID, runner, h.jobService)
+		return err
+	}
+	err := h.resumeTimerGraph(ctx, j, resume)
 	if err != nil {
 		httputil.MapError(c, err, []httputil.ErrorMapping{
 			{Err: graphsvc.ErrGraphRunNotFound, Status: http.StatusNotFound},
 			{Err: graphsvc.ErrGraphRunNotResumable, Status: http.StatusConflict},
+			{Err: schedule.ErrScheduleMaxConcurrent, Status: http.StatusConflict},
 			{Err: graphsvc.ErrGraphRunnerMissing, Status: http.StatusBadRequest},
 		})
 		return

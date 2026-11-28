@@ -12,12 +12,10 @@ function toImagePreviewUrl(path: string): string {
   return `/api/v1/serve-file?path=${encodeURIComponent(path)}`;
 }
 import { DirPicker } from './DirPicker';
-import { ScheduleInfo, type AgentInfo, type FileAttachment, type WorkspaceInfo } from '../types';
+import { type AgentInfo, type FileAttachment, type WorkspaceInfo } from '../types';
 import { FileMention, FileResult } from './FileMention';
 import { SlashFloater, SkillBackdrop } from './SlashCompletion';
 import { slashCompletionKeyDown, useSlashCompletion } from '../utils/slashCompletion';
-import { ScheduleEditModal } from './ScheduleEditModal';
-import { cronToHuman } from './CronInput';
 import { AgentUsageCard } from './AgentUsageCard';
 import { ClockIcon, ConfigurationIcon } from './ComposerIcons';
 import { HomeNavigation } from './HomeNavigation';
@@ -28,7 +26,7 @@ import { useGitBranch } from '../hooks/useGitBranch';
 import { uploadChatAttachment, usePendingAttachments, type UploadedAttachment } from '../hooks/usePendingAttachments';
 import { PendingAttachmentPreviews, UploadedFilePreviews } from './AttachmentPreviews';
 import { useJobList, type JobSummary } from '../hooks/useJobList';
-import { DEFAULT_WORKSPACE_ID, workspaceColor, loadWorkspacePrefs, migrateWorkspacePrefsToServer, registerWorkspaceColors } from '../utils/workspace';
+import { workspaceColor, loadWorkspacePrefs, migrateWorkspacePrefsToServer, registerWorkspaceColors } from '../utils/workspace';
 import { relinkACPThoughtLevels, setACPConfig, type ACPConfigState, type ACPConfigTarget } from '../utils/acpConfig';
 import { fetchAgentPrefs, splitFavoriteModels, resolveAgentDefaults, applyDefaultsToAgent, prefsForAgent, type AgentPrefsMap } from '../utils/agentPrefs';
 import { formatStatsDuration } from '../utils/statsFormat';
@@ -134,6 +132,7 @@ interface ChatPageProps {
   onOpenAgentSettings?: () => void;
   onOpenStats?: () => void;
   onOpenGraph?: () => void;
+  onOpenTimers?: () => void;
 }
 
 async function fetchAgentList(): Promise<{ agents: AgentInfo[]; workdir: string; jobEnable: boolean }> {
@@ -215,26 +214,7 @@ function formatJobTime(updatedAt: number, locale?: string): string {
   });
 }
 
-function formatRelativeTime(ts: number, locale?: string): string {
-  if (!ts) return '';
-  const diffMs = ts - Date.now();
-  const diffSec = Math.round(diffMs / 1000);
-  const absSec = Math.abs(diffSec);
-  const isZh = (locale || '').toLowerCase().startsWith('zh');
-  const pastSuffix = isZh ? '前' : ' ago';
-  const futurePrefix = isZh ? '' : 'in ';
-  const futureSuffix = isZh ? '后' : '';
-  const format = (n: number, unit: string) => {
-    if (diffSec >= 0) return `${futurePrefix}${n}${unit}${futureSuffix}`;
-    return `${n}${unit}${pastSuffix}`;
-  };
-  if (absSec < 10) return isZh ? '刚刚' : 'just now';
-  if (absSec < 60) return format(absSec, 's');
-  if (absSec < 3600) return format(Math.round(absSec / 60), 'm');
-  if (absSec < 86400) return format(Math.round(absSec / 3600), 'h');
-  if (absSec < 2592000) return format(Math.round(absSec / 86400), 'd');
-  return new Date(ts).toLocaleDateString(locale || undefined, { month: 'short', day: 'numeric' });
-}
+
 
 function getJobDayKey(updatedAt: number): string {
   if (!updatedAt) return 'unknown';
@@ -428,15 +408,13 @@ const JobHistoryRow = memo(function JobHistoryRow({ job, modelLabel, workspaceNa
   );
 });
 
-export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWorkdir, workspaceId, workspaceTitle, onSelectWorkspace, onSelectJob, onOpenSettings, onOpenAgentSettings, onOpenStats, onOpenGraph }: ChatPageProps) {
+export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWorkdir, workspaceId, workspaceTitle, onSelectWorkspace, onSelectJob, onOpenSettings, onOpenAgentSettings, onOpenStats, onOpenGraph, onOpenTimers }: ChatPageProps) {
   const principal = useAuthPrincipal();
   const canReadJobs = principal?.permissions.includes('job.read') ?? false;
   const canExecuteJobs = principal?.permissions.includes('job.execute') ?? false;
   const canReadAgents = principal?.permissions.includes('agent.read') ?? false;
   const canReadConfig = principal?.permissions.includes('config.read') ?? false;
   const canManageJobs = principal?.permissions.includes('job.manage') ?? false;
-  const canReadSchedules = principal?.permissions.includes('schedule.read') ?? false;
-  const canWriteSchedules = principal?.permissions.includes('schedule.write') ?? false;
   const canReadFiles = principal?.permissions.includes('file.read') ?? false;
   const canWriteFiles = principal?.permissions.includes('file.write') ?? false;
   const { connected } = useConnectionStatus();
@@ -517,18 +495,6 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   useEffect(() => {
     clearAttachments();
   }, [localDraftStorageKey, clearAttachments]);
-
-  const [hideScheduledJobs, setHideScheduledJobs] = useState<boolean>(() => {
-    // Default on — most users aren't interested in scheduled-task jobs mixed
-    // into the main list.
-    try {
-      const v = localStorage.getItem('home_hide_scheduled');
-      return v === null ? true : v === '1';
-    } catch { return true; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem('home_hide_scheduled', hideScheduledJobs ? '1' : '0'); } catch { /* ignore */ }
-  }, [hideScheduledJobs]);
 
   // Job History filter: when set, /api/v1/job/list is called with a specific
   // workspaceId so the list shows only that workspace's jobs. Empty string =
@@ -633,26 +599,15 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
     isLoading: isLoadingJobs,
     isLoadingMore: isLoadingMoreJobs,
     loadMore: loadMoreJobs,
-    refresh: refreshJobs,
     removeJob: removeJobFromList,
     patchJob,
     dailyStats,
   } = useJobList({
     workspaceId: filterWorkspaceId || undefined,
-    excludeScheduled: hideScheduledJobs,
+    excludeScheduled: true,
     disabled: !canReadJobs,
   });
-  // Scheduled tasks state
-  const [schedules, setSchedules] = useState<ScheduleInfo[]>([]);
-  // Flips to true after the first fetchSchedules attempt completes (success or
-  // failure). Used with isLoadingJobs to distinguish "still loading" from
-  // "genuinely empty" so the home layout doesn't fall into the empty-state
-  // flex-end layout while the backend is unreachable.
-  const [schedulesLoaded, setSchedulesLoaded] = useState(false);
-  const [scheduleModal, setScheduleModal] = useState<{ mode: 'closed' } | { mode: 'create' } | { mode: 'edit'; schedule: ScheduleInfo }>({ mode: 'closed' });
-  const [scheduleDeleteConfirm, setScheduleDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [jobHistoryExpanded, setJobHistoryExpanded] = useState(true);
-  const [schedulesExpanded, setSchedulesExpanded] = useState(!isMobile);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -835,69 +790,6 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  // Fetch scheduled tasks on mount and poll. Scheduled tasks are now
-  // workspace-independent (方向二-d): we always fetch the global list.
-  const fetchSchedules = useCallback(async () => {
-    if (!canReadSchedules) {
-      setSchedules([]);
-      setSchedulesLoaded(true);
-      return;
-    }
-    try {
-      const res = await fetch(`/api/v1/schedule/list`);
-      if (res.ok) {
-        const data = await res.json();
-        setSchedules(data.schedules || []);
-      }
-    } catch { /* ignore */ }
-    finally {
-      setSchedulesLoaded(true);
-    }
-  }, [canReadSchedules]);
-
-  useEffect(() => {
-    fetchSchedules();
-    const interval = setInterval(fetchSchedules, 60_000);
-    const onFocus = () => fetchSchedules();
-    window.addEventListener('focus', onFocus);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', onFocus);
-    };
-  }, [fetchSchedules]);
-
-  const handleScheduleSave = () => {
-    setScheduleModal({ mode: 'closed' });
-    fetchSchedules();
-    // Refresh job list after a short delay to pick up newly triggered jobs
-    setTimeout(() => { void refreshJobs(); }, 1500);
-  };
-
-  const handleScheduleDelete = async (id: string) => {
-    try {
-      const res = await fetch(`/api/v1/schedule/${id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        console.error('Failed to delete schedule:', await res.text());
-      }
-      fetchSchedules();
-    } catch (err) {
-      console.error('Failed to delete schedule:', err);
-    }
-    setScheduleDeleteConfirm(null);
-  };
-
-  const handleScheduleToggle = async (id: string) => {
-    try {
-      const res = await fetch(`/api/v1/schedule/${id}/toggle`, { method: 'POST' });
-      if (!res.ok) {
-        console.error('Failed to toggle schedule:', await res.text());
-      }
-      fetchSchedules();
-    } catch (err) {
-      console.error('Failed to toggle schedule:', err);
-    }
-  };
 
   const selectedAgent = agents[selectedIndex] ?? null;
 
@@ -1393,7 +1285,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
   // Loading (data not yet ready) or offline: drives the centered spinner that
   // now renders below Job History, and suppresses the "no jobs" body message so
   // the loading state doesn't read as an empty workspace.
-  const homeLoadingOrOffline = jobs.length === 0 && (!schedulesLoaded || isLoadingJobs || !connected);
+  const homeLoadingOrOffline = jobs.length === 0 && (isLoadingJobs || !connected);
   return (
     <div className="home-page" data-testid="home-page">
       <HomeNavigation
@@ -1403,6 +1295,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
         onOpenSettings={onOpenSettings}
         onOpenStats={onOpenStats}
         onOpenGraph={onOpenGraph}
+        onOpenTimers={onOpenTimers}
       />
 
       <div
@@ -1411,119 +1304,13 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
         data-home-state={
           !connected
             ? 'offline'
-            : (!schedulesLoaded || isLoadingJobs)
+            : isLoadingJobs
               ? 'loading'
               : jobs.length === 0
                 ? 'empty'
                 : 'ready'
         }
       >
-        {/* Scheduled Tasks section */}
-        {canReadSchedules && <div className={`home-schedule-section ${schedulesExpanded ? 'expanded' : 'collapsed'}`}>
-          <div className="home-schedule-header">
-            <div
-              className="home-schedule-title-row"
-              onClick={() => setSchedulesExpanded(!schedulesExpanded)}
-              style={{ cursor: 'pointer' }}
-            >
-              <svg className={`home-schedule-chevron ${schedulesExpanded ? 'open' : ''}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M9 18l6-6-6-6" />
-              </svg>
-              <svg className="home-schedule-title-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                <line x1="16" y1="2" x2="16" y2="6" />
-                <line x1="8" y1="2" x2="8" y2="6" />
-                <line x1="3" y1="10" x2="21" y2="10" />
-              </svg>
-              <span className="home-schedule-title">Scheduled Tasks</span>
-              <span className="home-schedule-count">{schedules.length} tasks</span>
-            </div>
-            {canWriteSchedules && <button
-              className="home-schedule-add-btn"
-              onClick={(e) => { e.stopPropagation(); setScheduleModal({ mode: 'create' }); }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              {t('home.newTask')}
-            </button>}
-          </div>
-          {schedulesExpanded && (
-          <div className="home-schedule-list">
-            {schedules.map(s => {
-              const statusClass = !s.enabled ? 'disabled' : s.lastStatus === 'failed' ? 'failed' : s.lastStatus === 'running' ? 'running' : 'enabled';
-              const lastStatusClass = s.lastStatus === 'completed' ? 'success'
-                : s.lastStatus === 'failed' ? 'failed'
-                : s.lastStatus === 'running' ? 'running'
-                : s.lastStatus === 'stopped' ? 'stopped'
-                : 'never';
-              const lastStatusIcon = s.lastStatus === 'completed' ? '✓'
-                : s.lastStatus === 'failed' ? '✕'
-                : s.lastStatus === 'running' ? '●'
-                : s.lastStatus === 'stopped' ? '■'
-                : '—';
-              const lastTooltip = s.lastRunAt
-                ? `${t('home.lastRun')}: ${new Date(s.lastRunAt).toLocaleString(i18n.language)}${s.lastStatus ? ` · ${t('home.lastStatus.' + lastStatusClass)}` : ''}${s.runCount ? ` · ${t('home.runCount', { count: s.runCount })}` : ''}`
-                : t('home.neverRun');
-              return (
-              <div
-                key={s.id}
-                className={`home-schedule-row ${statusClass}`}
-                onClick={() => setScheduleModal({ mode: 'edit', schedule: s })}
-              >
-                <span className={`home-schedule-row-dot ${statusClass}`} />
-                <span className="home-schedule-row-title-wrap">
-                  <span className="home-schedule-row-title" title={s.name}>{s.name}</span>
-                  <span className={`home-schedule-row-last ${lastStatusClass}`} title={lastTooltip}>
-                    <span className={`home-schedule-row-last-icon ${lastStatusClass}`}>{lastStatusIcon}</span>
-                    <span className="home-schedule-row-last-time">
-                      {s.lastRunAt ? formatRelativeTime(s.lastRunAt, i18n.language) : t('home.neverRun')}
-                    </span>
-                  </span>
-                </span>
-                <span className="home-schedule-row-cron" title={s.cronExpr}>{cronToHuman(s.cronExpr, t)}</span>
-                <span className="home-schedule-row-next">
-                  {!s.enabled ? t('home.disabled') : s.nextRunAt
-                    ? new Date(s.nextRunAt).toLocaleString(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-                    : ''}
-                </span>
-                {canReadJobs && onSelectJob && s.lastRunJobID && <button
-                  type="button"
-                  className="home-schedule-row-job"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelectJob(s.lastRunJobID!, s.workspaceId || DEFAULT_WORKSPACE_ID);
-                  }}
-                  title={t('home.openLatestJob')}
-                  aria-label={t('home.openLatestJobForSchedule', { name: s.name })}
-                  data-testid={`schedule-latest-job-${s.id}`}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M7 17 17 7" />
-                    <path d="M7 7h10v10" />
-                  </svg>
-                  <span className="home-schedule-row-job-label">Job</span>
-                </button>}
-                {canWriteSchedules && <button
-                  className={`home-schedule-row-toggle ${s.enabled ? 'on' : ''}`}
-                  onClick={(e) => { e.stopPropagation(); handleScheduleToggle(s.id); }}
-                  title={s.enabled ? '在本机禁用' : '在本机启用'}
-                />}
-                {canWriteSchedules && <button
-                  className="home-schedule-row-delete"
-                  onClick={(e) => { e.stopPropagation(); setScheduleDeleteConfirm({ id: s.id, name: s.name }); }}
-                  title="删除"
-                >
-                  ×
-                </button>}
-              </div>
-              );
-            })}
-          </div>
-          )}
-        </div>}
-
         <div className={`home-job-list ${jobHistoryExpanded ? 'expanded' : 'collapsed'}`} data-testid="home-job-history" data-expanded={jobHistoryExpanded ? 'true' : 'false'}>
           <div className="home-job-list-header" onClick={() => setJobHistoryExpanded(!jobHistoryExpanded)} style={{ cursor: 'pointer' }} data-testid="home-job-history-header">
               <div className="home-job-list-title">
@@ -1599,13 +1386,6 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                     )}
                   </div>
                 )}
-                <label className="home-job-filter-toggle">
-                  <span className="home-job-filter-label">{isMobile ? t('home.hideScheduledJobsShort') : t('home.hideScheduledJobs')}</span>
-                  <button
-                    className={`home-job-filter-switch ${hideScheduledJobs ? 'on' : ''}`}
-                    onClick={() => setHideScheduledJobs(!hideScheduledJobs)}
-                  />
-                </label>
               </div>
           </div>
           {jobHistoryExpanded && (
@@ -2257,35 +2037,6 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
         </div>
       )}
 
-      {/* Schedule delete confirmation */}
-      {canWriteSchedules && scheduleDeleteConfirm && (
-        <div className="delete-confirm-overlay" onClick={() => setScheduleDeleteConfirm(null)}>
-          <div className="delete-confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="delete-confirm-title">删除定时任务</div>
-            <div className="delete-confirm-message">
-              确定删除定时任务 "<strong>{scheduleDeleteConfirm.name}</strong>"？
-            </div>
-            <div className="delete-confirm-actions">
-              <button className="delete-confirm-cancel" onClick={() => setScheduleDeleteConfirm(null)}>取消</button>
-              <button className="delete-confirm-ok" onClick={() => handleScheduleDelete(scheduleDeleteConfirm.id)}>删除</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Schedule edit/create modal */}
-      {canWriteSchedules && scheduleModal.mode !== 'closed' && (
-        <ScheduleEditModal
-          schedule={scheduleModal.mode === 'edit' ? scheduleModal.schedule : null}
-          workspaceId={workspaceId}
-          workspaces={allWorkspaces}
-          agents={agents}
-          defaultAgentIndex={selectedIndex}
-          onSelectJob={handleJobSelect}
-          onSave={handleScheduleSave}
-          onClose={() => setScheduleModal({ mode: 'closed' })}
-        />
-      )}
     </div>
   );
 }

@@ -238,6 +238,7 @@ function graphSessionEntries(
 // terminal that emits no new events, so the Chat page treats it as non-live
 // (stops the loading spinner) and relies on the snapshot reconcile.
 const GRAPH_LIVE_STATUSES = new Set<GraphRunStatus>(['pending', 'running', 'stepStopping', 'sessionStopping']);
+const JOB_TERMINAL_STATUSES = new Set(['completed', 'stopped', 'failed']);
 
 // A stop request is tiny and the backend answers in milliseconds; the long
 // timeout only bounds the pathological case — behind an HTTP/1.1 hop a
@@ -580,6 +581,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     return snapshot || null;
   }, [applyMessageQueueSnapshot, isPublic, jobId]);
 
+  // The terminal event and the persisted snapshot share a finish timestamp.
+  // Keep it across turns so starting another message doesn't trigger a refresh.
+  const [lastJobFinishedAt, setLastJobFinishedAt] = useState(0);
+  const recordJobFinishedAt = useCallback((finishedAt: number) => {
+    setLastJobFinishedAt((previous) => Math.max(previous, finishedAt));
+  }, []);
+
   const [isGraph, setIsGraph] = useState(false);
   const [graphRunId, setGraphRunId] = useState<string | null>(null);
   // Page-level graph state shared by the chat/session view and
@@ -592,10 +600,13 @@ export function useJobChat(options: UseJobChatOptions = {}) {
   const applyGraphRunStatusSnapshot = useCallback((snapshot: GraphRunStatusResponse) => {
     setGraphRunStatusSnapshot(snapshot);
     setGraphStreamError(null);
-    if (snapshot.run?.status) {
-      setIsLoading(GRAPH_LIVE_STATUSES.has(snapshot.run.status));
+    const run = snapshot.run;
+    if (run?.status) {
+      const live = GRAPH_LIVE_STATUSES.has(run.status);
+      setIsLoading(live);
+      if (!live && run.finishedAt) recordJobFinishedAt(run.finishedAt);
     }
-  }, []);
+  }, [recordJobFinishedAt]);
   const graphRunStatus = graphRunStatusSnapshot?.run?.status;
   // True while the bound graph run is actively scheduling (pending/running/
   // stepStopping). Distinct from isLoading: an interactive discussion turn on
@@ -953,6 +964,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     // stale values — they must start undefined on every job switch.
     setJobStartedAt(undefined);
     setJobFinishedAt(undefined);
+    setLastJobFinishedAt(0);
     setInteractiveAccumulatedMs(0);
   }, [existingJobId, initialUserMessage, applyActiveSessionSelection, markEventStreamReady, setGraphSessions, settleEventStreamReadyWaiters]);
 
@@ -1087,9 +1099,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
       case EventTypeEnum.JOB_COMPLETED: {
         const runOutcome = event.runOutcome ?? 'completed';
-        setJobFinishedAt(event.timestamp || Date.now());
+        const finishedAt = event.timestamp || Date.now();
+        setJobFinishedAt(finishedAt);
+        recordJobFinishedAt(finishedAt);
         setIsLoading(messageQueueWillContinueRef.current);
-        finalizeInFlightMessages(event.timestamp || Date.now(), {
+        finalizeInFlightMessages(finishedAt, {
           toolProcessingStatus:
             runOutcome === 'completed' ? ToolCallStatusEnum.Success
               : ToolCallStatusEnum.Placeholder,
@@ -1114,9 +1128,11 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
       case EventTypeEnum.JOB_STOPPED: {
         const runOutcome = event.runOutcome ?? 'stopped';
-        setJobFinishedAt(event.timestamp || Date.now());
+        const finishedAt = event.timestamp || Date.now();
+        setJobFinishedAt(finishedAt);
+        recordJobFinishedAt(finishedAt);
         setIsLoading(messageQueueWillContinueRef.current);
-        finalizeInFlightMessages(event.timestamp || Date.now(), {
+        finalizeInFlightMessages(finishedAt, {
           toolProcessingStatus:
             runOutcome === 'completed' ? ToolCallStatusEnum.Success
               : ToolCallStatusEnum.Placeholder,
@@ -1132,10 +1148,12 @@ export function useJobChat(options: UseJobChatOptions = {}) {
 
       case EventTypeEnum.JOB_FAILED: {
         const runOutcome = event.runOutcome ?? 'failed';
-        setJobFinishedAt(event.timestamp || Date.now());
+        const finishedAt = event.timestamp || Date.now();
+        setJobFinishedAt(finishedAt);
+        recordJobFinishedAt(finishedAt);
         setError(event.message);
         setIsLoading(messageQueueWillContinueRef.current);
-        finalizeInFlightMessages(event.timestamp || Date.now(), {
+        finalizeInFlightMessages(finishedAt, {
           toolProcessingStatus:
             runOutcome === 'completed' ? ToolCallStatusEnum.Success
               : ToolCallStatusEnum.Placeholder,
@@ -1511,7 +1529,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       default:
         break;
     }
-  }, [applyCommandEvent, finalizeInFlightMessages, recordSessionTokens, refreshMessageQueue, updateServerClock]);
+  }, [applyCommandEvent, finalizeInFlightMessages, recordJobFinishedAt, recordSessionTokens, refreshMessageQueue, updateServerClock]);
 
   // Keep ref in sync so the SSE effect always uses the latest handler
   handleEventRef.current = handleEvent;
@@ -1937,9 +1955,10 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       }
 
       const status = job.status as string;
-      const isTerminal = status === 'completed' || status === 'stopped' || status === 'failed';
+      const isTerminal = JOB_TERMINAL_STATUSES.has(status);
 
       if (isTerminal) {
+        if (job.finishedAt) recordJobFinishedAt(job.finishedAt);
         let queueWillContinue = false;
         if (job.mode !== 'graph') {
           try {
@@ -2041,7 +2060,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
       console.warn('[SSE reconnect] failed to sync job state:', err);
       throw err;
     }
-  }, [apiUrl, adoptLatestPageState, finalizeInFlightMessages, isPublic, loadHistoryPage, prefetchEarlierMessages, refreshMessageQueue, seedServerClockFromResponse]);
+  }, [apiUrl, adoptLatestPageState, finalizeInFlightMessages, isPublic, loadHistoryPage, prefetchEarlierMessages, recordJobFinishedAt, refreshMessageQueue, seedServerClockFromResponse]);
 
   // Keep syncJobStateRef in sync so handleEvent can call it.
   syncJobStateRef.current = syncJobState;
@@ -3035,6 +3054,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         }
         if (job.finishedAt) {
           setJobFinishedAt((prev) => prev ?? job.finishedAt);
+          if (JOB_TERMINAL_STATUSES.has(job.status)) recordJobFinishedAt(job.finishedAt);
         }
 
         if (job.mode === 'graph') {
@@ -3203,7 +3223,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
         ++hydrationGenerationRef.current;
       }
     };
-  }, [existingJobId, initialSessionId, apiUrl, isPublic, loadHistory, loadHistoryPage, prefetchEarlierMessages, applyActiveSessionSelection, setGraphSessions, seedServerClockFromResponse, reportDisconnect, applyGraphRunStatusSnapshot]);
+  }, [existingJobId, initialSessionId, apiUrl, isPublic, loadHistory, loadHistoryPage, prefetchEarlierMessages, applyActiveSessionSelection, setGraphSessions, seedServerClockFromResponse, reportDisconnect, applyGraphRunStatusSnapshot, recordJobFinishedAt]);
 
   // When the active Graph session changes, update session-level metadata
   // so ChatInput/MessageList reflect the session's agent/model.
@@ -3402,6 +3422,7 @@ export function useJobChat(options: UseJobChatOptions = {}) {
     tokenUsageEstimated,
     roundStartedAt: jobStartedAt,
     roundFinishedAt: jobFinishedAt,
+    lastJobFinishedAt,
     interactiveAccumulatedMs,
     // Returns the best estimate of current server wall-clock time (in ms).
     // Consumers should wrap their duration-rendering subtree in

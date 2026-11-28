@@ -28,6 +28,7 @@ import './AgentUsageCard.css';
 interface AgentUsageCardProps {
   agentType?: string;
   displayName?: string;
+  refreshKey?: number;
 }
 
 function pctClass(pct: number): string {
@@ -414,9 +415,9 @@ function formatExpiry(unixSec: number): string {
  *  image-upload button). Supported providers get their quota view; every other
  *  known ACP agent gets a version chip. Returns null for agents that are
  *  neither (no quota view and no parseable version, e.g. the built-in runner). */
-export function AgentUsageCard({ agentType, displayName }: AgentUsageCardProps) {
+export function AgentUsageCard({ agentType, displayName, refreshKey }: AgentUsageCardProps) {
   const provider = agentUsageProvider(agentType, displayName);
-  if (provider && agentType) return <AgentQuotaCard provider={provider} command={agentType} />;
+  if (provider && agentType) return <AgentQuotaCard provider={provider} command={agentType} refreshKey={refreshKey} />;
   if (agentType) return <AgentVersionChip command={agentType} />;
   return null;
 }
@@ -429,7 +430,7 @@ export function AgentUsageCard({ agentType, displayName }: AgentUsageCardProps) 
  *  asynchronously — the new data swaps in only once its request returns, so
  *  there is no loading flash. A failed refresh keeps the last cached data and
  *  exposes the full error through a compact warning control. */
-function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; command: string }) {
+function AgentQuotaCard({ provider, command, refreshKey }: { provider: AgentUsageProvider; command: string; refreshKey?: number }) {
   const { t } = useTranslation();
 
   const [loading, setLoading] = useState(false);
@@ -516,7 +517,7 @@ function AgentQuotaCard({ provider, command }: { provider: AgentUsageProvider; c
   useEffect(() => {
     setFallbackVersion(getCachedVersion(command));
     return load(provider);
-  }, [command, provider, load]);
+  }, [command, provider, load, refreshKey]);
 
   useEffect(() => {
     if (provider !== 'codex') return;

@@ -147,6 +147,9 @@ func (r *jobRunnerImpl) BeginShellSession(ctx context.Context, jobID, script str
 			logger.Warnf(ctx, "[BeginShellSession] touch session failed: %v, sessionId=%s", err, s.ID)
 		}
 	}
+	if err := r.h.jobService.AttachGraphSession(ctx, jobID, s.ID); err != nil {
+		return "", fmt.Errorf("index shell transcript for job %s: %w", jobID, err)
+	}
 	return s.ID, nil
 }
 

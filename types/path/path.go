@@ -667,3 +667,12 @@ func WeChatOutboxDir() string {
 func WeChatOutboxTaskFile(taskID string) string {
 	return filepath.Join(WeChatOutboxDir(), safeExternalID(taskID)+".json")
 }
+
+// TimerLedgerDir holds machine-local timer approvals and execution history.
+func TimerLedgerDir() (string, error) {
+	dir, err := ScheduleStatesDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "timers"), nil
+}

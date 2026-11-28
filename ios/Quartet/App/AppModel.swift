@@ -226,7 +226,7 @@ final class AppModel: ObservableObject {
         phase == .connected || hasDashboardContent
     }
 
-    var isRunningUITests: Bool { uiTestScenario != nil }
+    var isRunningUITests: Bool { uiTestScenario != nil && uiTestScenario != "--ui-testing-live-onboarding" }
 
     var seedsImageEditorUITestAttachment: Bool {
 #if DEBUG
@@ -257,7 +257,7 @@ final class AppModel: ObservableObject {
 
     func bootstrap() async {
         guard phase == .booting else { return }
-        if uiTestScenario == "--ui-testing-onboarding" {
+        if uiTestScenario == "--ui-testing-onboarding" || uiTestScenario == "--ui-testing-live-onboarding" {
             serverAddress = Self.defaultServerAddress
             username = ""
             password = ""
@@ -373,7 +373,9 @@ final class AppModel: ObservableObject {
             self.health = health
             lastSyncFailureMessage = nil
             connectionRevision &+= 1
-            await prepareJobCompletionNotifications()
+            if uiTestScenario != "--ui-testing-live-onboarding" {
+                await prepareJobCompletionNotifications()
+            }
             await refreshDashboard(
                 userInitiated: false,
                 presentFailure: true,

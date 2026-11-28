@@ -220,6 +220,9 @@ func (r *fileScheduleRepo) List(_ context.Context) ([]*model.ScheduledTask, erro
 		if err != nil {
 			return nil, err
 		}
+		if definition == nil {
+			continue
+		}
 		state, err := r.readState(id)
 		if err != nil {
 			return nil, err
@@ -309,6 +312,7 @@ func (r *fileScheduleRepo) writeState(state *model.ScheduleState) error {
 
 func definitionFromTask(task *model.ScheduledTask) *model.ScheduleDefinition {
 	return &model.ScheduleDefinition{
+		TimerSpec:       task.TimerSpec,
 		ID:              task.ID,
 		Name:            task.Name,
 		CronExpr:        task.CronExpr,
@@ -342,6 +346,7 @@ func stateFromTask(task *model.ScheduledTask) *model.ScheduleState {
 
 func mergeSchedule(definition *model.ScheduleDefinition, state *model.ScheduleState) *model.ScheduledTask {
 	task := &model.ScheduledTask{
+		TimerSpec:       definition.TimerSpec,
 		ID:              definition.ID,
 		Name:            definition.Name,
 		CronExpr:        definition.CronExpr,

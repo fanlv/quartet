@@ -170,9 +170,10 @@ type Job struct {
 	// TotalTurnDurationMs is the persisted sum of every interactive turn's
 	// server-side wall-clock duration. The active turn is excluded until it
 	// reaches a terminal state.
-	TotalTurnDurationMs int64    `json:"totalTurnDurationMs"`
-	GraphRunID          string   `json:"graphRunId,omitempty"`
-	SessionIDs          []string `json:"sessionIds"`
+	TotalTurnDurationMs int64          `json:"totalTurnDurationMs"`
+	GraphRunID          string         `json:"graphRunId,omitempty"`
+	GraphStatus         GraphRunStatus `json:"graphStatus,omitempty"`
+	SessionIDs          []string       `json:"sessionIds"`
 	// GraphSessionIDs lists the sessions opened by Agent nodes of this job's
 	// graph run, kept separate from SessionIDs so they never pollute the
 	// linear chat/archive semantics of SessionIDs (e.g. the

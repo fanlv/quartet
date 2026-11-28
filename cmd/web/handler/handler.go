@@ -128,6 +128,7 @@ type Handler struct {
 	workspaceService     workspace.Service
 	scheduleService      schedule.Service
 	scheduler            *schedule.Scheduler
+	timers               *schedule.TimerManager
 	usageStats           usagestats.Service
 	systemStats          *systemstats.Service
 	usageModelMu         sync.RWMutex
@@ -475,6 +476,10 @@ func reconcileInterruptedGraphRuns(ctx context.Context, gs graph.Service, js job
 			continue
 		}
 		scanned++
+		if err := gs.RegisterRunLocation(ctx, j.GraphRunID, j.WorkspaceID, j.ID); err != nil {
+			logger.Warnf(ctx, "[graph] register run for startup recovery: jobId=%s runId=%s err=%v", j.ID, j.GraphRunID, err)
+			continue
+		}
 		if err := gs.ReconcileInterruptedRun(ctx, j.GraphRunID); err != nil {
 			logger.Warnf(ctx, "[graph] startup reconcile failed: jobId=%s runId=%s err=%v", j.ID, j.GraphRunID, err)
 		}

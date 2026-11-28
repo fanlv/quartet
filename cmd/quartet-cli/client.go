@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 )
 
@@ -96,6 +97,9 @@ func (c *client) do(ctx context.Context, method, path string, body any) ([]byte,
 }
 
 func sessionFile() (string, error) {
+	if path := os.Getenv(consts.EnvKeyCLISessionFile); path != "" {
+		return path, nil
+	}
 	root, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -283,26 +287,25 @@ func (c *client) deleteSchedule(ctx context.Context, id string) error {
 	return err
 }
 
-func (c *client) toggleSchedule(ctx context.Context, id string) (*model.ScheduleInfo, error) {
-	raw, err := c.do(ctx, http.MethodPost, "/api/v1/schedule/"+id+"/toggle", nil)
+func (c *client) previewSchedule(ctx context.Context, id string, request any) (*model.ScheduleInfo, error) {
+	endpoint := "/api/v1/schedule/preview"
+	if id != "" {
+		endpoint = "/api/v1/schedule/" + id + "/preview"
+	}
+	raw, err := c.do(ctx, http.MethodPost, endpoint, request)
 	if err != nil {
 		return nil, err
 	}
 	return decode[model.ScheduleInfo](raw)
 }
 
-// scheduleRunResponse is the backend's reply to POST /schedule/:id/run.
-type scheduleRunResponse struct {
-	Status string `json:"status"`
-	JobID  string `json:"jobId"`
-}
-
-func (c *client) runSchedule(ctx context.Context, id string) (*scheduleRunResponse, error) {
-	raw, err := c.do(ctx, http.MethodPost, "/api/v1/schedule/"+id+"/run", nil)
+func (c *client) runSchedule(ctx context.Context, id, submission string) (*model.TimerExecution, error) {
+	body := map[string]string{"clientRequestId": submission}
+	raw, err := c.do(ctx, http.MethodPost, "/api/v1/schedule/"+id+"/run", body)
 	if err != nil {
 		return nil, err
 	}
-	return decode[scheduleRunResponse](raw)
+	return decode[model.TimerExecution](raw)
 }
 
 func (c *client) listWorkspaces(ctx context.Context) (*model.ListWorkspacesResponse, error) {

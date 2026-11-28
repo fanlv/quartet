@@ -1,6 +1,516 @@
 {
   "sourceLanguage" : "zh-Hans",
   "strings" : {
+    "执行配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Execution settings"
+          }
+        }
+      }
+    },
+    "工作流版本": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workflow version"
+          }
+        }
+      }
+    },
+    "定时器详情": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timer details"
+          }
+        }
+      }
+    },
+    "定时器标识": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timer ID"
+          }
+        }
+      }
+    },
+    "时区": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time zone"
+          }
+        }
+      }
+    },
+    "工作区默认值": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace default"
+          }
+        }
+      }
+    },
+    "重复频率": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frequency"
+          }
+        }
+      }
+    },
+    "每小时": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hourly"
+          }
+        }
+      }
+    },
+    "每天 09:00": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daily at 09:00"
+          }
+        }
+      }
+    },
+    "每周一 09:00": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mondays at 09:00"
+          }
+        }
+      }
+    },
+    "自定义 Cron": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Cron"
+          }
+        }
+      }
+    },
+    "查看此定时器的记录": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View executions for this timer"
+          }
+        }
+      }
+    },
+    "执行记录" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Executions"
+          }
+        }
+      }
+    },
+    "会话" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sessions"
+          }
+        }
+      }
+    },
+    "查看定时器的执行结果" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View timer execution results"
+          }
+        }
+      }
+    },
+    "查看执行产生的会话" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View sessions produced by this timer"
+          }
+        }
+      }
+    },
+    "创建定时任务，按计划运行 Prompt 或图工作流。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schedule a prompt or Graph workflow."
+          }
+        }
+      }
+    },
+    "立即触发一次执行" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trigger one execution now"
+          }
+        }
+      }
+    },
+    "确认并启用" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm and enable"
+          }
+        }
+      }
+    },
+    "确认执行配置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm execution settings"
+          }
+        }
+      }
+    },
+    "最大执行次数" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Execution limit"
+          }
+        }
+      }
+    },
+    "返回编辑" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back to editing"
+          }
+        }
+      }
+    },
+    "执行类型" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Execution type"
+          }
+        }
+      }
+    },
+    "Prompt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prompt"
+          }
+        }
+      }
+    },
+    "Agent ID（可用工作区默认值）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agent ID (workspace default available)"
+          }
+        }
+      }
+    },
+    "模型 ID（可用工作区默认值）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Model ID (workspace default available)"
+          }
+        }
+      }
+    },
+    "重复" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repeating"
+          }
+        }
+      }
+    },
+    "单次" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One time"
+          }
+        }
+      }
+    },
+    "时区（留空使用后端默认）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Time zone (leave blank for backend default)"
+          }
+        }
+      }
+    },
+    "计划时间" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scheduled time"
+          }
+        }
+      }
+    },
+    "结束日期（YYYY-MM-DD）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "End date (YYYY-MM-DD)"
+          }
+        }
+      }
+    },
+    "工作目录（留空使用工作区目录）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Working directory (leave blank for workspace directory)"
+          }
+        }
+      }
+    },
+    "待确认" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awaiting approval"
+          }
+        }
+      }
+    },
+    "已结束" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ended"
+          }
+        }
+      }
+    },
+    "全部定时器" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All timers"
+          }
+        }
+      }
+    },
+    "全部工作区" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All workspaces"
+          }
+        }
+      }
+    },
+    "全部状态" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All statuses"
+          }
+        }
+      }
+    },
+    "暂无记录" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No records"
+          }
+        }
+      }
+    },
+    "自动运行" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic"
+          }
+        }
+      }
+    },
+    "截至" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Through"
+          }
+        }
+      }
+    },
+    "结束时间" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finished"
+          }
+        }
+      }
+    },
+    "打开 Job" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open job"
+          }
+        }
+      }
+    },
+    "循环轮次" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loop iterations"
+          }
+        }
+      }
+    },
+    "返回执行记录" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back to execution"
+          }
+        }
+      }
+    },
+    "选择定时器" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select timer"
+          }
+        }
+      }
+    },
+    "选择执行状态" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select status"
+          }
+        }
+      }
+    },
+    "已受理" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Accepted"
+          }
+        }
+      }
+    },
+    "正在启动" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starting"
+          }
+        }
+      }
+    },
+    "待启动" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pending"
+          }
+        }
+      }
+    },
+    "已错过" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Missed"
+          }
+        }
+      }
+    },
+    "并发跳过" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skipped (concurrency)"
+          }
+        }
+      }
+    },
     "当前 Session 后停止": {
       "localizations": {
         "en": {

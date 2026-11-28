@@ -265,11 +265,14 @@ func registerRoutes(s *server.Hertz, h *handler.Handler) {
 	// Schedule routes
 	schGroup := api.Group("/schedule")
 	schGroup.POST("/create", permit(auth.PermissionScheduleWrite), h.ScheduleCreate)
+	schGroup.POST("/preview", permit(auth.PermissionScheduleWrite), h.SchedulePreview)
+	schGroup.GET("/executions", permit(auth.PermissionScheduleRead), h.ScheduleExecutions)
+	schGroup.GET("/sessions", permit(auth.PermissionScheduleRead), permit(auth.PermissionJobRead), h.ScheduleSessions)
+	schGroup.POST("/:scheduleId/preview", permit(auth.PermissionScheduleWrite), h.SchedulePreview)
 	schGroup.GET("/list", permit(auth.PermissionScheduleRead), h.ScheduleList)
 	schGroup.GET("/:scheduleId", permit(auth.PermissionScheduleRead), h.ScheduleGet)
 	schGroup.PUT("/:scheduleId", permit(auth.PermissionScheduleWrite), h.ScheduleUpdate)
 	schGroup.DELETE("/:scheduleId", permit(auth.PermissionScheduleWrite), h.ScheduleDelete)
-	schGroup.POST("/:scheduleId/toggle", permit(auth.PermissionScheduleWrite), h.ScheduleToggle)
 	schGroup.POST("/:scheduleId/run", permit(auth.PermissionScheduleExecute), h.ScheduleRun)
 
 	// Share/Unshare routes (auth required)

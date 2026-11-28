@@ -21,7 +21,7 @@ export interface HomeNavigationProps {
   workspaceTitle?: string;
   workdir?: string;
   refreshKey?: number;
-  activeView?: 'home' | 'stats' | 'graph';
+  activeView?: 'home' | 'stats' | 'graph' | 'timers';
   className?: string;
   pageTitle?: string;
   pageMark?: ReactNode;
@@ -32,6 +32,7 @@ export interface HomeNavigationProps {
   onOpenSettings?: () => void;
   onOpenStats?: () => void;
   onOpenGraph?: () => void;
+  onOpenTimers?: () => void;
 }
 
 async function probeWebHealth(): Promise<WebHealthProbe> {
@@ -109,6 +110,7 @@ export function HomeNavigation({
   onOpenSettings,
   onOpenStats,
   onOpenGraph,
+  onOpenTimers,
 }: HomeNavigationProps) {
   const principal = useAuthPrincipal();
   const canReadConfig = principal?.permissions.includes('config.read') ?? false;
@@ -253,6 +255,21 @@ export function HomeNavigation({
                 <line x1="18" y1="20" x2="18" y2="10" />
                 <line x1="12" y1="20" x2="12" y2="4" />
                 <line x1="6" y1="20" x2="6" y2="14" />
+              </svg>
+            </button>
+          )}
+          {onOpenTimers && (
+            <button
+              type="button"
+              className={`header-filebrowser-btn ${activeView === 'timers' ? 'active' : ''}`}
+              onClick={onOpenTimers}
+              aria-current={activeView === 'timers' ? 'page' : undefined}
+              aria-label={t('timers.title')}
+              title={t('timers.title')}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" />
               </svg>
             </button>
           )}

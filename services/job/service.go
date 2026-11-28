@@ -188,7 +188,8 @@ type MessageQueueService interface {
 
 // SendMessageOptions provides parameters for sending a message to an existing session.
 type SendMessageOptions struct {
-	SessionID string
+	TimeoutMinutes int
+	SessionID      string
 	// IdempotencySessionID is the sessionId exactly as supplied by the client.
 	// SessionID may be resolved from the Job's latest session and can therefore
 	// change between an original delivery and a later retry.

@@ -306,6 +306,11 @@ func (s *serviceImpl) ListReplayEvents(ctx context.Context, runID string, startL
 }
 
 func (s *serviceImpl) resolveStartConfig(ctx context.Context, req *model.StartGraphRunRequest) (*model.GraphWorkflow, model.GraphConfig, error) {
+	if wf := req.ScheduledWorkflow; wf != nil {
+		cfg := cloneGraphConfig(wf.Config)
+		cfg.WorkspaceID, cfg.Workdir = req.WorkspaceID, req.Workdir
+		return wf, cfg, nil
+	}
 	if req.Config != nil {
 		cfg := cloneGraphConfig(*req.Config)
 		if _, err := s.normalizeWorkflowAgentReferences(ctx, &cfg); err != nil {

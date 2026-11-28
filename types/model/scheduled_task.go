@@ -8,6 +8,11 @@ import (
 )
 
 type ScheduledTask struct {
+	PlanState       string `json:"planState,omitempty"`
+	StateReason     string `json:"stateReason,omitempty"`
+	WorkflowVersion string `json:"workflowVersion,omitempty"`
+	ApprovalPreview string `json:"approvalPreview,omitempty"`
+	TimerSpec
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	// Enabled is the effective activation state on the current machine.
@@ -48,6 +53,7 @@ type ScheduledTask struct {
 // ScheduleDefinition is the human-maintained portion stored under
 // quartet/config/schedules. Scheduler executions never modify this shape.
 type ScheduleDefinition struct {
+	TimerSpec
 	ID              string    `json:"id"`
 	Name            string    `json:"name"`
 	CronExpr        string    `json:"cronExpr"`

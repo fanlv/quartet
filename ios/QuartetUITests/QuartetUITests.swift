@@ -739,6 +739,39 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(earliestMessage.waitForExistence(timeout: 10), "Earliest page messages were not automatically loaded after scrolling up")
     }
 
+    func testTimerExecutionAndSessionOnIsolatedBackend() throws {
+        guard let address = ProcessInfo.processInfo.environment["QUARTET_TIMER_E2E_URL"] else {
+            throw XCTSkip("Provide a seeded isolated backend through QUARTET_TIMER_E2E_URL.")
+        }
+        app.launchArguments = ["--ui-testing-live-onboarding"]
+        app.launch()
+        let server = app.textFields["connection-server"]
+        XCTAssertTrue(server.waitForExistence(timeout: 10))
+        server.clearAndTypeText(address)
+        app.textFields["connection-username"].tap()
+        app.textFields["connection-username"].typeText("timer-admin")
+        app.secureTextFields["connection-password"].tap()
+        app.secureTextFields["connection-password"].typeText("Timer-Test-Password-1")
+        app.buttons["connection-submit"].tap()
+        let confirmHTTP = app.alerts.buttons["继续连接"]
+        if confirmHTTP.waitForExistence(timeout: 5) { confirmHTTP.tap() }
+        let tab = app.buttons["main-tab-1"]
+        XCTAssertTrue(tab.waitForExistence(timeout: 30))
+        tab.tap()
+        XCTAssertTrue(app.staticTexts["Native timer E2E"].waitForExistence(timeout: 10))
+        app.buttons["timer-all-executions"].tap()
+        XCTAssertTrue(app.staticTexts["Native timer E2E"].waitForExistence(timeout: 10))
+        let sessions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "timer-execution-sessions-")).firstMatch
+        XCTAssertTrue(sessions.waitForExistence(timeout: 10))
+        sessions.tap()
+        let session = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "timer-open-session-")).firstMatch
+        XCTAssertTrue(session.waitForExistence(timeout: 10))
+        session.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["chat-timeline"].firstMatch.waitForExistence(timeout: 10))
+        let output = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "native-timer-marker")).firstMatch
+        XCTAssertTrue(output.waitForExistence(timeout: 15))
+    }
+
     func testLiveBackendScheduledTaskCRUD() throws {
         #if !LIVE_SCHEDULE_E2E
             throw XCTSkip("Set QUARTET_LIVE_E2E=1 to run against the configured real backend.")
@@ -784,6 +817,8 @@ final class QuartetUITests: XCTestCase {
         let save = app.buttons["schedule-save"]
         XCTAssertTrue(save.isEnabled)
         save.tap()
+        XCTAssertTrue(app.staticTexts["确认执行配置"].waitForExistence(timeout: 10))
+        save.tap()
         XCTAssertTrue(app.staticTexts[originalName].waitForExistence(timeout: 20))
 
         app.buttons["schedule-more-\(originalName)"].tap()
@@ -792,6 +827,8 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["编辑定时任务"].waitForExistence(timeout: 5))
         let editName = app.textFields["schedule-name"]
         editName.clearAndTypeText(updatedName)
+        app.buttons["schedule-save"].tap()
+        XCTAssertTrue(app.staticTexts["确认执行配置"].waitForExistence(timeout: 10))
         app.buttons["schedule-save"].tap()
         XCTAssertTrue(app.staticTexts[updatedName].waitForExistence(timeout: 20))
 
@@ -803,6 +840,7 @@ final class QuartetUITests: XCTestCase {
 
         app.buttons["schedule-more-\(updatedName)"].tap()
         app.buttons["schedule-action-toggle"].tap()
+        app.buttons["schedule-confirm-enable"].tap()
         XCTAssertTrue(waitForLabel(updatedRow, toContain: "已启用"))
 
         app.buttons["schedule-more-\(updatedName)"].tap()

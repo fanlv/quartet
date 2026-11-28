@@ -174,25 +174,22 @@ quartet-cli workflow create --name "Code Review" \
 
 ## Scheduled Tasks
 
-Scheduled Tasks run saved Graph Workflows automatically from standard
-five-field cron expressions. A schedule references a workflow rather than
-copying it, so every future trigger reads the latest saved workflow
-configuration.
+Open **Timer management** in Web or **Scheduled Tasks** in iOS to schedule a
+Prompt or a saved Graph Workflow. Run once at a specified time or repeat on an
+hourly, daily, weekly, or custom five-field Cron schedule. Repeating timers can
+end on a date or after a set number of accepted executions.
 
-- Choose the workflow, schedule name, cron expression, and optional workspace
-  binding. An unbound schedule runs in the default workspace.
-- Enable or disable a schedule without deleting it, and use **Run now** to test
-  the same execution path immediately.
-- Set a maximum number of concurrent runs to prevent unwanted overlap, plus an
-  optional timeout for each scheduled execution.
-- See the next trigger time, latest run time, latest status, run count, and the
-  complete trigger error when a run could not be started.
-- Open the latest generated Job directly to inspect the graph, agent sessions,
-  tool activity, output, and errors just like a manually started run.
+The backend runs timers in their configured time zones and enforces each
+timer's concurrency limit. You can disable a timer or use **Run now** to
+consume one execution opportunity. Enabling requires permission to execute
+the target. A changed workflow version needs local approval before it can run.
 
-The scheduler runs inside the Quartet backend. Keep the backend running for
-scheduled automation; `make web-watch` can monitor the service and revive it
-when its port goes down.
+Execution history includes Job links, Sessions, missed triggers, and complete
+errors. You can still open the history after deleting the timer. You can also
+manage timers and inspect their history with `quartet-cli schedule`.
+
+The backend must be running for automatic triggers. `make web-watch` can
+monitor the service and restart it when the port goes down.
 
 ## Completion Hooks
 
@@ -246,9 +243,8 @@ shared set of workspaces, jobs, and sessions.
   execution trace, per-node agent sessions and shell output, and supports stop,
   stop after the current step, cancel a pending stop, resume, and completing a
   clarify discussion.
-- **Scheduled tasks** - create, edit, enable, disable, delete, and manually
-  trigger cron schedules bound to saved workflows, with next run time, run
-  count, latest status, and the complete trigger error.
+- **Scheduled tasks** - manage Prompt and Graph timers, run them immediately,
+  and inspect individual execution records and Sessions.
 - **Usage statistics** - 7/30/90-day, all-time, and custom ranges with totals,
   duration, turns, daily token details, provider-reported cache hit rates, and
   rankings by workspace, model, and tool.
@@ -521,8 +517,8 @@ The command installs `quartet-cli` to `~/.local/bin` by default and registers:
 - `quartet-workflow` for creating, inspecting, validating, updating, deleting,
   and running workflows in the agent-managed library. User-authored workflows
   remain read-only to the CLI.
-- `quartet-schedule` for creating and operating cron schedules backed by saved
-  Graph Workflows.
+- `quartet-schedule` for managing Prompt and Graph timers and viewing their
+  execution history.
 - `quartet-wechat` for listing connected iLink accounts and sending proactive
   text messages through the durable WeChat outbox.
 

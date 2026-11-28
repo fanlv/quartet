@@ -188,6 +188,7 @@ export function JobChat(props: JobChatProps) {
     tokenUsageEstimated,
     roundStartedAt,
     roundFinishedAt,
+    lastJobFinishedAt,
     interactiveAccumulatedMs,
     sessionWorkdir,
     isGraph,
@@ -597,6 +598,9 @@ export function JobChat(props: JobChatProps) {
   })();
 
   const selectedAgent = agents[selectedAgentIndex] ?? null;
+  const usageAgentType = canReadAgents && sessionType !== 'shell'
+    ? sessionType || initialAgentType || selectedAgent?.type
+    : undefined;
 
   // Existing jobs learn their real agent/model from session history after the
   // agent list has already loaded. Refresh that concrete pair once as soon as
@@ -1922,6 +1926,8 @@ export function JobChat(props: JobChatProps) {
             localDraftKey={principal ? `user:${encodeURIComponent(principal.user.id)}:job:${encodeURIComponent(jobId || existingJobId)}` : undefined}
             totalTokens={totalTokens}
             tokenUsageEstimated={tokenUsageEstimated}
+            usageAgentType={usageAgentType}
+            usageRefreshKey={lastJobFinishedAt}
             roundStartedAt={interactiveAccumulatedMs > 0 ? undefined : roundStartedAt}
             roundFinishedAt={interactiveAccumulatedMs > 0 ? undefined : roundFinishedAt}
             totalDurationBaseMs={

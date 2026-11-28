@@ -152,7 +152,7 @@ func (s *serviceImpl) SendMessage(ctx context.Context, jobID string, runner JobR
 	// (never s.mu), so calling it here cannot deadlock. It must still precede
 	// saveJobWithRetryUnderPersistLock so the persist-window race fix stays
 	// intact.
-	res := s.prepareRunResources(job.ID, 0)
+	res := s.prepareRunResources(job.ID, opts.TimeoutMinutes)
 	s.mu.Unlock()
 	if err := s.saveJobWithRetryUnderPersistLock(ctx, job, jobRunActionSendMessageStart); err != nil {
 		s.abortRunResources(job.ID, res)

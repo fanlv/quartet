@@ -76,6 +76,7 @@ interface GraphWorkflowPageProps {
   onOpenSettings?: () => void;
   onOpenStats?: () => void;
   onOpenGraph?: () => void;
+  onOpenTimers?: () => void;
   // Called after a run is started so the app can jump into the Chat page for the
   // bound Graph Job, mirroring the normal Graph run launch flow.
   onRunStarted: (jobId: string) => void;
@@ -604,6 +605,7 @@ export function GraphWorkflowPage({
   onOpenSettings,
   onOpenStats,
   onOpenGraph,
+  onOpenTimers,
   onRunStarted,
 }: GraphWorkflowPageProps) {
   const { t } = useTranslation();
@@ -2197,6 +2199,7 @@ export function GraphWorkflowPage({
         onOpenSettings={onOpenSettings}
         onOpenStats={onOpenStats}
         onOpenGraph={onOpenGraph}
+        onOpenTimers={onOpenTimers}
       />
 
       <main className="graph-page-main">

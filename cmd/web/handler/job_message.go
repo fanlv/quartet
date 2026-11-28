@@ -15,10 +15,8 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/fanlv/quartet/pkg/httputil"
 	"github.com/fanlv/quartet/pkg/logger"
-	"github.com/fanlv/quartet/pkg/strutil"
 	"github.com/fanlv/quartet/services/command"
 	"github.com/fanlv/quartet/services/job"
-	"github.com/fanlv/quartet/types/consts"
 	"github.com/fanlv/quartet/types/model"
 	"github.com/fanlv/quartet/types/msgextra"
 	"github.com/google/uuid"
@@ -397,15 +395,7 @@ func (h *Handler) prepareJobSend(ctx context.Context, j *model.Job, req *model.J
 			h.maybeUpdateSessionModel(opts.SessionID, req.ModelID)
 			h.maybeUpdateSessionACPFields(opts.SessionID, req.ACPMode, req.ACPThoughtLevel)
 		}
-		pendingTitle, userMessage, needSave, shouldRefine := h.planJobTitleUpdate(j, req)
-		if needSave {
-			if err := h.jobService.UpdateTitle(jobID, pendingTitle); err != nil {
-				logger.Errorf(acceptedCtx, "[job] update title failed: jobId=%s err=%v", jobID, err)
-			}
-		}
-		if shouldRefine {
-			h.asyncUpdateJobTitle(acceptedCtx, jobID, userMessage)
-		}
+		h.updateAcceptedJobTitle(acceptedCtx, jobID, j.Title, req.Messages)
 		return nil
 	}
 
@@ -537,29 +527,6 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
-}
-
-// planJobTitleUpdate computes a pending title for the job if needed and
-// schedules an async LLM-based refinement.
-func (h *Handler) planJobTitleUpdate(j *model.Job, req *model.JobMessageRequest) (pendingTitle, userMessage string, needSave, shouldRefine bool) {
-	isDefaultTitle := false
-	if (j.Title == "" || j.Title == consts.DefaultJobTitle) && len(req.Messages) > 0 && req.Messages[0].Content != "" {
-		pendingTitle = strutil.TruncateRunes(req.Messages[0].Content, 30)
-		needSave = true
-		isDefaultTitle = true
-	}
-
-	if isDefaultTitle || j.Title == consts.DefaultJobTitle || j.Title == "" {
-		var parts []string
-		for _, m := range req.Messages {
-			if m.Content != "" {
-				parts = append(parts, m.Content)
-			}
-		}
-		userMessage = strings.Join(parts, "\n")
-		shouldRefine = true
-	}
-	return pendingTitle, userMessage, needSave, shouldRefine
 }
 
 // prepareJobMessage validates a JobMessageRequest and builds SendMessageOptions

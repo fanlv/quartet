@@ -120,7 +120,7 @@ var permissionDependencies = map[Permission][]Permission{
 	PermissionWorkflowWrite:   {PermissionWorkflowRead},
 	PermissionWorkflowExecute: {PermissionWorkflowRead, PermissionJobExecute},
 	PermissionScheduleWrite:   {PermissionScheduleRead, PermissionWorkflowRead, PermissionWorkspaceRead},
-	PermissionScheduleExecute: {PermissionScheduleRead, PermissionWorkflowExecute},
+	PermissionScheduleExecute: {PermissionScheduleRead, PermissionJobExecute},
 	PermissionFileWrite:       {PermissionFileRead},
 	PermissionFileShare:       {PermissionFileRead},
 	PermissionAgentManage:     {PermissionAgentRead},

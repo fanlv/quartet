@@ -174,6 +174,8 @@ type ReorderWorkspacesRequest struct {
 // ---- Scheduled Task requests ----
 
 type CreateScheduleRequest struct {
+	ExpectedApproval string `json:"expectedApproval,omitempty"`
+	TimerSpec
 	Name            string `json:"name"`
 	CronExpr        string `json:"cronExpr"`
 	GraphWorkflowID string `json:"graphWorkflowId,omitempty"`
@@ -187,12 +189,21 @@ type CreateScheduleRequest struct {
 }
 
 type UpdateScheduleRequest struct {
-	Name            *string `json:"name,omitempty"`
-	CronExpr        *string `json:"cronExpr,omitempty"`
-	Enabled         *bool   `json:"enabled,omitempty"`
-	GraphWorkflowID *string `json:"graphWorkflowId,omitempty"`
-	WorkspaceID     *string `json:"workspaceId,omitempty"`
-	Workdir         *string `json:"workdir,omitempty"`
-	MaxConcurrent   *int    `json:"maxConcurrent,omitempty"`
-	Timeout         *int    `json:"timeout,omitempty"`
+	Kind             *string `json:"kind,omitempty"`
+	Prompt           *string `json:"prompt,omitempty"`
+	AgentID          *string `json:"agentId,omitempty"`
+	ModelID          *string `json:"modelId,omitempty"`
+	RunAt            *string `json:"runAt,omitempty"`
+	TimeZone         *string `json:"timeZone,omitempty"`
+	EndDate          *string `json:"endDate,omitempty"`
+	MaxRuns          *int    `json:"maxRuns,omitempty"`
+	ExpectedApproval string  `json:"expectedApproval,omitempty"`
+	Name             *string `json:"name,omitempty"`
+	CronExpr         *string `json:"cronExpr,omitempty"`
+	Enabled          *bool   `json:"enabled,omitempty"`
+	GraphWorkflowID  *string `json:"graphWorkflowId,omitempty"`
+	WorkspaceID      *string `json:"workspaceId,omitempty"`
+	Workdir          *string `json:"workdir,omitempty"`
+	MaxConcurrent    *int    `json:"maxConcurrent,omitempty"`
+	Timeout          *int    `json:"timeout,omitempty"`
 }

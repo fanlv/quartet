@@ -148,6 +148,8 @@ func (f *fakeJobService) PublishTransient(string, any) {
 	f.mu.Unlock()
 }
 
+func (f *fakeJobService) Publish(string, any) {}
+
 // A message sent to a Running job is rejected by SendMessage with
 // ErrJobRunning (409). prepareJobSend must reject it UP FRONT: the pre-send
 // flow applies metadata side effects (job title from the first message,
