@@ -1,4 +1,5 @@
 import { getCSRFToken } from '../auth';
+import type { CodexUsage } from '../utils/agentUsage';
 
 export interface CodexAccount {
   id: string;
@@ -50,6 +51,24 @@ export interface CodexLogin {
   account_id?: string;
 }
 
+export interface CodexResetCard {
+  id: string;
+  expires_at?: number;
+}
+
+export interface CodexAccountUsageResponse {
+  code: number;
+  usage: CodexUsage;
+  reset_cards?: CodexResetCard[];
+  reset_cards_error?: string;
+}
+
+interface CodexAccountResetResponse {
+  code: number;
+  outcome: string;
+  windows_reset: number;
+}
+
 const base = '/api/v1/agent/codex/accounts';
 
 // randomUUID is unavailable on plain HTTP LAN addresses. getRandomValues is
@@ -82,6 +101,23 @@ export async function codexRequest<T = Record<string, unknown>>(path = '', init?
 
 export function fetchCodexAccounts(signal?: AbortSignal) {
   return codexRequest<CodexAccountsResponse>('', { signal });
+}
+
+export function fetchCodexAccountUsage(liveRevision: string, signal: AbortSignal) {
+  return codexRequest<CodexAccountUsageResponse>(`/current/usage?live_revision=${encodeURIComponent(liveRevision)}`, { signal });
+}
+
+export function fetchSavedCodexAccountUsage(accountId: string, revision: string, signal: AbortSignal) {
+  const path = `/${encodeURIComponent(accountId)}/usage?revision=${encodeURIComponent(revision)}`;
+  return codexRequest<CodexAccountUsageResponse>(path, { signal });
+}
+
+export function redeemCodexReset(liveRevision: string, creditId: string, operationId: string) {
+  return codexRequest<CodexAccountResetResponse>('/current/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ live_revision: liveRevision, credit_id: creditId, operation_id: operationId }),
+  });
 }
 
 export function mutateCodexAccount(

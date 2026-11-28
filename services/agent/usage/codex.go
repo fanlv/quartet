@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,14 +21,8 @@ import (
 )
 
 const (
-	// codexUsageURL is the ChatGPT usage endpoint. It is unreachable directly
-	// from the host and must go through the proxy the user configured in the
-	// Codex ACP env vars (http_proxy / https_proxy).
-	codexUsageURL = "https://chatgpt.com/backend-api/wham/usage"
-	// codexResetCreditsURL returns the per-credit detail for the rate-limit
-	// reset credits (the usage endpoint only gives the aggregate count). Same
-	// host as codexUsageURL, so it goes through the same Codex proxy.
-	codexResetCreditsURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
+	codexUsageURL      = "https://chatgpt.com/backend-api/wham/usage"
+	codexResetCardsURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
 )
 
 type codexAuthFile struct {
@@ -70,31 +65,85 @@ type codexSpendControl struct {
 	} `json:"individual_limit"`
 }
 
-// codexResetCreditsResp is the rate-limit-reset-credits endpoint payload. Each
-// credit carries its own status and expiry; only "available" ones are usable.
-type codexResetCreditsResp struct {
-	AvailableCount int `json:"available_count"`
+type codexResetCardsResponse struct {
+	AvailableCount *int `json:"available_count"`
 	Credits        []struct {
+		ID        string `json:"id"`
 		Status    string `json:"status"`     // "available" | "redeemed" | "expired" | ...
-		ExpiresAt string `json:"expires_at"` // RFC3339, e.g. "2026-07-18T00:34:21.912338Z"
+		ExpiresAt string `json:"expires_at"` // RFC3339
 	} `json:"credits"`
 }
 
-// codexResetCredits is the parsed reset-credit detail. fetched is false when the
-// supplementary call failed, so the caller can fall back to the aggregate count
-// from the usage endpoint. Expiries hold unix seconds of available credits,
-// ascending.
-type codexResetCredits struct {
-	fetched  bool
+type codexResetCards struct {
 	count    int
 	expiries []int64
+	cards    []model.CodexResetCard
+}
+
+// CodexClient reads usage and redeems banked resets for a single ChatGPT login.
+// All calls use the same account header and Codex ACP proxy.
+type CodexClient struct {
+	http        *http.Client
+	accessToken string
+	workspaceID string
+}
+
+func NewCodexClient(env map[string]string, accessToken, workspaceID string) *CodexClient {
+	return &CodexClient{
+		http: &http.Client{
+			Timeout:   25 * time.Second,
+			Transport: proxyTransport(env),
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+		accessToken: accessToken,
+		workspaceID: workspaceID,
+	}
+}
+
+func (c *CodexClient) Close() {
+	c.http.CloseIdleConnections()
+}
+
+func (c *CodexClient) request(ctx context.Context, method, url, operation string, payload []byte, result any) error {
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	req.Header.Set("Accept", "application/json")
+	if c.workspaceID != "" {
+		req.Header.Set("ChatGPT-Account-Id", c.workspaceID)
+	}
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("request %s failed: %w", operation, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := readAllLimited(resp)
+	if err != nil {
+		return fmt.Errorf("read %s response failed: %w", operation, err)
+	}
+	safeBody := func() string {
+		return strings.ReplaceAll(string(body), c.accessToken, "[redacted]")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("%s returned HTTP %d: %s", operation, resp.StatusCode, safeBody())
+	}
+	if err := json.Unmarshal(body, result); err != nil {
+		return fmt.Errorf("parse %s response failed: %w (body: %s)", operation, err, safeBody())
+	}
+	return nil
 }
 
 func (s *serviceImpl) CodexUsage(ctx context.Context) (*model.CodexUsage, error) {
-	// Fetch the Codex CLI version in parallel so it adds no serial latency.
-	verCh := s.codexVersionAsync(ctx)
-
-	home, err := typepath.CodexHome(s.codexACPEnv())
+	env := s.codexACPEnv()
+	home, err := typepath.CodexHome(env)
 	if err != nil {
 		return nil, fmt.Errorf("get home dir failed: %w", err)
 	}
@@ -111,57 +160,63 @@ func (s *serviceImpl) CodexUsage(ctx context.Context) (*model.CodexUsage, error)
 		return nil, fmt.Errorf("%s: tokens.access_token is empty", authPath)
 	}
 
-	client := &http.Client{
-		Timeout:   25 * time.Second,
-		Transport: proxyTransport(s.codexACPEnv()),
-	}
-	// Fetch per-credit reset detail in parallel with the usage request; it shares
-	// the same proxy client and auth. Non-fatal — see codexResetCredits.
-	creditsCh := s.codexResetCreditsAsync(ctx, client, auth.Tokens.AccessToken, auth.Tokens.AccountID)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, codexUsageURL, nil)
+	// Fetch the Codex CLI version in parallel so it adds no serial latency.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	verCh := s.codexVersionAsync(ctx)
+	client := NewCodexClient(env, auth.Tokens.AccessToken, auth.Tokens.AccountID)
+	defer client.Close()
+	snapshot, err := client.Usage(ctx)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+auth.Tokens.AccessToken)
-	if auth.Tokens.AccountID != "" {
-		req.Header.Set("chatgpt-account-id", auth.Tokens.AccountID)
-	}
+	snapshot.Usage.Version = <-verCh
+	return &snapshot.Usage, nil
+}
 
-	resp, err := client.Do(req)
+func (c *CodexClient) Usage(ctx context.Context) (*model.CodexAccountUsageResponse, error) {
+	// Supplementary card details may fail independently of the quota read.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type cardResult struct {
+		details codexResetCards
+		err     error
+	}
+	cardsCh := make(chan cardResult, 1)
+	go func() {
+		details, err := c.readResetCards(ctx)
+		cardsCh <- cardResult{details: details, err: err}
+	}()
+
+	quota, err := c.Quota(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("request ChatGPT usage failed: %w", err)
+		return nil, err
 	}
-	defer resp.Body.Close()
-
-	body, _ := readAllLimited(resp)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("ChatGPT usage returned HTTP %d: %s", resp.StatusCode, string(body))
+	snapshot := &model.CodexAccountUsageResponse{Usage: quota}
+	cards := <-cardsCh
+	if cards.err != nil {
+		logger.Warnf(ctx, "[agent.usage] %v", cards.err)
+		snapshot.ResetCardsError = cards.err.Error()
+	} else {
+		snapshot.Usage.ResetCredits = cards.details.count
+		snapshot.Usage.ResetCreditExpiries = cards.details.expiries
+		snapshot.ResetCards = cards.details.cards
 	}
+	return snapshot, nil
+}
 
-	var u codexUsageResp
-	if err := json.Unmarshal(body, &u); err != nil {
-		return nil, fmt.Errorf("parse ChatGPT usage response failed: %w (body: %s)", err, string(body))
+func (c *CodexClient) Quota(ctx context.Context) (model.CodexUsage, error) {
+	var data codexUsageResp
+	if err := c.request(ctx, http.MethodGet, codexUsageURL, "ChatGPT usage", nil, &data); err != nil {
+		return model.CodexUsage{}, err
 	}
-	spendLimit := u.SpendControl.usageLimit()
-
-	// Prefer the reset-credits endpoint's count (it's the source of the expiry
-	// list, so they always agree); fall back to the usage endpoint's aggregate.
-	credits := <-creditsCh
-	resetCount := u.RateLimitResetCredits.AvailableCount
-	if credits.fetched {
-		resetCount = credits.count
-	}
-
-	return &model.CodexUsage{
-		Email:               u.Email,
-		PlanType:            u.PlanType,
-		Version:             <-verCh,
-		PrimaryWindow:       toUsageWindow(u.RateLimit.PrimaryWindow),
-		SecondaryWindow:     toUsageWindow(u.RateLimit.SecondaryWindow),
-		SpendLimit:          spendLimit,
-		ResetCredits:        resetCount,
-		ResetCreditExpiries: credits.expiries,
+	return model.CodexUsage{
+		Email:           data.Email,
+		PlanType:        data.PlanType,
+		PrimaryWindow:   toUsageWindow(data.RateLimit.PrimaryWindow),
+		SecondaryWindow: toUsageWindow(data.RateLimit.SecondaryWindow),
+		SpendLimit:      data.SpendControl.usageLimit(),
+		ResetCredits:    data.RateLimitResetCredits.AvailableCount,
 	}, nil
 }
 
@@ -212,80 +267,97 @@ func codexSpendAmount(raw json.RawMessage) *float64 {
 	return &amount
 }
 
-// codexResetCreditsAsync fetches the reset-credit detail on a goroutine and
-// returns a buffered channel with the result. Any failure yields a zero value
-// (fetched=false) after a warning — the expiry list is supplementary and must
-// not fail the whole usage request.
-func (s *serviceImpl) codexResetCreditsAsync(ctx context.Context, client *http.Client, accessToken, accountID string) <-chan codexResetCredits {
-	ch := make(chan codexResetCredits, 1)
-	go func() { ch <- s.codexResetCredits(ctx, client, accessToken, accountID) }()
-	return ch
+func (c *CodexClient) readResetCards(ctx context.Context) (codexResetCards, error) {
+	var data codexResetCardsResponse
+	if err := c.request(ctx, http.MethodGet, codexResetCardsURL, "ChatGPT reset cards", nil, &data); err != nil {
+		return codexResetCards{}, err
+	}
+	if data.AvailableCount == nil && data.Credits == nil {
+		return codexResetCards{}, fmt.Errorf("ChatGPT reset cards response had neither available_count nor credits")
+	}
+
+	var result codexResetCards
+	now := time.Now()
+	for _, card := range data.Credits {
+		if card.Status != "available" {
+			continue
+		}
+		var expiresAt int64
+		if card.ExpiresAt != "" {
+			expiry, err := time.Parse(time.RFC3339, card.ExpiresAt)
+			if err != nil {
+				logger.Warnf(ctx, "[agent.usage] parse reset card expiry: %v", err)
+			} else {
+				if !expiry.After(now) {
+					continue
+				}
+				expiresAt = expiry.Unix()
+				result.expiries = append(result.expiries, expiresAt)
+			}
+		}
+		result.count++
+		if card.ID != "" {
+			result.cards = append(result.cards, model.CodexResetCard{ID: card.ID, ExpiresAt: expiresAt})
+		}
+	}
+	if data.AvailableCount != nil {
+		result.count = max(*data.AvailableCount, result.count)
+	}
+	slices.Sort(result.expiries)
+	slices.SortStableFunc(result.cards, func(a, b model.CodexResetCard) int {
+		switch {
+		case a.ExpiresAt == b.ExpiresAt:
+			return 0
+		case b.ExpiresAt == 0 || a.ExpiresAt != 0 && a.ExpiresAt < b.ExpiresAt:
+			return -1
+		default:
+			return 1
+		}
+	})
+	return result, nil
 }
 
-func (s *serviceImpl) codexResetCredits(ctx context.Context, client *http.Client, accessToken, accountID string) codexResetCredits {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, codexResetCreditsURL, nil)
+func (c *CodexClient) ResetCards(ctx context.Context) ([]model.CodexResetCard, int, error) {
+	result, err := c.readResetCards(ctx)
+	return result.cards, result.count, err
+}
+
+func (c *CodexClient) RedeemReset(ctx context.Context, creditID, operationID string) (model.CodexAccountResetResponse, error) {
+	// The selected credit and the operation UUID are both required by the
+	// ChatGPT consume endpoint. Reusing the UUID makes a retry idempotent.
+	body, err := json.Marshal(map[string]string{"credit_id": creditID, "redeem_request_id": operationID})
 	if err != nil {
-		logger.Warnf(ctx, "[agent.usage] build reset-credits request failed: %v", err)
-		return codexResetCredits{}
+		return model.CodexAccountResetResponse{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	if accountID != "" {
-		req.Header.Set("chatgpt-account-id", accountID)
+	var data struct {
+		Code         string `json:"code"`
+		WindowsReset int    `json:"windows_reset"`
 	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		logger.Warnf(ctx, "[agent.usage] request reset-credits failed: %v", err)
-		return codexResetCredits{}
+	if err := c.request(ctx, http.MethodPost, codexResetCardsURL+"/consume", "ChatGPT reset card redemption", body, &data); err != nil {
+		return model.CodexAccountResetResponse{}, err
 	}
-	defer resp.Body.Close()
-
-	body, _ := readAllLimited(resp)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		logger.Warnf(ctx, "[agent.usage] reset-credits returned HTTP %d: %s", resp.StatusCode, string(body))
-		return codexResetCredits{}
+	if data.Code == "" {
+		return model.CodexAccountResetResponse{}, fmt.Errorf("ChatGPT reset card redemption returned no outcome")
 	}
-
-	var r codexResetCreditsResp
-	if err := json.Unmarshal(body, &r); err != nil {
-		logger.Warnf(ctx, "[agent.usage] parse reset-credits failed: %v (body: %s)", err, string(body))
-		return codexResetCredits{}
-	}
-
-	var expiries []int64
-	for _, c := range r.Credits {
-		if c.Status != "available" {
-			continue
-		}
-		if c.ExpiresAt == "" {
-			continue
-		}
-		t, err := time.Parse(time.RFC3339, c.ExpiresAt)
-		if err != nil {
-			logger.Warnf(ctx, "[agent.usage] parse reset-credit expires_at %q failed: %v", c.ExpiresAt, err)
-			continue
-		}
-		expiries = append(expiries, t.Unix())
-	}
-	slices.Sort(expiries)
-	// available_count is authoritative when present; otherwise derive from the
-	// available credits we counted.
-	count := r.AvailableCount
-	if count == 0 && len(expiries) > 0 {
-		count = len(expiries)
-	}
-	return codexResetCredits{fetched: true, count: count, expiries: expiries}
+	return model.CodexAccountResetResponse{
+		Outcome:      strings.ReplaceAll(data.Code, c.accessToken, "[redacted]"),
+		WindowsReset: data.WindowsReset,
+	}, nil
 }
 
 func toUsageWindow(w *codexWindow) *model.UsageWindow {
 	if w == nil {
 		return nil
 	}
+	resetAt := w.ResetAt
+	if resetAt <= 0 && w.ResetAfterSeconds > 0 {
+		resetAt = time.Now().Unix() + w.ResetAfterSeconds
+	}
 	return &model.UsageWindow{
 		UsedPercent:        w.UsedPercent,
 		LimitWindowSeconds: w.LimitWindowSeconds,
 		ResetAfterSeconds:  w.ResetAfterSeconds,
-		ResetAt:            w.ResetAt,
+		ResetAt:            resetAt,
 	}
 }
 

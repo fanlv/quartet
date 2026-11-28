@@ -1,0 +1,109 @@
+:root {
+  --dropdown-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%236d8174' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+select:not([multiple], [size]:not([size='1'])) {
+  appearance: none;
+  padding-inline-end: 36px;
+  background-image: var(--dropdown-chevron);
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 16px;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+select:not([multiple], [size]:not([size='1'])):dir(rtl) {
+  background-position: left 9px center;
+}
+
+select:not([multiple], [size]:not([size='1'])):disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.dropdown-chevron {
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  background-color: var(--muted);
+  mask: var(--dropdown-chevron) center / contain no-repeat;
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+:is([aria-expanded='true'], :has(> select:open)) > .dropdown-chevron,
+.dropdown-chevron[data-open='true'] {
+  transform: rotate(180deg);
+}
+
+/* Touch devices keep their system picker. */
+@media (hover: hover) and (pointer: fine) and (forced-colors: none) {
+  @supports (appearance: base-select) and selector(select::picker(select)) {
+    select:not([multiple], [size]:not([size='1'])) {
+      appearance: base-select;
+      align-items: center;
+
+      &::picker-icon {
+        display: none;
+      }
+
+      &::picker(select) {
+        appearance: base-select;
+        max-inline-size: calc(100dvw - 24px);
+        max-block-size: min(20rem, 50dvh);
+        margin-block: 4px;
+        padding: 4px;
+        overflow: auto;
+        overscroll-behavior: contain;
+        color: var(--fg);
+        background-color: var(--surface);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-control);
+        box-shadow: var(--shadow-raised);
+      }
+
+      & option {
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 1.4;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+
+      & option:checked {
+        color: var(--accent-deep);
+        background-color: var(--accent-soft);
+      }
+
+      & option:not(:disabled, :checked):hover {
+        background-color: var(--elevated);
+      }
+
+      & option:focus-visible {
+        outline: 2px solid var(--accent-deep);
+        outline-offset: -2px;
+      }
+
+      & option:disabled {
+        color: var(--muted-2);
+      }
+    }
+  }
+}
+
+@media (forced-colors: active) {
+  select:not([multiple], [size]:not([size='1'])) {
+    appearance: auto;
+    background-image: none;
+  }
+
+  .dropdown-chevron {
+    forced-color-adjust: none;
+    background-color: ButtonText;
+  }
+}

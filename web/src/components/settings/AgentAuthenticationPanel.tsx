@@ -271,7 +271,10 @@ export function AgentAuthenticationPanel({ agentId, name, request, onChanged, on
     <div className="agent-auth-overlay" onClick={(event) => { if (event.target === event.currentTarget) void close(); }}>
       <div className="agent-auth-panel" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} ref={dialogRef}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') { event.stopPropagation(); void close(); }
+          if (event.key === 'Escape') {
+            event.stopPropagation();
+            if (!(event.target instanceof Element && event.target.closest('select:is(:open)'))) void close();
+          }
           if (event.key === 'Tab') {
             const controls = dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), select:not(:disabled), a[href], summary');
             const first = controls?.[0]; const last = controls?.[controls.length - 1];

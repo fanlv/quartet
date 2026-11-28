@@ -73,7 +73,7 @@
 .gi-field input,
 .gi-field textarea,
 .gi-field select {
-  background: var(--graph-panel-2, #18221b);
+  background-color: var(--graph-panel-2, #18221b);
   border: 1px solid var(--graph-border-strong, #39764b);
   border-radius: 6px;
   color: var(--graph-text, #f0f7f2);
@@ -332,7 +332,7 @@
 }
 .gi-cond-rule input,
 .gi-cond-rule select {
-  background: var(--graph-panel, #0f1712);
+  background-color: var(--graph-panel, #0f1712);
   border: 1px solid var(--graph-border-strong, #39764b);
   border-radius: 6px;
   color: var(--graph-text, #f0f7f2);

@@ -35,7 +35,7 @@
 .agent-auth-actions .settings-btn { min-width: 92px; }
 .agent-auth-note { color: var(--muted); font-size: 12px; }
 .agent-auth-method { display: flex; align-items: center; gap: 12px; margin: 20px 0; font-size: 13px; }
-.agent-auth-method select { flex: 1; min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--elevated); color: var(--fg); }
+.agent-auth-method select { flex: 1; min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background-color: var(--elevated); color: var(--fg); }
 .agent-auth-output { margin: 10px 0 16px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font-size: 12px; line-height: 1.7; padding: 12px; border-radius: 6px; background: var(--elevated); }
 .agent-auth-output.error { color: var(--danger); }
 .agent-auth-output a { color: var(--accent-deep); text-decoration: underline; text-underline-offset: 3px; }

@@ -431,6 +431,36 @@ test('auth gate shows probe failure and retry can recover in a real browser', as
   await expectHomeReady(page)
 })
 
+test('settings opens without resizing the workspace while its content loads', async ({ page }) => {
+  const { promise: settingsModuleReady, resolve: releaseSettingsModule } = Promise.withResolvers<void>()
+  await page.route(url => url.pathname.endsWith('/settings/GeneralSettings.tsx'), async (route) => {
+    await settingsModuleReady
+    await route.continue()
+  })
+
+  await openAppWithAuth(page)
+  const settingsButton = page.getByTestId('settings-open-button')
+  const modal = page.getByTestId('settings-modal')
+  const workspace = page.locator('.app-main')
+  await expect(settingsButton).toBeVisible()
+  const workspaceBounds = await workspace.boundingBox()
+
+  try {
+    await settingsButton.click()
+    await expect(modal.getByRole('status')).toHaveText('Loading...')
+    expect(await workspace.boundingBox()).toEqual(workspaceBounds)
+
+    await modal.getByTestId('settings-close-button').click()
+    await expect(modal).toHaveCount(0)
+  } finally {
+    releaseSettingsModule()
+  }
+
+  await settingsButton.click()
+  await expect(modal.getByTestId('settings-language-select')).toBeVisible()
+  expect(await workspace.boundingBox()).toEqual(workspaceBounds)
+})
+
 test('switches language from settings in real browser', async ({ page }) => {
   await openAppWithAuth(page)
 

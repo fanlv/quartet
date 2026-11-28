@@ -82,9 +82,7 @@ function PillSelect({ value, options, onSelect, withIcons }: PillSelectProps) {
       <div className="settings-model-tag" onClick={() => setOpen(!open)}>
         {withIcons && optionIcon(current?.iconUrl)}
         <span className="settings-model-tag-text">{current?.label ?? value}</span>
-        <svg className="settings-model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M6 9l6 6 6-6" />
-        </svg>
+        <span className="dropdown-chevron" data-open={open} aria-hidden="true" />
       </div>
       {open && (
         <div className="settings-model-dropdown">

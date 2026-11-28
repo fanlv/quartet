@@ -794,11 +794,6 @@
   white-space: nowrap;
 }
 
-.graph-ws-caret {
-  flex-shrink: 0;
-  opacity: 0.5;
-}
-
 .graph-ws-dropdown {
   position: absolute;
   top: calc(100% + 6px);

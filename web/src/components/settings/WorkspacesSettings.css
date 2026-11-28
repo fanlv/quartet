@@ -247,7 +247,7 @@
   font-size: 13px;
   box-sizing: border-box;
   transition: border-color .15s, box-shadow .15s;
-  background: var(--surface);
+  background-color: var(--surface);
 }
 .ws-form-field input:focus,
 .ws-form-field textarea:focus,

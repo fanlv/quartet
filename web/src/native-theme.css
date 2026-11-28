@@ -516,7 +516,7 @@
 }
 
 #root .settings-content {
-  padding: 26px;
+  --settings-content-padding: 26px;
   background: var(--canvas);
 }
 
@@ -563,14 +563,14 @@
 #root :is(.settings-input, .settings-select) {
   min-height: var(--control-height);
   color: var(--fg);
-  background: var(--canvas);
+  background-color: var(--canvas);
   border-color: var(--border-strong);
   border-radius: var(--radius-control);
-  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), background var(--motion-fast);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), background-color var(--motion-fast);
 }
 
 #root :is(.settings-input, .settings-select):focus {
-  background: var(--surface);
+  background-color: var(--surface);
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-ring);
 }
@@ -741,7 +741,7 @@
   }
 
   #root .settings-content {
-    padding: 12px;
+    --settings-content-padding: 12px;
   }
 
   #root .settings-section {

@@ -443,7 +443,7 @@ function readUpgradeResult(
 // component versions and runs catalog-controlled install/upgrade flows. The
 // backend only accepts an agent_id; complete step output, recheck and
 // validation results remain visible in the UI.
-export function AgentInstallSettings() {
+export function AgentInstallSettings({ onOpenCodexAccounts }: { onOpenCodexAccounts?: () => void }) {
   const { t } = useTranslation();
   const [catalog, setCatalog] = useState<CatalogAgent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1092,11 +1092,9 @@ export function AgentInstallSettings() {
 
   return (
     <div className="agent-install">
-      <div className="agent-install-desc">{t('settings.agents.description')}</div>
-
       <div className="agent-directory-toolbar">
         <div className="agent-directory-toolbar-title">
-          <strong>{t('settings.tabs.agents')}</strong>
+          <strong>{t('settings.agents.installedCount', { count: catalog.filter((agent) => agent.installed).length })}</strong>
           {batchUpgradeCandidates.length > 0 && (
             <span className="agent-version-count">
               {t('settings.agents.version.agentUpdateCount', {
@@ -1129,7 +1127,7 @@ export function AgentInstallSettings() {
             onClick={() => openCustomForm()}
             data-testid="agent-add-button"
           >
-            {t('common.add')}
+            {t('settings.agents.addCustom')}
           </button>
         </div>
       </div>
@@ -1225,6 +1223,11 @@ export function AgentInstallSettings() {
           const requestError = requestErrors[agent.agent_id];
           const checkFeedback = validationFeedback[agent.agent_id];
           const versionInfo = versions[agent.agent_id];
+          const installedVersion = versionInfo?.components.find((component) => component.name === agent.definition.bin && component.current_version)
+            ?? versionInfo?.components.find((component) => component.current_version);
+          const diagnostics = [agent.availability_error, agent.delete_error,
+            ...(versionInfo?.components.flatMap((component) => component.error ? [`${component.name}\n${component.error}`] : []) ?? [])]
+            .filter(Boolean);
           const expanded = expandedAgentIds.has(agent.agent_id);
           const detailId = `agent-install-details-${agent.agent_id}`;
           const showManual = agent.source === 'builtin' && !agent.deprecated
@@ -1251,7 +1254,10 @@ export function AgentInstallSettings() {
                         {t(`settings.agents.status.${agent.availability}`)}
                       </span>
                       {agent.refreshing && <span className="agent-auto-check-status" role="status"><span className="agent-check-spinner" aria-hidden="true" />{t('settings.agents.checkingAvailability')}</span>}
-                      {agent.current_revision && <code className="agent-install-rev">{agent.current_revision}</code>}
+                      {installedVersion && <code className="agent-install-rev" title={installedVersion.name}>{installedVersion.current_version}</code>}
+                      {versionInfo?.update_available && (
+                        <span className="agent-version-update-badge">{t('settings.agents.version.updateAvailable')}</span>
+                      )}
                     </span>
                   </span>
                 </div>
@@ -1322,16 +1328,10 @@ export function AgentInstallSettings() {
                 </button>
               </div>
 
-              {(agent.availability_error || agent.delete_error) && (
-                <pre className="agent-directory-error">{agent.availability_error || agent.delete_error}</pre>
-              )}
-              {versionInfo?.components.filter((component) => !!component.error).map((component) => (
-                <pre key={`${component.kind}-${component.name}`} className="agent-directory-error">
-                  {component.name}
-                  {'\n'}
-                  {component.error}
-                </pre>
-              ))}
+              {diagnostics.length > 0 && <details className="agent-directory-diagnostics">
+                <summary>{t('settings.agents.viewDiagnostics')}</summary>
+                <pre className="agent-directory-error">{diagnostics.join('\n\n')}</pre>
+              </details>}
 
               {checkFeedback && (
                 <div
@@ -1371,6 +1371,12 @@ export function AgentInstallSettings() {
                   data-testid="agent-install-card-details"
                 >
                   <div className="agent-install-actions">
+                    {agent.agent_id === 'codex' && onOpenCodexAccounts && (
+                      <button type="button" className="settings-btn settings-btn-secondary"
+                        disabled={!!installBusy || !!managementPending} onClick={onOpenCodexAccounts}>
+                        {t('settings.codexAccounts.title')}
+                      </button>
+                    )}
                     {agent.source === 'custom' && agent.lifecycle === 'active' && (
                       <>
                         <button className="settings-btn settings-btn-secondary" disabled={managementPending !== '' || batchUpgrade !== null || installBusy !== null} onClick={() => openCustomForm(agent)}>
@@ -1400,6 +1406,7 @@ export function AgentInstallSettings() {
                   <div className="agent-install-row">
                     <span className="agent-install-label">Agent ID</span>
                     <code>{agent.agent_id}</code>
+                    {agent.current_revision && <code title={t('settings.agents.revisions')}>{agent.current_revision}</code>}
                   </div>
                   <div className="agent-install-row">
                     <span className="agent-install-label">{t('settings.agents.launchDefinition')}</span>

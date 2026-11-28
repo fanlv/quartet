@@ -1,6 +1,8 @@
 // Agent subscription / quota info shown on the Home page for supported ACP
 // agents. Fetched fresh on every agent-type switch.
 
+import type { TFunction } from 'i18next';
+
 export interface UsageWindow {
   used_percent: number;
   limit_window_seconds: number;
@@ -28,6 +30,18 @@ export interface CodexSpendLimit {
   used_percent?: number;
   reset_at?: number;
   reached?: boolean;
+}
+
+export function prettifyPlan(plan?: string): string {
+  return (plan ?? '').split('_').filter(Boolean).map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
+export function codexPlanLabel(planType: string | undefined, t: TFunction): string {
+  const plan = planType?.trim().toLowerCase() ?? '';
+  if (plan === 'ent26' || plan === 'enterprise' || plan.startsWith('enterprise_')) return t('agentUsage.codexEnterprise');
+  if (plan === 'team' || plan === 'business' || plan.startsWith('self_serve_business_')) return t('agentUsage.codexBusiness');
+  if (plan === 'education' || plan === 'edu' || plan.startsWith('edu_')) return t('agentUsage.codexEducation');
+  return prettifyPlan(plan);
 }
 
 export interface ClaudeUsage {
@@ -121,12 +135,16 @@ export type AgentUsageProvider = 'codex' | 'claude' | 'antigravity' | 'kimi' | '
 export const CODEX_ACCOUNT_CHANGED_EVENT = 'quartet:codex-account-changed';
 export const CODEX_ACCOUNT_STORAGE_KEY = 'quartet:codex-account-revision';
 
-export function notifyCodexAccountChanged() {
+export function notifyCodexUsageChanged() {
   try {
     localStorage.removeItem(cacheKey('codex'));
     localStorage.setItem(CODEX_ACCOUNT_STORAGE_KEY, `${Date.now()}-${Math.random()}`);
   } catch { /* Memory-only clients still receive the change event. */ }
   window.dispatchEvent(new CustomEvent(CODEX_ACCOUNT_CHANGED_EVENT));
+}
+
+export function notifyCodexAccountChanged() {
+  notifyCodexUsageChanged();
   window.dispatchEvent(new CustomEvent('quartet:agent-catalog-changed', { detail: { agentId: 'codex' } }));
 }
 

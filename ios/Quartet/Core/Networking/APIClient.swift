@@ -395,6 +395,21 @@ struct APIClient: @unchecked Sendable {
         }
     }
 
+    func codexAccountUsage(liveRevision: String) async throws -> CodexAccountUsageResponse {
+        try await request(
+            path: "api/v1/agent/codex/accounts/current/usage",
+            query: [URLQueryItem(name: "live_revision", value: liveRevision)]
+        ) { response in
+            response.code == 0 ? nil : "code must equal 0; received \(response.code)"
+        }
+    }
+
+    func redeemCodexReset(_ body: CodexAccountResetRequest) async throws -> CodexAccountResetResponse {
+        try await request(path: "api/v1/agent/codex/accounts/current/reset", method: "POST", body: body) { response in
+            response.code == 0 ? nil : "code must equal 0; received \(response.code)"
+        }
+    }
+
     func mutateCodexAccount(action: String, accountID: String? = nil, body: CodexAccountMutation) async throws -> CodexAccountsResponse {
         let base = "api/v1/agent/codex/accounts"
         let path: String

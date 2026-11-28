@@ -74,6 +74,49 @@ struct CodexAccountsResponse: Decodable, Sendable {
     }
 }
 
+struct CodexAccountUsageResponse: Decodable, Sendable {
+    let code: Int
+    let usage: CodexAgentUsage
+    let resetCards: [CodexResetCard]?
+    let resetCardsError: String?
+
+    enum CodingKeys: String, CodingKey {
+        case code, usage
+        case resetCards = "reset_cards", resetCardsError = "reset_cards_error"
+    }
+}
+
+struct CodexResetCard: Decodable, Identifiable, Sendable {
+    let id: String
+    let expiresAt: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case expiresAt = "expires_at"
+    }
+}
+
+struct CodexAccountResetRequest: Encodable, Sendable {
+    let liveRevision: String
+    let creditId: String
+    let operationId: String
+
+    enum CodingKeys: String, CodingKey {
+        case liveRevision = "live_revision", creditId = "credit_id", operationId = "operation_id"
+    }
+}
+
+struct CodexAccountResetResponse: Decodable, Sendable {
+    let code: Int
+    let outcome: String
+    let windowsReset: Int
+
+    enum CodingKeys: String, CodingKey {
+        case code, outcome
+        case windowsReset = "windows_reset"
+    }
+}
+
 struct CodexAccountMutation: Encodable, Sendable {
     var revision: String?
     var liveRevision: String?
@@ -877,6 +920,7 @@ struct CodexAgentUsage: Codable, Hashable, Sendable {
     let version: String?
     let primaryWindow: AgentUsageWindow?
     let secondaryWindow: AgentUsageWindow?
+    let spendLimit: CodexAgentSpendLimit?
     let resetCredits: Int
     let resetCreditExpiries: [Int64]?
 
@@ -886,8 +930,24 @@ struct CodexAgentUsage: Codable, Hashable, Sendable {
         case version
         case primaryWindow = "primary_window"
         case secondaryWindow = "secondary_window"
+        case spendLimit = "spend_limit"
         case resetCredits = "reset_credits"
         case resetCreditExpiries = "reset_credit_expiries"
+    }
+}
+
+struct CodexAgentSpendLimit: Codable, Hashable, Sendable {
+    let unit: String?
+    let limit: Double?
+    let used: Double?
+    let remaining: Double?
+    let usedPercent: Double?
+    let resetAt: Int64?
+    let reached: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case unit, limit, used, remaining, reached
+        case usedPercent = "used_percent", resetAt = "reset_at"
     }
 }
 

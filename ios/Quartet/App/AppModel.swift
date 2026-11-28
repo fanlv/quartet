@@ -2102,16 +2102,16 @@ final class AppModel: ObservableObject {
 
     private func uiTestManagedAgentUpgrade(agentID: String) throws -> AgentInstallResponse {
         if uiTestScenario == "--ui-testing-agent-upgrade-failures" {
-            if agentID == "trae" {
+            if agentID == "codex" {
                 throw APIError(
                     summary: "升级 Agent 失败",
                     detail: "模拟网络错误：保留完整错误并继续后续 Agent。"
                 )
             }
-            if agentID == "codex" {
+            if agentID == "trae" {
                 throw APIError(
                     summary: "Quartet 请求失败",
-                    detail: "POST /api/v1/agent/codex/upgrade\nHTTP 409\n\n{\"code\":-1,\"msg\":\"another agent install is already in progress\"}",
+                    detail: "POST /api/v1/agent/trae/upgrade\nHTTP 409\n\n{\"code\":-1,\"msg\":\"another agent install is already in progress\"}",
                     requestWasRejected: true,
                     httpStatusCode: 409
                 )

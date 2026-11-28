@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next';
 import { HomeNavigation } from './components/HomeNavigation';
 import type { CommandAction, FileAttachment, WorkspaceInfo } from './types';
-import type { SettingsTab } from './components/settings/Settings';
+import { Settings, type SettingsTab } from './components/settings/Settings';
 import { ConnectionStatusProvider } from './contexts/ConnectionStatus';
 import { markBootStage, reportBootFailure } from './utils/boot';
 import { prefetchSkills } from './utils/skills';
@@ -30,9 +30,6 @@ const ChatPage = lazy(() =>
 );
 const GraphWorkflowPage = lazy(() =>
   import('./components/GraphWorkflowPage').then((module) => ({ default: module.GraphWorkflowPage })),
-);
-const Settings = lazy(() =>
-  import('./components/settings/Settings').then((module) => ({ default: module.Settings })),
 );
 const StatsPage = lazy(() =>
   import('./components/stats/StatsPage').then((module) => ({ default: module.StatsPage })),
@@ -1057,14 +1054,12 @@ function WorkspaceApp() {
         </div>
       )}
       {showSettings && (
-        <Suspense fallback={<LazyPageFallback />}>
-          <Settings
-            initialTab={settingsInitialTab}
-            workspaceId={currentWorkspace?.id}
-            onClose={handleCloseSettings}
-            onSettingsChanged={handleSettingsChanged}
-          />
-        </Suspense>
+        <Settings
+          initialTab={settingsInitialTab}
+          workspaceId={currentWorkspace?.id}
+          onClose={handleCloseSettings}
+          onSettingsChanged={handleSettingsChanged}
+        />
       )}
     </div>
     </ConnectionStatusProvider>
@@ -1085,9 +1080,7 @@ function App() {
       : principal.permissions.includes('roles.read') ? 'roles' : 'account';
     return (
       <div className="app-layout">
-        <Suspense fallback={<LazyPageFallback />}>
-          <Settings initialTab={initialTab} onClose={() => undefined} />
-        </Suspense>
+        <Settings initialTab={initialTab} onClose={() => undefined} />
       </div>
     );
   }

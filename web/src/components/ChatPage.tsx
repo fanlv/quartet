@@ -1329,6 +1329,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                       className={`home-job-ws-filter-trigger ${filterWorkspaceId ? 'active' : ''}`}
                       onClick={() => setWsFilterOpen((v) => !v)}
                       title={filterWorkspaceId ? (wsNameById.get(filterWorkspaceId) || filterWorkspaceId) : t('home.allWorkspaces')}
+                      aria-expanded={wsFilterOpen}
                     >
                       {filterWorkspaceId && (
                         <span
@@ -1340,9 +1341,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                       <span className="home-job-ws-filter-text">
                         {filterWorkspaceId ? (wsNameById.get(filterWorkspaceId) || filterWorkspaceId) : t('home.allWorkspaces')}
                       </span>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-                        <path d="M6 9l6 6 6-6" />
-                      </svg>
+                      <span className="dropdown-chevron" aria-hidden="true" />
                     </button>
                     {wsFilterOpen && wsFilterRef.current && createPortal(
                       (() => {
@@ -1600,9 +1599,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                       : <span className="model-tag-emoji">{selectedAgent.icon_url}</span>
                   )}
                   <span>{selectedAgent ? selectedAgent.display_name : t('sidebar.selectAgent')}</span>
-                  <svg className="model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M6 9l6 6 6-6" />
-                  </svg>
+                  <span className="dropdown-chevron" data-open={showDropdown} aria-hidden="true" />
                 </div>
               )}
               {showDropdown && agents.length > 0 && (
@@ -1692,9 +1689,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                   >
                     <ConfigurationIcon kind="model" />
                     <span>{selectedAgent.models.availableModels.find(m => m.modelId === selectedAgent.models!.currentModelId)?.name || selectedAgent.models.currentModelId}</span>
-                    <svg className="model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M6 9l6 6 6-6" />
-                    </svg>
+                    <span className="dropdown-chevron" data-open={showModelDropdown} aria-hidden="true" />
                   </div>
                   {showModelDropdown && (
                     isMobile ? createPortal(
@@ -1720,9 +1715,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                   >
                     <ConfigurationIcon kind="mode" />
                     <span>{selectedAgent.modes.availableModes.find(m => m.id === selectedAgent.modes!.currentModeId)?.name || selectedAgent.modes.currentModeId}</span>
-                    <svg className="model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M6 9l6 6 6-6" />
-                    </svg>
+                    <span className="dropdown-chevron" data-open={showModeDropdown} aria-hidden="true" />
                   </div>
                   {showModeDropdown && (
                     isMobile ? createPortal(
@@ -1786,9 +1779,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                   >
                     <ConfigurationIcon kind="thought" />
                     <span>{selectedAgent.thoughtLevels.availableThoughtLevels.find(m => m.id === selectedAgent.thoughtLevels!.currentThoughtLevelId)?.name || selectedAgent.thoughtLevels.currentThoughtLevelId}</span>
-                    <svg className="model-tag-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M6 9l6 6 6-6" />
-                    </svg>
+                    <span className="dropdown-chevron" data-open={showThoughtLevelDropdown} aria-hidden="true" />
                   </div>
                   {showThoughtLevelDropdown && (
                     isMobile ? createPortal(
@@ -1958,11 +1949,7 @@ export function ChatPage({ onStartChat, isInitializing, refreshKey, workspaceWor
                 )}
               </span>
               {canSwitchWorkspaceInFooter && (
-                <span className="workdir-switch-caret" aria-hidden>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M6 9l6 6 6-6" />
-                  </svg>
-                </span>
+                <span className="dropdown-chevron workdir-switch-caret" data-open={wsSwitchOpen} aria-hidden="true" />
               )}
               <button className="workdir-copy" onClick={(e) => { e.stopPropagation(); copyToClipboard(workdir); }} title="Copy path">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

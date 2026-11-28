@@ -329,11 +329,6 @@
   line-height: 1;
 }
 
-.model-tag-arrow {
-  margin-left: 2px;
-  opacity: 0.5;
-}
-
 .model-dropdown {
   position: absolute;
   bottom: calc(100% + 8px);

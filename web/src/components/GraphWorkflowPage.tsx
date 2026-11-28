@@ -2296,6 +2296,7 @@ export function GraphWorkflowPage({
                     data-testid="graph-workspace-trigger"
                     title={t('graph.workspace.label')}
                     onClick={() => setWsDropdownOpen((v) => !v)}
+                    aria-expanded={wsDropdownOpen}
                   >
                     <span
                       className="graph-ws-dot"
@@ -2304,9 +2305,7 @@ export function GraphWorkflowPage({
                     <span className="graph-ws-label">
                       {allWorkspaces.find((w) => w.id === meta.workspaceId)?.title || t('graph.workspace.label')}
                     </span>
-                    <svg className="graph-ws-caret" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                      <path d="M2 3.5l3 3 3-3" />
-                    </svg>
+                    <span className="dropdown-chevron" aria-hidden="true" />
                   </button>
                   {wsDropdownOpen && (
                     <div className="graph-ws-dropdown">

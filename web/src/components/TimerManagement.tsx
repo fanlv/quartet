@@ -46,7 +46,7 @@ function TimerFilter({ label, allLabel, value, options, onChange }: {
     <label className="timer-filter" data-active={value ? true : undefined} title={value ? displayValue : undefined}>
       {value && <span className="timer-filter-label" aria-hidden="true">{label}</span>}
       <span className="timer-filter-value" aria-hidden="true">{displayValue}</span>
-      <TimerIcon name="chevron" className="timer-filter-chevron" />
+      <span className="dropdown-chevron" aria-hidden="true" />
       <select aria-label={label} value={value} onChange={event => onChange(event.target.value)}>
         <option value="">{allLabel}</option>
         {value && !selected && <option value={value}>{value}</option>}

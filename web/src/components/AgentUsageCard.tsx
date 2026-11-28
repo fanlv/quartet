@@ -7,10 +7,12 @@ import {
   agentUsageProvider,
   CODEX_ACCOUNT_CHANGED_EVENT,
   CODEX_ACCOUNT_STORAGE_KEY,
+  codexPlanLabel,
   fetchAgentUsage,
   fetchAgentVersion,
   getCachedUsage,
   getCachedVersion,
+  prettifyPlan,
   setCachedUsage,
   setCachedVersion,
   type AgentUsageProvider,
@@ -50,17 +52,6 @@ function formatCNY(n: number): string {
   return Number.isInteger(n)
     ? n.toLocaleString()
     : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-// Turn a snake_case API plan id (e.g. "personal_professional_trial") into a
-// human-friendly Title Case label for the tooltip.
-function prettifyPlan(plan?: string): string {
-  if (!plan) return '';
-  return plan
-    .split('_')
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
 }
 
 /** Tiny circular progress icon for a usage window. The arc fills to
@@ -473,15 +464,7 @@ function CodexQuotaDetails({ value, ringTitle }: {
   ringTitle: (label: string, window: UsageWindow) => string;
 }) {
   const { t } = useTranslation();
-  const plan = value.plan_type?.trim().toLowerCase() ?? '';
-  let planLabel = prettifyPlan(plan);
-  if (plan === 'ent26' || plan === 'enterprise' || plan.startsWith('enterprise_')) {
-    planLabel = t('agentUsage.codexEnterprise');
-  } else if (plan === 'team' || plan === 'business' || plan.startsWith('self_serve_business_')) {
-    planLabel = t('agentUsage.codexBusiness');
-  } else if (plan === 'education' || plan === 'edu' || plan.startsWith('edu_')) {
-    planLabel = t('agentUsage.codexEducation');
-  }
+  const planLabel = codexPlanLabel(value.plan_type, t);
   const email = value.email?.trim();
   const planChip = <span className="usage-inline-plan">{planLabel || t('agentUsage.codexAccount')}</span>;
   const hasRateWindow = Boolean(value.primary_window || value.secondary_window);

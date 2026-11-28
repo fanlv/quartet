@@ -6,6 +6,7 @@ import UIKit
 struct CodexAccountsSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.locale) private var locale
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var snapshot: CodexAccountsResponse?
@@ -34,17 +35,45 @@ struct CodexAccountsSettingsView: View {
     @State private var confirmsRestore = false
     @State private var login: CodexAccountLogin?
     @State private var loginRetry = 0
+    @State private var usageRefresh = 0
+    @State private var usageRead: UsageRead?
+
+    private struct UsageRequest: Equatable {
+        let server: String
+        let liveRevision: String
+        let refresh: Int
+    }
+
+    private struct UsageRead {
+        let request: UsageRequest
+        var response: CodexAccountUsageResponse?
+        var error: String?
+    }
+
+    private struct ResetIntent {
+        let card: CodexResetCard
+        let liveRevision: String
+        let accountName: String
+        let workspaceId: String?
+        let operationId = UUID().uuidString
+    }
 
     private enum SheetPage: Identifiable {
         case currentDetails(CodexAccountCurrent)
         case actions(CodexAccount)
         case form(String, CodexAccount?)
         case activate(CodexAccount, from: CodexAccountCurrent, appliesCurrentConfig: Bool)
+        case reset(ResetIntent)
         case login
         case error
 
         // Steps share one presentation, including transitions from actions to confirmation.
         var id: Int { 0 }
+    }
+
+    private var usageRequest: UsageRequest? {
+        guard let snapshot, snapshot.current.account?.authType == "chatgpt", snapshot.current.blockedReason == nil else { return nil }
+        return UsageRequest(server: model.serverAddress, liveRevision: snapshot.liveRevision, refresh: usageRefresh)
     }
 
     var body: some View {
@@ -61,6 +90,7 @@ struct CodexAccountsSettingsView: View {
         .task(id: model.serverAddress) {
             generation += 1
             snapshot = nil
+            usageRead = nil
             login = nil
             message = nil
             errorDetail = ""
@@ -71,7 +101,10 @@ struct CodexAccountsSettingsView: View {
             await load()
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await load() } }
+            if phase == .active { Task { await refreshAll() } }
+        }
+        .task(id: usageRequest) {
+            if let request = usageRequest { await loadUsage(request) }
         }
         .task(id: "\(login?.id ?? ""):\(scenePhase):\(loginRetry)") { await pollLogin() }
         .task(id: snapshot?.current.availability) {
@@ -97,31 +130,19 @@ struct CodexAccountsSettingsView: View {
         ScrollView {
             VStack(spacing: 16) {
                 if let message { AgentSettingsMessageView(message) }
-                if let current = snapshot?.current { currentCard(current) }
-                if let snapshot { savedAccounts(snapshot) }
-                AgentSettingsCard {
-                    action("导入账号", icon: "square.and.arrow.down", id: "codex-account-import") { openForm("import") }
-                    agentSettingsDivider()
-                    action(login?.status == "running" ? "设备码登录" : "登录新账号", icon: "person.badge.plus", id: "codex-account-login") {
-                        if login?.status == "running" { page = .login; loginRetry += 1 }
-                        else { openForm("login") }
-                    }
-                    agentSettingsDivider()
-                    action("保存本机当前账号", icon: "tray.and.arrow.down", id: "codex-account-capture") { openForm("capture") }
-                        .disabled(snapshot?.current.hasAuth != true)
-                    if snapshot?.hasBackup == true {
-                        agentSettingsDivider()
-                        action("恢复上次切换前状态", icon: "arrow.uturn.backward", id: "codex-account-restore") { freezeIntent(); confirmsRestore = true }
-                    }
+                if let snapshot {
+                    currentCard(snapshot.current)
+                    usageCard(snapshot.current)
+                    savedAccounts(snapshot)
                 }
             }
             .padding(18)
         }
         .scrollPosition($scrollPosition)
-        .refreshable { await load() }
+        .refreshable { await refreshAll() }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button { Task { await refreshAll() } } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.plain)
                     .font(.quartet(.control))
                     .frame(minHeight: 44)
@@ -129,9 +150,43 @@ struct CodexAccountsSettingsView: View {
                     .disabled(isBusy)
                     .accessibilityLabel("刷新状态".localizedForApp)
                     .accessibilityIdentifier("codex-account-refresh")
+                accountMenu
             }
             .sharedBackgroundVisibility(.hidden)
         }
+    }
+
+    private var accountMenu: some View {
+        Menu {
+            Button {
+                if login?.status == "running" { page = .login; loginRetry += 1 }
+                else { openForm("login") }
+            } label: {
+                Label(LocalizedStringKey(login?.status == "running" ? "查看登录进度" : "登录新账号"), systemImage: "person.badge.plus")
+            }
+            .accessibilityIdentifier("codex-account-login")
+            Button { openForm("import") } label: { Label("导入账号", systemImage: "square.and.arrow.down") }
+                .accessibilityIdentifier("codex-account-import")
+            if snapshot?.current.managedId != nil {
+                Button { openForm("capture") } label: { Label("保存本机当前账号", systemImage: "tray.and.arrow.down") }
+                    .accessibilityIdentifier("codex-account-capture")
+            }
+            if snapshot?.hasBackup == true {
+                Button { freezeIntent(); confirmsRestore = true } label: {
+                    Label("恢复上次切换前状态", systemImage: "arrow.uturn.backward")
+                }
+                .accessibilityIdentifier("codex-account-restore")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.quartet(.control))
+                .foregroundStyle(QuartetTheme.accent)
+                .frame(minHeight: 44)
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+        .accessibilityLabel("账号操作".localizedForApp)
+        .accessibilityIdentifier("codex-account-menu")
     }
 
     private func currentCard(_ current: CodexAccountCurrent) -> some View {
@@ -153,16 +208,158 @@ struct CodexAccountsSettingsView: View {
             if !errors.isEmpty {
                 errorButton(errors.joined(separator: "\n\n"), title: "查看错误详情".localizedForApp)
             }
+            if current.managedId == nil && current.account != nil {
+                action("保存本机当前账号", icon: "tray.and.arrow.down", id: "codex-account-capture-current") { openForm("capture") }
+            }
         }
     }
 
+    private func usageCard(_ current: CodexAccountCurrent) -> some View {
+        AgentSettingsCard("订阅用量", systemImage: "gauge.with.dots.needle.50percent") {
+            if let request = usageRequest {
+                let read = usageRead
+                let isUpdating = read?.request != request
+                if isUpdating { agentSettingsHint("正在读取 Codex 用量…") }
+                if read?.request.server == request.server, read?.request.liveRevision == request.liveRevision {
+                    if let response = read?.response {
+                        usageContent(response, current: current, request: request, isUpdating: isUpdating)
+                    }
+                    if !isUpdating, let error = read?.error {
+                        errorButton(error, title: "用量加载失败，查看完整错误".localizedForApp, identifier: "codex-account-usage-error")
+                    }
+                }
+            } else {
+                agentSettingsHint(current.blockedReason != nil ? "处理账号状态问题后，即可查询用量。"
+                    : current.account?.authType == "api_key" ? "订阅用量适用于 ChatGPT 登录。"
+                    : "登录 ChatGPT 账号后可查看用量。")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func usageContent(_ response: CodexAccountUsageResponse, current: CodexAccountCurrent, request: UsageRequest, isUpdating: Bool) -> some View {
+        let usage = response.usage
+        if let plan = AgentUsageFormat.plan(usage.planType) {
+            detail(AppLanguage.localizedFormat("套餐 · %@", plan))
+        }
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 8))
+        if usage.primaryWindow != nil || usage.secondaryWindow != nil {
+            layout {
+                if let window = usage.primaryWindow { usageWindow(window) }
+                if let window = usage.secondaryWindow { usageWindow(window) }
+            }
+        } else if usage.spendLimit == nil {
+            agentSettingsHint("暂未提供用量")
+        }
+        if let limit = usage.spendLimit { workspaceSpend(limit) }
+        agentSettingsDivider()
+        agentSettingsFieldLabel("重置卡")
+        detail(AppLanguage.localizedFormat("%d 张可用", usage.resetCredits))
+        let cards = response.resetCards ?? []
+        ForEach(cards) { card in
+            Button {
+                let title = current.account.map(accountTitle) ?? "当前 Codex 账号".localizedForApp
+                page = .reset(ResetIntent(
+                    card: card, liveRevision: request.liveRevision, accountName: title, workspaceId: current.account?.workspaceId
+                ))
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("使用重置卡", systemImage: "arrow.counterclockwise")
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.accent)
+                    Text(resetExpiry(card))
+                        .font(.quartet(.detail))
+                        .foregroundStyle(QuartetTheme.secondaryText)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isBusy || isUpdating)
+            .accessibilityIdentifier("codex-account-use-reset-\(card.id)")
+        }
+        if let error = response.resetCardsError {
+            errorButton(error, title: "重置卡详情暂不可用".localizedForApp, identifier: "codex-account-reset-details-error")
+        } else if cards.count < usage.resetCredits {
+            agentSettingsHint("重置卡详情暂不可用")
+        }
+    }
+
+    private func usageWindow(_ window: AgentUsageWindow) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            let title = windowTitle(window.limitWindowSeconds)
+            agentSettingsFieldLabel(title)
+            usageProgress(window.usedPercent, title: title)
+            if window.resetAt > 0 { detail(AppLanguage.localizedFormat("%@ 重置", usageDate(window.resetAt))) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func workspaceSpend(_ limit: CodexAgentSpendLimit) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            agentSettingsFieldLabel("个人支出额度")
+            if let used = limit.used { detail(AppLanguage.localizedFormat("已用 %@", spendAmount(used, unit: limit.unit))) }
+            if let cap = limit.limit { detail(AppLanguage.localizedFormat("上限 %@", spendAmount(cap, unit: limit.unit))) }
+            if let remaining = limit.remaining { detail(AppLanguage.localizedFormat("剩余 %@", spendAmount(remaining, unit: limit.unit))) }
+            if let percent = limit.usedPercent { usageProgress(percent, title: "个人支出额度".localizedForApp) }
+            if limit.reached == true { detail("已达支出上限".localizedForApp) }
+            if let resetAt = limit.resetAt, resetAt > 0 { detail(AppLanguage.localizedFormat("%@ 重置", usageDate(resetAt))) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(QuartetTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func usageProgress(_ percent: Double, title: String) -> some View {
+        let used = min(100, max(0, percent))
+        let percentLabel = (used / 100).formatted(.percent.precision(.fractionLength(0...1)).locale(locale))
+        return ProgressView(value: used, total: 100) {
+            Text(AppLanguage.localizedFormat("已用 %@", percentLabel))
+                .font(.quartet(.detail, weight: .semibold))
+                .foregroundStyle(QuartetTheme.primaryText)
+        }
+        .tint(used >= 80 ? QuartetTheme.warning : QuartetTheme.accent)
+        .accessibilityLabel(title)
+    }
+
+    private func windowTitle(_ seconds: Int64) -> String {
+        let units: [(Int64, String)] = [(86_400, "%lld 天窗口"), (3_600, "%lld 小时窗口"), (60, "%lld 分钟窗口"), (1, "%lld 秒窗口")]
+        guard seconds > 0, let (size, format) = units.first(where: { seconds % $0.0 == 0 }) else { return "额度窗口".localizedForApp }
+        return AppLanguage.localizedFormat(format, seconds / size)
+    }
+
+    private func spendAmount(_ amount: Double, unit: String?) -> String {
+        if unit?.lowercased() == "usd" {
+            return amount.formatted(.currency(code: "USD").locale(locale))
+        }
+        let value = amount.formatted(.number.precision(.fractionLength(0...2)).locale(locale))
+        guard let unit, !unit.isEmpty else { return value }
+        let label = ["credit", "credits"].contains(unit.lowercased()) ? "积分".localizedForApp : unit
+        return "\(value) \(label)"
+    }
+
+    private func usageDate(_ seconds: Int64) -> String {
+        Date(timeIntervalSince1970: Double(seconds)).formatted(.dateTime.year().month().day().hour().minute().locale(locale))
+    }
+
+    private func resetExpiry(_ card: CodexResetCard) -> String {
+        guard let expiresAt = card.expiresAt else { return "到期时间未提供".localizedForApp }
+        return AppLanguage.localizedFormat("%@ 到期", usageDate(expiresAt))
+    }
+
     private func savedAccounts(_ snapshot: CodexAccountsResponse) -> some View {
-        AgentSettingsCard("已保存的账号") {
-            if snapshot.accounts.isEmpty {
+        let accounts = snapshot.accounts.filter { $0.id == snapshot.current.managedId }
+            + snapshot.accounts.filter { $0.id != snapshot.current.managedId }
+        return AgentSettingsCard("已保存的账号") {
+            if accounts.isEmpty {
                 agentSettingsHint("登录、导入或保存当前账号后，可在这里切换。")
             } else {
                 VStack(spacing: 6) {
-                    ForEach(Array(snapshot.accounts.enumerated()), id: \.element.id) { index, account in
+                    ForEach(Array(accounts.enumerated()), id: \.element.id) { index, account in
                         if index > 0 { agentSettingsDivider() }
                         accountRow(account, snapshot: snapshot)
                     }
@@ -348,6 +545,20 @@ struct CodexAccountsSettingsView: View {
                             formContent(mode, account: account)
                         case .activate(let account, let current, let appliesCurrentConfig):
                             activationContent(account, from: current, appliesCurrentConfig: appliesCurrentConfig)
+                        case .reset(let intent):
+                            AgentSettingsCard {
+                                agentSettingsHint(AppLanguage.localizedFormat(
+                                    "将为「%@」使用这张重置卡，恢复符合条件的 Codex 额度。使用后无法撤销。",
+                                    intent.accountName
+                                ))
+                                if let workspaceId = intent.workspaceId {
+                                    AgentSettingsMonoRow(label: "ChatGPT 工作空间", value: workspaceId)
+                                }
+                                detail(resetExpiry(intent.card))
+                                primaryButton("确认使用", id: "codex-account-confirm-reset") {
+                                    Task { await redeemReset(intent) }
+                                }
+                            }
                         case .login: loginContent
                         case .error: EmptyView()
                         }
@@ -441,6 +652,7 @@ struct CodexAccountsSettingsView: View {
         case .currentDetails: "状态详情"
         case .actions: "账号操作"
         case .activate(_, _, let appliesCurrentConfig): appliesCurrentConfig ? "应用账号配置" : "切换账号"
+        case .reset: "使用重置卡"
         case .login: "设备码登录"
         case .error: "操作失败"
         case .form(let mode, _): mode == "login" ? "登录新账号" : mode == "capture" ? "保存本机当前账号" : mode == "update" ? "编辑账号" : "导入账号"
@@ -486,13 +698,13 @@ struct CodexAccountsSettingsView: View {
         }.buttonStyle(.plain).disabled(isBusy).accessibilityIdentifier(id)
     }
 
-    private func errorButton(_ detail: String, title: String? = nil) -> some View {
+    private func errorButton(_ detail: String, title: String? = nil, identifier: String = "codex-account-error") -> some View {
         Button { showError(detail) } label: {
             Label(title ?? detail, systemImage: "exclamationmark.triangle")
                 .font(.quartet(.detail))
                 .foregroundStyle(QuartetTheme.failed)
                 .multilineTextAlignment(.leading)
-        }.buttonStyle(.plain).frame(minHeight: 44).accessibilityIdentifier("codex-account-error")
+        }.buttonStyle(.plain).frame(minHeight: 44).accessibilityIdentifier(identifier)
     }
 
     private func showError(_ detail: String) {
@@ -525,6 +737,70 @@ struct CodexAccountsSettingsView: View {
     private func clearFiles() {
         fileGeneration += 1
         authText = nil; configText = nil; authFileName = ""; configFileName = ""; removeConfig = false
+    }
+
+    private func refreshAll() async {
+        guard !isBusy else { return }
+        let server = model.serverAddress
+        await load()
+        guard !Task.isCancelled, server == model.serverAddress else { return }
+        usageRefresh += 1
+    }
+
+    private func loadUsage(_ request: UsageRequest) async {
+        var read = UsageRead(request: request)
+        do {
+            read.response = try await model.apiClient().codexAccountUsage(liveRevision: request.liveRevision)
+        } catch {
+            read.error = (error as? APIError)?.detail ?? String(describing: error)
+        }
+        guard !Task.isCancelled, request == usageRequest else { return }
+        usageRead = read
+    }
+
+    private func redeemReset(_ intent: ResetIntent) async {
+        guard !isBusy else { return }
+        guard usageRequest?.liveRevision == intent.liveRevision else {
+            showError("当前登录已变化。请刷新后重试。".localizedForApp)
+            return
+        }
+        let server = model.serverAddress
+        isBusy = true
+        generation += 1
+        let operationGeneration = generation
+        message = nil
+        do {
+            let result = try await model.apiClient().redeemCodexReset(CodexAccountResetRequest(
+                liveRevision: intent.liveRevision,
+                creditId: intent.card.id,
+                operationId: intent.operationId
+            ))
+            guard server == model.serverAddress, operationGeneration == generation else { return }
+            page = nil
+            switch result.outcome {
+            case "reset":
+                model.codexAccountDidChange()
+                message = .success(result.windowsReset > 0
+                    ? AppLanguage.localizedFormat("重置卡已使用，已恢复 %d 个额度窗口。", result.windowsReset)
+                    : "重置卡已使用。".localizedForApp)
+            case "nothing_to_reset":
+                message = AgentSettingsMessage(kind: .info, text: "当前用量暂不符合重置条件，这张卡仍然可用。".localizedForApp)
+            case "no_credit":
+                message = AgentSettingsMessage(kind: .info, text: "当前账号没有可用的重置卡。".localizedForApp)
+            case "credit_unavailable":
+                message = AgentSettingsMessage(kind: .info, text: "所选重置卡已不可用。".localizedForApp)
+            case "already_redeemed":
+                message = AgentSettingsMessage(kind: .info, text: "这张重置卡已使用。".localizedForApp)
+            default:
+                showError(AppLanguage.localizedFormat("ChatGPT 返回了未知的重置结果：%@", result.outcome))
+            }
+        } catch {
+            guard server == model.serverAddress, operationGeneration == generation else { return }
+            showError((error as? APIError)?.detail ?? String(describing: error))
+        }
+        usageRead = nil
+        isBusy = false
+        await refreshAll()
     }
 
     private func load() async {

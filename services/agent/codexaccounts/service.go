@@ -36,6 +36,7 @@ type Service struct {
 	mu              sync.Mutex
 	repo            *repository.CodexAccountRepo
 	options         Options
+	resetInProgress bool
 	recoveryError   error
 	recoveryRelease func()
 	logins          map[string]*loginAttempt
@@ -226,6 +227,9 @@ func (s *Service) replaceAccountAuth(state *repository.CodexAccountStore, index 
 func (s *Service) Mutate(ctx context.Context, action, id string, request model.CodexAccountMutation) (*model.CodexAccountResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.resetInProgress {
+		return nil, fmt.Errorf("%w: a Codex reset card is being redeemed", ErrConflict)
+	}
 	if request.Force && action != "activate" {
 		return nil, fmt.Errorf("force is only supported when activating a Codex account")
 	}

@@ -48,6 +48,7 @@
 
 .agent-directory-toolbar {
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   margin-top: 4px;
   padding: 12px 14px;
@@ -66,6 +67,17 @@
 .agent-directory-toolbar-actions {
   justify-content: flex-end;
   flex-wrap: wrap;
+}
+
+.agent-directory-diagnostics {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.agent-directory-diagnostics summary {
+  width: fit-content;
+  padding-block: 8px;
+  cursor: pointer;
 }
 
 .agent-version-count {
@@ -256,12 +268,6 @@
     grid-column: 1 / -1;
     justify-content: flex-start;
   }
-}
-
-.agent-install-desc {
-  font-size: 13px;
-  color: var(--muted);
-  line-height: 1.5;
 }
 
 .agent-install-loading,

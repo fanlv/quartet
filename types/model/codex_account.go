@@ -54,6 +54,30 @@ type CodexAccountResponse struct {
 	Warning      string                  `json:"warning,omitempty"`
 }
 
+type CodexAccountUsageResponse struct {
+	Code            int              `json:"code"`
+	Usage           CodexUsage       `json:"usage"`
+	ResetCards      []CodexResetCard `json:"reset_cards,omitempty"`
+	ResetCardsError string           `json:"reset_cards_error,omitempty"`
+}
+
+type CodexResetCard struct {
+	ID        string `json:"id"`
+	ExpiresAt int64  `json:"expires_at,omitempty"` // Unix seconds
+}
+
+type CodexAccountResetRequest struct {
+	LiveRevision string `json:"live_revision"`
+	CreditID     string `json:"credit_id"`
+	OperationID  string `json:"operation_id"`
+}
+
+type CodexAccountResetResponse struct {
+	Code         int    `json:"code"`
+	Outcome      string `json:"outcome"`
+	WindowsReset int    `json:"windows_reset"`
+}
+
 // File contents are accepted only on writes. Pointers distinguish omitted
 // files from empty uploads and allow updating just one member of a profile.
 type CodexAccountMutation struct {

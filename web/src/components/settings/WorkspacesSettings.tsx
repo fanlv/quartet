@@ -329,6 +329,7 @@ function WorkspaceFormModal({ mode, initial, agents, onClose, onSaved }: FormPro
     if (showDirPicker) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      if (e.target instanceof Element && e.target.closest('select:is(:open)')) return;
       e.preventDefault();
       requestClose();
     };

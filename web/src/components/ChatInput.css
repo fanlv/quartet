@@ -234,11 +234,6 @@
   line-height: 1;
 }
 
-.model-tag-arrow {
-  margin-left: 2px;
-  opacity: 0.5;
-}
-
 .model-dropdown {
   position: absolute;
   bottom: calc(100% + 8px);
@@ -501,10 +496,7 @@
   flex-shrink: 0;
 }
 .workdir-switch-caret {
-  display: inline-flex;
-  align-items: center;
-  color: #66746b;
-  margin-right: 4px;
+  margin-inline-end: 4px;
 }
 .workdir-switch-dropdown {
   position: absolute;

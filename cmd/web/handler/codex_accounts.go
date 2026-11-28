@@ -68,6 +68,62 @@ func (h *Handler) CodexAccountList(ctx context.Context, c *app.RequestContext) {
 	c.JSON(http.StatusOK, result)
 }
 
+func (h *Handler) CodexAccountUsage(ctx context.Context, c *app.RequestContext) {
+	c.Header("Cache-Control", "no-store")
+	accountID := c.Param("accountId")
+	revisionKey := "live_revision"
+	if accountID != "" {
+		revisionKey = "revision"
+	}
+	revision := c.Query(revisionKey)
+	if revision == "" {
+		httputil.BadRequest(c, revisionKey+" is required")
+		return
+	}
+	var result *model.CodexAccountUsageResponse
+	var err error
+	if accountID == "" {
+		result, err = h.codexAccounts.CurrentUsage(ctx, revision)
+	} else {
+		result, err = h.codexAccounts.SavedUsage(ctx, accountID, revision)
+	}
+	if err != nil {
+		if errors.Is(err, codexaccounts.ErrConflict) {
+			httputil.Conflict(c, err.Error())
+		} else {
+			httputil.InternalErrorLog(ctx, c, "codex.accounts.usage", err)
+		}
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *Handler) CodexAccountReset(ctx context.Context, c *app.RequestContext) {
+	c.Header("Cache-Control", "no-store")
+	var request model.CodexAccountResetRequest
+	if err := c.BindJSON(&request); err != nil {
+		httputil.BadRequest(c, "invalid request: "+err.Error())
+		return
+	}
+	if request.LiveRevision == "" {
+		httputil.BadRequest(c, "live_revision is required")
+		return
+	}
+	result, err := h.codexAccounts.RedeemReset(ctx, request)
+	if err != nil {
+		switch {
+		case errors.Is(err, codexaccounts.ErrInvalidReset):
+			httputil.BadRequest(c, err.Error())
+		case errors.Is(err, codexaccounts.ErrConflict):
+			httputil.Conflict(c, err.Error())
+		default:
+			httputil.InternalErrorLog(ctx, c, "codex.accounts.reset", err)
+		}
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 func (h *Handler) CodexAccountMutate(ctx context.Context, c *app.RequestContext) {
 	c.Header("Cache-Control", "no-store")
 	var request model.CodexAccountMutation

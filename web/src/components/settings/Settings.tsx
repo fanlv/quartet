@@ -1,22 +1,14 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { GeneralSettings } from './GeneralSettings';
-import { AccountManagement } from './AccountManagement';
-import { EinoSettings } from './EinoSettings';
-import { PromptSettings } from './PromptSettings';
-import { SkillSettings } from './SkillSettings';
-import { AgentManagement } from './AgentManagement';
-import { IMSettings } from './IMSettings';
-import { WorkspacesSettings } from './WorkspacesSettings';
-import { LogsSettings } from './LogsSettings';
-import { MessagePresetSettings } from './MessagePresetSettings';
 import { useAuthPrincipal } from '../../auth';
 import './Settings.css';
-import './WeChatSettings.css';
-import './AuthManagement.css';
+
+const SettingsPanel = lazy(() =>
+  import('./SettingsPanel').then((module) => ({ default: module.SettingsPanel })),
+);
 
 export type SettingsTab = 'general' | 'workspace' | 'message-presets' | 'account' | 'users' | 'roles' | 'eino' | 'prompt' | 'skill' | 'agents' | 'im' | 'lark' | 'wechat' | 'logs';
-type SettingsNavTab = Exclude<SettingsTab, 'users' | 'roles' | 'lark' | 'wechat'>;
+export type SettingsNavTab = Exclude<SettingsTab, 'users' | 'roles' | 'lark' | 'wechat'>;
 
 interface SettingsProps {
   onClose: () => void;
@@ -144,33 +136,6 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general', w
     return () => container.removeEventListener('focusin', handleFocus);
   }, []);
 
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'general':
-        return <GeneralSettings onSettingsChanged={onSettingsChanged} />;
-      case 'workspace':
-        return <WorkspacesSettings />;
-      case 'message-presets':
-        return <MessagePresetSettings onDirtyChange={setMessagePresetsDirty} />;
-      case 'account':
-        return <AccountManagement initialTab={initialTab === 'users' || initialTab === 'roles' ? initialTab : 'account'} />;
-      case 'eino':
-        return <EinoSettings />;
-      case 'prompt':
-        return <PromptSettings />;
-      case 'skill':
-        return <SkillSettings workspaceId={workspaceId} />;
-      case 'agents':
-        return <AgentManagement onChanged={onSettingsChanged} />;
-      case 'im':
-        return <IMSettings initialTab={initialTab === 'wechat' ? 'wechat' : 'lark'} />;
-      case 'logs':
-        return <LogsSettings />;
-      default:
-        return null;
-    }
-  };
-
   return (
     <div className="settings-overlay" onClick={requestClose} data-testid="settings-overlay">
       <div
@@ -203,7 +168,17 @@ export function Settings({ onClose, onSettingsChanged, initialTab = 'general', w
             ))}
           </nav>
 
-          <div className="settings-content" ref={contentRef} data-testid="settings-content" data-active-tab={activeTab}>{renderContent()}</div>
+          <div className="settings-content" ref={contentRef} data-testid="settings-content" data-active-tab={activeTab}>
+            <Suspense fallback={<div className="settings-content-loading" role="status">{t('common.loading')}</div>}>
+              <SettingsPanel
+                activeTab={activeTab}
+                initialTab={initialTab}
+                workspaceId={workspaceId}
+                onSettingsChanged={onSettingsChanged}
+                onMessagePresetsDirtyChange={setMessagePresetsDirty}
+              />
+            </Suspense>
+          </div>
         </div>
       </div>
     </div>

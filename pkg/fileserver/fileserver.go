@@ -9,6 +9,7 @@
 package fileserver
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -319,21 +320,79 @@ func (a *adapter) UserHomeDir() (*fsmodel.UserHomeDirResult, error) {
 	return &fsmodel.UserHomeDirResult{Path: r.Path}, nil
 }
 
-func (a *adapter) JSONLCountLines(req *fsmodel.JSONLCountRequest) (*fsmodel.JSONLCountResult, error) {
-	r, err := a.up.JSONLCountLines(&sbmodel.JSONLCountRequest{File: req.File})
+const jsonlReadBufferSize = 64 * 1024
+
+func (a *localAdapter) JSONLCountLines(req *fsmodel.JSONLCountRequest) (*fsmodel.JSONLCountResult, error) {
+	f, err := os.Open(req.File)
 	if err != nil {
 		return nil, err
 	}
-	return &fsmodel.JSONLCountResult{Lines: r.Lines}, nil
+	defer f.Close()
+
+	reader := bufio.NewReaderSize(f, jsonlReadBufferSize)
+	result := &fsmodel.JSONLCountResult{}
+	for {
+		ok, err := skipJSONLLine(reader)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return result, nil
+		}
+		result.Lines++
+	}
 }
 
-func (a *adapter) JSONLReadLines(req *fsmodel.JSONLReadRequest) (*fsmodel.JSONLReadResult, error) {
-	r, err := a.up.JSONLReadLines(&sbmodel.JSONLReadRequest{File: req.File, StartLine: req.StartLine, Count: req.Count})
+func (a *localAdapter) JSONLReadLines(req *fsmodel.JSONLReadRequest) (*fsmodel.JSONLReadResult, error) {
+	f, err := os.Open(req.File)
 	if err != nil {
 		return nil, err
 	}
-	lines := append([]string(nil), r.Lines...)
-	return &fsmodel.JSONLReadResult{Lines: lines}, nil
+	defer f.Close()
+
+	reader := bufio.NewReaderSize(f, jsonlReadBufferSize)
+	result := &fsmodel.JSONLReadResult{}
+	for i := 0; i < req.StartLine; i++ {
+		ok, err := skipJSONLLine(reader)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return result, nil
+		}
+	}
+	for req.Count == nil || len(result.Lines) < *req.Count {
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return nil, err
+		}
+		if len(line) > 0 {
+			line = strings.TrimSuffix(line, "\n")
+			result.Lines = append(result.Lines, strings.TrimSuffix(line, "\r"))
+		}
+		if err == io.EOF {
+			break
+		}
+	}
+	return result, nil
+}
+
+// skipJSONLLine discards a record in chunks and counts a final record without a newline.
+func skipJSONLLine(reader *bufio.Reader) (bool, error) {
+	hasData := false
+	for {
+		chunk, err := reader.ReadSlice('\n')
+		switch err {
+		case nil:
+			return true, nil
+		case io.EOF:
+			return hasData || len(chunk) > 0, nil
+		case bufio.ErrBufferFull:
+			hasData = true
+		default:
+			return false, err
+		}
+	}
 }
 
 // JSONLReadTail is the generic adapter fallback. The current public constructor

@@ -107,12 +107,25 @@
 }
 
 .settings-content {
+  --settings-content-padding: 24px;
   flex: 1;
-  padding: 24px;
+  padding: var(--settings-content-padding);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.settings-content-loading {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.settings-content[data-active-tab="agents"] {
+  padding: 0;
+  overflow: hidden;
 }
 
 .settings-subtab-layout {
@@ -218,7 +231,7 @@
   border-radius: 8px;
   font-size: 14px;
   color: #29362d;
-  background: var(--surface);
+  background-color: var(--surface);
   transition: border-color 0.2s;
   box-sizing: border-box;
 }
@@ -244,7 +257,7 @@
   border-radius: 8px;
   font-size: 14px;
   color: #29362d;
-  background: var(--surface);
+  background-color: var(--surface);
   cursor: pointer;
   box-sizing: border-box;
 }
@@ -299,11 +312,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.settings-model-tag-arrow {
-  opacity: 0.5;
-  flex-shrink: 0;
 }
 
 .settings-model-dropdown {
@@ -612,7 +620,7 @@
   }
 
   .settings-content {
-    padding: 16px;
+    --settings-content-padding: 16px;
   }
 
   .settings-subtabs {
@@ -679,6 +687,6 @@
   }
 
   .settings-content {
-    padding: 12px;
+    --settings-content-padding: 12px;
   }
 }

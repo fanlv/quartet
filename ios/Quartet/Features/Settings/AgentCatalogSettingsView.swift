@@ -174,6 +174,13 @@ private enum AgentCatalogPresentation: Identifiable {
     }
 }
 
+private enum AgentCatalogFilter: String, CaseIterable {
+    case all = "全部"
+    case installed = "已安装"
+    case updates = "可更新"
+    case custom = "自定义"
+}
+
 // MARK: - Agent 目录
 
 @MainActor
@@ -181,6 +188,8 @@ struct AgentCatalogSettingsView: View {
     @EnvironmentObject private var model: AppModel
 
     @State private var items: [AgentCatalogItem] = []
+    @State private var search = ""
+    @State private var filter: AgentCatalogFilter = .all
     @State private var versions: [String: AgentVersionInfo] = [:]
     @State private var versionsCheckedAt: Int64?
     @State private var isLoading = true
@@ -335,8 +344,18 @@ struct AgentCatalogSettingsView: View {
                     AgentSettingsCard {
                         agentSettingsHint("Agent 目录为空。安装内置 Agent 或新增一个自定义 Agent 后会出现在这里。")
                     }
+                } else if visibleItems.isEmpty {
+                    AgentSettingsCard {
+                        agentSettingsHint("没有符合当前筛选条件的 Agent。")
+                        Button("清除筛选") { search = ""; filter = .all }
+                            .buttonStyle(.plain)
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.accent)
+                            .frame(minHeight: 44)
+                            .accessibilityIdentifier("agent-catalog-clear-filters")
+                    }
                 }
-                ForEach(items) { item in
+                ForEach(visibleItems) { item in
                     card(item)
                 }
             }
@@ -355,6 +374,20 @@ struct AgentCatalogSettingsView: View {
         .onChange(of: batchMessage) { _, message in
             guard UIAccessibility.isVoiceOverRunning, let message else { return }
             UIAccessibility.post(notification: .announcement, argument: message.text)
+        }
+    }
+
+    private var visibleItems: [AgentCatalogItem] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return items.filter { item in
+            switch filter {
+            case .all: break
+            case .installed: if !item.installed { return false }
+            case .updates: if versions[item.agentId]?.updateAvailable != true { return false }
+            case .custom: if !item.isCustom { return false }
+            }
+            let searchable = [item.displayName, item.agentId, item.definition.bin, item.definition.commandLine]
+            return query.isEmpty || searchable.contains { $0.localizedCaseInsensitiveContains(query) }
         }
     }
 
@@ -386,8 +419,7 @@ struct AgentCatalogSettingsView: View {
     // MARK: 工具条
 
     private var toolbar: some View {
-        AgentSettingsCard("安装与升级", systemImage: "arrow.down.circle") {
-            agentSettingsHint("内置 Agent 只能按目录预置的流程安装、升级和卸载；自定义 Agent 由本机手动登记的启动命令组成。")
+        AgentSettingsCard {
             HStack(spacing: 10) {
                 Text(AppLanguage.localizedFormat("已登记 %d 个", items.count))
                     .font(.quartet(.detail, weight: .semibold))
@@ -406,6 +438,29 @@ struct AgentCatalogSettingsView: View {
                 ))
             }
             toolbarButtons
+            agentSettingsDivider()
+            VStack(alignment: .leading, spacing: 4) {
+                AgentSettingsTextField(
+                    title: "搜索 Agent", text: $search, identifier: "agent-catalog-search",
+                    placeholder: "按名称、ID 或命令搜索"
+                )
+                Menu {
+                    Picker("筛选 Agent", selection: $filter) {
+                        ForEach(AgentCatalogFilter.allCases, id: \.self) { option in
+                            Text(option.rawValue.localizedForApp).tag(option)
+                        }
+                    }
+                } label: {
+                    Label(filter.rawValue.localizedForApp, systemImage: "line.3.horizontal.decrease.circle")
+                        .font(.quartet(.control, weight: .semibold))
+                        .foregroundStyle(QuartetTheme.accent)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("筛选 Agent".localizedForApp)
+                .accessibilityValue(filter.rawValue.localizedForApp)
+                .accessibilityIdentifier("agent-catalog-filter")
+            }
         }
     }
 
@@ -500,6 +555,20 @@ struct AgentCatalogSettingsView: View {
             cardPersistentDiagnostics(item)
             if expanded {
                 agentSettingsDivider()
+                if item.agentId == "codex", canManage {
+                    NavigationLink {
+                        AgentSettingsDestination(title: "Codex 账号") { CodexAccountsSettingsView() }
+                    } label: {
+                        Label("Codex 账号", systemImage: "person.crop.circle.badge.checkmark")
+                            .font(.quartet(.control, weight: .semibold))
+                            .foregroundStyle(QuartetTheme.accent)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(busy != nil || pendingAgentId != nil || batchProgress != nil)
+                    .accessibilityIdentifier("agent-catalog-codex-accounts")
+                }
                 cardIdentity(item)
                 cardExpandedDiagnostics(item)
                 if canUpgrade(item) {
@@ -605,7 +674,10 @@ struct AgentCatalogSettingsView: View {
     }
 
     private func cardIdentitySummary(_ item: AgentCatalogItem) -> String {
-        var parts = [item.agentId]
+        let components = versions[item.agentId]?.components ?? []
+        let version = components.first { $0.name == item.definition.bin && $0.currentVersion != nil }?.currentVersion
+            ?? components.compactMap(\.currentVersion).first
+        var parts = [version ?? item.agentId]
         if item.isBuiltin, let method = item.installMethodLabel {
             parts.append(method)
         }
@@ -666,19 +738,25 @@ struct AgentCatalogSettingsView: View {
 
     @ViewBuilder
     private func cardPersistentDiagnostics(_ item: AgentCatalogItem) -> some View {
-        if let detail = item.availabilityError ?? item.deleteError, !detail.isEmpty {
-            AgentSettingsMessageView(kind: .failure, text: detail)
+        let componentErrors = (versions[item.agentId]?.components ?? []).compactMap { component -> String? in
+            guard let error = component.error, !error.isEmpty else { return nil }
+            return "\(component.name)\n\(error)"
+        }
+        let errors = [item.availabilityError, item.deleteError].compactMap { $0 }.filter { !$0.isEmpty } + componentErrors
+        if !errors.isEmpty {
+            Button {
+                present(.error(PresentedError(title: item.displayName, detail: errors.joined(separator: "\n\n"))))
+            } label: {
+                Label("查看错误详情", systemImage: "exclamationmark.triangle")
+                    .font(.quartet(.detail))
+                    .foregroundStyle(QuartetTheme.failed)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("agent-catalog-diagnostics-\(item.agentId)")
         }
         if let feedback = checkFeedback[item.agentId] {
             checkFeedbackView(feedback)
-        }
-        if let version = versions[item.agentId] {
-            ForEach(version.components.filter { !($0.error ?? "").isEmpty }) { component in
-                AgentSettingsMessageView(
-                    kind: .failure,
-                    text: "\(component.name)\n\(component.error ?? "")"
-                )
-            }
         }
         if let busy, busy.agentId == item.agentId {
             busyIndicator(busy)

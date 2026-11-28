@@ -163,7 +163,7 @@ final class QuartetUITests: XCTestCase {
         XCTAssertTrue(app.buttons["settings-agent-roles"].exists)
 
         app.buttons["settings-agent-catalog"].tap()
-        XCTAssertTrue(app.navigationBars["目录"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.navigationBars["安装与升级"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["agent-catalog-upgrade-all"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["2 个可更新"].exists)
 
@@ -237,7 +237,7 @@ final class QuartetUITests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
 
-        openAgentSettings("settings-agent-catalog", title: "目录")
+        openAgentSettings("settings-agent-catalog", title: "安装与升级")
         XCTAssertTrue(app.buttons["agent-catalog-check-versions"].waitForExistence(timeout: 5))
     }
 
@@ -246,20 +246,16 @@ final class QuartetUITests: XCTestCase {
         app.buttons["main-tab-4"].tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 3))
         app.buttons["settings-agent-catalog"].tap()
-        XCTAssertTrue(app.navigationBars["目录"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.navigationBars["安装与升级"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["agent-catalog-upgrade-all"].waitForExistence(timeout: 5))
 
         app.buttons["agent-catalog-upgrade-all"].tap()
         XCTAssertTrue(app.navigationBars["更新全部 Agent？"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS %@", "TraeCode")
-        ).firstMatch.exists)
-        XCTAssertTrue(app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS %@", "Codex")
-        ).firstMatch.exists)
-        XCTAssertFalse(app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS %@", "Manual Agent")
-        ).firstMatch.exists)
+        let confirmation = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "TraeCode", "Codex")
+        ).firstMatch
+        XCTAssertTrue(confirmation.exists)
+        XCTAssertFalse(confirmation.label.contains("Manual Agent"))
         app.buttons["agent-catalog-confirm"].tap()
         XCTAssertTrue(app.staticTexts["批量更新完成：2 个成功，0 个失败。"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.descendants(matching: .any)["agent-catalog-result-trae"].exists)
@@ -273,7 +269,7 @@ final class QuartetUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons["main-tab-4"].waitForExistence(timeout: 5))
         app.buttons["main-tab-4"].tap()
-        openAgentSettings("settings-agent-catalog", title: "目录")
+        openAgentSettings("settings-agent-catalog", title: "安装与升级")
         XCTAssertTrue(app.staticTexts["3 个可更新"].waitForExistence(timeout: 5))
 
         app.buttons["agent-catalog-upgrade-all"].tap()

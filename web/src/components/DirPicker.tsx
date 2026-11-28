@@ -282,10 +282,9 @@ export function DirPicker({ initialPath, basePath, selectFile, title, onConfirm,
               className={`dirpicker-dropdown-toggle ${showDropdown ? 'active' : ''}`}
               onClick={() => setShowDropdown(!showDropdown)}
               title="Recent directories"
+              aria-expanded={showDropdown}
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M6 9l6 6 6-6" />
-              </svg>
+              <span className="dropdown-chevron" aria-hidden="true" />
             </button>
             {showDropdown && (
               <div className="dirpicker-dropdown" ref={dropdownRef}>

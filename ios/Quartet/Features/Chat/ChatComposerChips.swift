@@ -387,7 +387,7 @@ final class AgentUsageSummaryStore: ObservableObject {
                 code: 0, type: provider.rawValue,
                 codex: CodexAgentUsage(
                     email: "developer@example.com", planType: "plus", version: "v0.144.0",
-                    primaryWindow: fiveHours, secondaryWindow: sevenDays, resetCredits: 2,
+                    primaryWindow: fiveHours, secondaryWindow: sevenDays, spendLimit: nil, resetCredits: 2,
                     resetCreditExpiries: [now + 259_200, now + 604_800]
                 )
             )

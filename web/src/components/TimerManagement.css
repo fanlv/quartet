@@ -242,13 +242,6 @@
   white-space: nowrap;
 }
 
-.timer-filter-chevron {
-  flex: none;
-  width: 13px;
-  height: 13px;
-  transform: rotate(90deg);
-}
-
 .timer-filter > select {
   position: absolute;
   inset: 0;
@@ -290,7 +283,7 @@
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
   color: var(--fg);
-  background: var(--surface);
+  background-color: var(--surface);
   font-size: 14px;
   font-weight: 400;
   line-height: 1.4;
@@ -298,11 +291,7 @@
 
 .timer-control:disabled {
   color: var(--muted);
-  background: var(--canvas);
-}
-
-select.timer-control {
-  text-overflow: ellipsis;
+  background-color: var(--canvas);
 }
 
 .timer-actions,
