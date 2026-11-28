@@ -81,7 +81,7 @@
 .timer-tab:focus-visible,
 .timer-button:focus-visible,
 .timer-entry:focus-visible,
-.timer-session-link:focus-visible,
+.timer-execution-open:focus-visible,
 .timer-control:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -157,8 +157,7 @@
 }
 
 .timer-list-toolbar,
-.timer-list-filters,
-.timer-list-actions {
+.timer-list-filters {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -180,8 +179,7 @@
   flex: 1 1 180px;
 }
 
-.timer-list-actions {
-  justify-content: flex-end;
+.timer-list-toolbar > .timer-refresh {
   margin-inline-start: auto;
 }
 
@@ -326,11 +324,11 @@
 }
 
 .timer-records[data-view='executions'] {
-  --timer-columns: minmax(0, 2.3fr) minmax(0, 1.4fr) minmax(0, .95fr) minmax(0, 1.05fr) 16px;
+  --timer-columns: minmax(0, 2.3fr) var(--timer-job-column,) minmax(0, 1.4fr) minmax(0, .95fr) minmax(0, 1.05fr) 16px;
 }
 
-.timer-records[data-view='sessions'] {
-  --timer-columns: minmax(0, 2.3fr) minmax(0, 1.35fr) minmax(0, 1.3fr) minmax(0, 1.45fr);
+.timer-records[data-job-column] {
+  --timer-job-column: 104px;
 }
 
 .timer-row-grid {
@@ -356,6 +354,27 @@
   border-top: 1px solid var(--border);
 }
 
+.timer-execution-row {
+  transition: background var(--motion-fast);
+}
+
+.timer-execution-open {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.timer-execution-row > .timer-job-action {
+  position: relative;
+  z-index: 1;
+  justify-self: start;
+  min-height: 32px;
+  white-space: nowrap;
+}
+
 .timer-entry {
   position: relative;
   width: 100%;
@@ -377,11 +396,13 @@ button.timer-entry {
 }
 
 button.timer-entry:hover,
-button.timer-entry[aria-expanded='true'] {
+button.timer-entry[aria-expanded='true'],
+.timer-execution-row:has(> .timer-execution-open:hover) {
   background: color-mix(in srgb, var(--accent-soft-surface) 74%, var(--surface));
 }
 
-button.timer-entry:focus-visible {
+button.timer-entry:focus-visible,
+.timer-execution-open:focus-visible {
   outline-offset: -2px;
 }
 
@@ -604,31 +625,6 @@ button.timer-entry:focus-visible {
   grid-column: 1 / -1;
 }
 
-.timer-session-link {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: fit-content;
-  max-width: 100%;
-  border-radius: var(--radius-control);
-  color: var(--fg);
-  text-decoration: none;
-}
-
-.timer-session-link > .timer-icon {
-  color: var(--muted);
-}
-
-.timer-session-link:hover strong {
-  color: var(--accent-deep);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.timer-session-action {
-  justify-self: end;
-}
-
 .timer-feedback {
   min-width: 0;
   padding: 10px 12px;
@@ -717,9 +713,15 @@ button.timer-entry:focus-visible {
     padding: 12px;
   }
 
-  .timer-entry > :is(.timer-record-title, .timer-session-link) {
+  .timer-entry > .timer-record-title {
     grid-column: 1 / -1;
     padding-inline-end: 20px;
+  }
+
+  .timer-records[data-job-column] .timer-entry > .timer-record-title {
+    grid-column: 1;
+    align-self: center;
+    padding-inline-end: 0;
   }
 
   .timer-row-chevron {
@@ -739,9 +741,11 @@ button.timer-entry:focus-visible {
     white-space: normal;
   }
 
-  .timer-session-action {
-    grid-column: 1 / -1;
-    justify-self: start;
+  .timer-execution-row > .timer-job-action {
+    align-self: center;
+    justify-self: end;
+    min-height: 38px;
+    margin-inline-end: 24px;
   }
 
   .timer-details {

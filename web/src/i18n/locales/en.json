@@ -1615,7 +1615,6 @@
     "title": "Timer management",
     "plans": "Timers",
     "executions": "Executions",
-    "sessions": "Sessions",
     "add": "New timer",
     "edit": "Edit",
     "editTimer": "Edit timer",
@@ -1676,10 +1675,9 @@
       "run": "Requested a run for {{name}}"
     },
     "run": "Run now",
-    "openJob": "Open job",
-    "viewExecution": "View execution",
-    "sessionLoopRound": "Loop round {{round}}",
-    "backToExecution": "Back to execution",
+    "job": "Job",
+    "openJob": "View Job",
+    "jobNotCreated": "This execution has no Job yet",
     "backToExecutions": "Back to executions",
     "state": "Status",
     "refresh": "Refresh",
@@ -1693,8 +1691,7 @@
     "resetFilters": "Clear filters",
     "emptyState": {
       "plans": "No timers yet",
-      "executions": "No executions found",
-      "sessions": "No sessions found"
+      "executions": "No executions found"
     },
     "executionMissing": "Execution record not found",
     "more": "Load more",

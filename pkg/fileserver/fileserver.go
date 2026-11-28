@@ -332,14 +332,16 @@ func (a *localAdapter) JSONLCountLines(req *fsmodel.JSONLCountRequest) (*fsmodel
 	reader := bufio.NewReaderSize(f, jsonlReadBufferSize)
 	result := &fsmodel.JSONLCountResult{}
 	for {
-		ok, err := skipJSONLLine(reader)
+		found, err := discardJSONLLine(reader)
+		if found {
+			result.Lines++
+		}
+		if err == io.EOF {
+			return result, nil
+		}
 		if err != nil {
 			return nil, err
 		}
-		if !ok {
-			return result, nil
-		}
-		result.Lines++
 	}
 }
 
@@ -353,12 +355,12 @@ func (a *localAdapter) JSONLReadLines(req *fsmodel.JSONLReadRequest) (*fsmodel.J
 	reader := bufio.NewReaderSize(f, jsonlReadBufferSize)
 	result := &fsmodel.JSONLReadResult{}
 	for i := 0; i < req.StartLine; i++ {
-		ok, err := skipJSONLLine(reader)
+		_, err := discardJSONLLine(reader)
+		if err == io.EOF {
+			return result, nil
+		}
 		if err != nil {
 			return nil, err
-		}
-		if !ok {
-			return result, nil
 		}
 	}
 	for req.Count == nil || len(result.Lines) < *req.Count {
@@ -377,20 +379,14 @@ func (a *localAdapter) JSONLReadLines(req *fsmodel.JSONLReadRequest) (*fsmodel.J
 	return result, nil
 }
 
-// skipJSONLLine discards a record in chunks and counts a final record without a newline.
-func skipJSONLLine(reader *bufio.Reader) (bool, error) {
+// discardJSONLLine skips a record in chunks and reports whether it saw any bytes.
+func discardJSONLLine(reader *bufio.Reader) (bool, error) {
 	hasData := false
 	for {
 		chunk, err := reader.ReadSlice('\n')
-		switch err {
-		case nil:
-			return true, nil
-		case io.EOF:
-			return hasData || len(chunk) > 0, nil
-		case bufio.ErrBufferFull:
-			hasData = true
-		default:
-			return false, err
+		hasData = hasData || len(chunk) > 0
+		if err != bufio.ErrBufferFull {
+			return hasData, err
 		}
 	}
 }

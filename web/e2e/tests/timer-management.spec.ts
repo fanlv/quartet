@@ -78,7 +78,7 @@ async function createAgent(api: APIRequestContext) {
   return agent.agent_id
 }
 
-test('creates and runs a Prompt timer in Web and opens its archived sessions', async ({ page, request }) => {
+test('creates and runs a Prompt timer in Web and opens its archived Job from the execution list', async ({ page, request }) => {
   test.setTimeout(65_000)
   const agentId = await createAgent(request)
   const name = `Browser Prompt ${randomUUID()}`
@@ -123,11 +123,19 @@ test('creates and runs a Prompt timer in Web and opens its archived sessions', a
   expect(saved).toMatchObject({ planState: 'ended', runCount: 2 })
 
   await json(request.delete(`${endpoint}/${schedule.id}`))
-  await page.goto(`/?view=timers&timerTab=sessions&timerScheduleId=${schedule.id}`)
-  await expect(page.locator('.timer-session')).toHaveCount(2)
-  await page.locator('.timer-session a').first().click()
-  await expect(page.getByTestId('job-chat')).toBeVisible()
-  await expect(page.getByText('Timer received: Summarize the timer test', { exact: false }).last()).toBeVisible()
+  await page.goto(`/?view=timers&timerTab=executions&timerScheduleId=${schedule.id}`)
+  await expect(page.locator('.timer-tabs').getByRole('button')).toHaveText(['Timers', 'Executions'])
+  await expect(page.locator('.timer-columns > span')).toHaveText(['Name', 'Job', 'Triggered at', 'Trigger', 'Status'])
+  const jobLinks = page.getByRole('link', { name: 'View Job' })
+  await expect(jobLinks).toHaveCount(2)
+  await expect(jobLinks.nth(1)).toHaveAttribute('href', new RegExp(`jobId=${results[0].jobId}&`))
+  const [jobPage] = await Promise.all([page.waitForEvent('popup'), jobLinks.first().click()])
+  await expect(jobPage.getByTestId('job-chat')).toHaveAttribute('data-job-id', results[1].jobId!)
+  await expect(jobPage.getByText('Timer received: Summarize the timer test', { exact: false }).last()).toBeVisible()
+  await expect(jobLinks).toHaveCount(2)
+  await jobPage.close()
+  await page.getByRole('button', { name: new RegExp(name) }).first().click()
+  await expect(page.locator('.timer-execution-detail')).toBeVisible()
   const measured = await executions(request, schedule.id)
   expect(measured.map(entry => entry.id)).toEqual(results.map(entry => entry.id).reverse())
   await page.goto('/')
@@ -194,8 +202,10 @@ test('checks timer permissions, freezes the version, and deduplicates concurrent
     expect(sessions.sessions.map(session => session.nodeId)).toContain('shell')
     await page.addInitScript(() => localStorage.setItem('quartet-language', 'en'))
     await page.goto(`/?view=timers&timerTab=executions&timerScheduleId=${timer.id}&timerExecutionId=${a.id}`)
-    await page.getByRole('link', { name: 'Open job' }).click()
-    await expect(page.getByTestId('job-chat')).toBeVisible()
+    const [jobPage] = await Promise.all([page.waitForEvent('popup'), page.getByRole('link', { name: 'View Job' }).click()])
+    await expect(jobPage.getByTestId('job-chat')).toHaveAttribute('data-job-id', record.jobId!)
+    await expect(jobPage.getByTestId('graph-run-progress')).toBeVisible()
+    await jobPage.close()
   } finally {
     await limited.dispose()
   }

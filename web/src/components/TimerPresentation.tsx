@@ -7,7 +7,6 @@ import { cronToHuman } from './CronInput';
 
 const iconPaths = {
   history: 'M3 12a9 9 0 1 1 2.6 6.4M3 5v7h7m2-4v4l3 2',
-  sessions: 'M4 5h16v11H9l-5 4V5Zm4 4h8m-8 3h5',
   graph: 'M12 2v4m0 4v4m-6 4v-3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v3M10 6h4v4h-4zM4 18h4v4H4zm12 0h4v4h-4z',
   prompt: 'M5 6l6 6-6 6m8 0h6',
   plus: 'M12 5v14m-7-7h14',

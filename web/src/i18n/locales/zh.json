@@ -1598,7 +1598,6 @@
     "title": "定时任务管理",
     "plans": "定时器",
     "executions": "执行记录",
-    "sessions": "会话",
     "add": "新增定时器",
     "edit": "编辑",
     "editTimer": "编辑定时器",
@@ -1659,10 +1658,9 @@
       "run": "已请求运行「{{name}}」"
     },
     "run": "立即运行",
-    "openJob": "打开 Job",
-    "viewExecution": "查看执行",
-    "sessionLoopRound": "循环轮次 {{round}}",
-    "backToExecution": "返回执行记录",
+    "job": "Job",
+    "openJob": "查看 Job",
+    "jobNotCreated": "本次执行尚未创建 Job",
     "backToExecutions": "返回记录列表",
     "state": "状态",
     "refresh": "刷新",
@@ -1676,8 +1674,7 @@
     "resetFilters": "清除筛选",
     "emptyState": {
       "plans": "暂无定时器",
-      "executions": "暂无执行记录",
-      "sessions": "暂无会话"
+      "executions": "暂无执行记录"
     },
     "executionMissing": "找不到这条执行记录",
     "more": "加载更多",

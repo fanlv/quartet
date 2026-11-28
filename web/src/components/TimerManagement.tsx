@@ -5,31 +5,21 @@ import { timerFetch } from '../utils/timers';
 import { ScheduleEditModal, type TimerOptions } from './ScheduleEditModal';
 import { TimerDialog } from './TimerDialog';
 import { TimerConfiguration, TimerIcon } from './TimerPresentation';
-import {
-  TimerExecutionDetail, TimerExecutionRow, TimerPlanRow, TimerRecords, TimerSessionRow,
-  type TimerExecution, type TimerSession,
-} from './TimerRecords';
+import { TimerExecutionDetail, TimerExecutionRow, TimerJobAction, TimerPlanRow, TimerRecords, type TimerExecution } from './TimerRecords';
 import './TimerManagement.css';
 
-type View = 'plans' | 'executions' | 'sessions';
-const views = ['plans', 'executions', 'sessions'] as const;
-const viewIcons = { plans: 'clock', executions: 'history', sessions: 'sessions' } as const;
+const views = ['plans', 'executions'] as const;
+type View = typeof views[number];
+const viewIcons = { plans: 'clock', executions: 'history' } as const;
 const statusOptions = ['accepted', 'dispatching', 'pending', 'running', 'awaitingInput', 'recovering', 'completed', 'failed', 'stopped', 'timedOut', 'interrupted', 'skipped', 'missed'];
 const initialOptions: TimerOptions = { workspaces: [], workflows: [], agents: [] };
 const base = '/api/v1/schedule';
 
-function locationFilters(canReadJobs: boolean) {
+function locationFilters() {
   const query = new URLSearchParams(window.location.search);
   const tab = query.get('timerTab');
-  const view: View = tab === 'executions' || (tab === 'sessions' && canReadJobs) ? tab : 'plans';
+  const view: View = tab === 'executions' || tab === 'sessions' ? 'executions' : 'plans';
   return { view, scheduleId: query.get('timerScheduleId') ?? '', executionId: query.get('timerExecutionId') ?? '' };
-}
-
-function jobLink(jobId: string, scheduleId: string, executionId: string, workspaceId?: string, sessionId?: string) {
-  const query = new URLSearchParams({ jobId, timerScheduleId: scheduleId, timerExecutionId: executionId, timerTab: 'executions' });
-  if (workspaceId) query.set('workspaceId', workspaceId);
-  if (sessionId) query.set('sessionId', sessionId);
-  return `/?${query}`;
 }
 
 function TimerFilter({ label, allLabel, value, options, onChange }: {
@@ -63,12 +53,11 @@ export default function TimerManagement({ permissions }: { permissions: string[]
   const canReadWorkspaces = permissions.includes('workspace.read');
   const canReadWorkflows = permissions.includes('workflow.read');
   const canReadAgents = permissions.includes('agent.read');
-  const [{ view, scheduleId, executionId }, setFilters] = useState(() => locationFilters(canReadJobs));
+  const [{ view, scheduleId, executionId }, setFilters] = useState(locationFilters);
   const [workspace, setWorkspace] = useState('');
   const [status, setStatus] = useState('');
   const [timers, setTimers] = useState<ScheduleInfo[]>([]);
   const [executions, setExecutions] = useState<TimerExecution[]>([]);
-  const [sessions, setSessions] = useState<TimerSession[]>([]);
   const [options, setOptions] = useState<TimerOptions>(initialOptions);
   const [editor, setEditor] = useState<ScheduleInfo | null | undefined>();
   const [selection, setSelection] = useState('');
@@ -132,29 +121,22 @@ export default function TimerManagement({ permissions }: { permissions: string[]
   }, [canReadAgents, canReadWorkflows, canReadWorkspaces]);
 
   useEffect(() => {
-    if (view === 'plans' || (view === 'sessions' && !canReadJobs)) return;
+    if (view !== 'executions') return;
     const controller = new AbortController();
     const query = new URLSearchParams();
     if (scheduleId) query.set('scheduleId', scheduleId);
     if (cursor) query.set('cursor', cursor);
     if (executionId) query.set('executionId', executionId);
-    if (view === 'executions' && !executionId) {
+    if (!executionId) {
       if (workspace) query.set('workspaceId', workspace);
       if (status) query.set('status', status);
     }
     const load = async () => {
       try {
-        if (view === 'executions') {
-          const data = await timerFetch<{ executions: TimerExecution[]; nextCursor: string }>(`${base}/executions?${query}`, 'GET', undefined, controller.signal);
-          if (controller.signal.aborted) return;
-          setExecutions(previous => cursor ? [...previous, ...data.executions.filter(item => !previous.some(row => row.id === item.id))] : data.executions);
-          setNextCursor(data.nextCursor);
-        } else {
-          const data = await timerFetch<{ sessions: TimerSession[]; nextCursor: string }>(`${base}/sessions?${query}`, 'GET', undefined, controller.signal);
-          if (controller.signal.aborted) return;
-          setSessions(previous => cursor ? [...previous, ...data.sessions.filter(item => !previous.some(row => row.id === item.id))] : data.sessions);
-          setNextCursor(data.nextCursor);
-        }
+        const data = await timerFetch<{ executions: TimerExecution[]; nextCursor: string }>(`${base}/executions?${query}`, 'GET', undefined, controller.signal);
+        if (controller.signal.aborted) return;
+        setExecutions(previous => cursor ? [...previous, ...data.executions.filter(item => !previous.some(row => row.id === item.id))] : data.executions);
+        setNextCursor(data.nextCursor);
         setHistoryError('');
       } catch (err) {
         if (!controller.signal.aborted) setHistoryError(String(err));
@@ -168,7 +150,7 @@ export default function TimerManagement({ permissions }: { permissions: string[]
     void load();
     const poll = !cursor ? window.setInterval(() => { if (!document.hidden) void load(); }, 4000) : undefined;
     return () => { controller.abort(); window.clearInterval(poll); };
-  }, [view, workspace, status, scheduleId, executionId, cursor, revision, canReadJobs]);
+  }, [view, workspace, status, scheduleId, executionId, cursor, revision]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -221,19 +203,16 @@ export default function TimerManagement({ permissions }: { permissions: string[]
   const workspaceName = (id?: string) => options.workspaces.find(item => item.id === id)?.title || id;
   const workflowName = (id?: string) => options.workflows.find(item => item.id === id)?.name || id;
   const isExecutionDetail = view === 'executions' && Boolean(executionId);
-  const showHistoryList = view !== 'plans' && !isExecutionDetail;
+  const showHistoryList = view === 'executions' && !isExecutionDetail;
   const record = isExecutionDetail ? executions.find(item => item.id === executionId && (!scheduleId || item.scheduleId === scheduleId)) : undefined;
   const visibleExecutions = executions.filter(item => (
     (!scheduleId || item.scheduleId === scheduleId) && (!workspace || item.workspaceId === workspace) && (!status || item.status === status)
   ));
-  const visibleSessions = canReadJobs ? sessions.filter(item => (
-    (!scheduleId || item.scheduleId === scheduleId) && (!executionId || item.executionId === executionId)
-  )) : [];
-  const hasFilters = Boolean(scheduleId || executionId || (view === 'executions' && (workspace || status)));
+  const hasFilters = Boolean(scheduleId || workspace || status);
   const loading = view === 'plans' ? planLoading : historyLoading && !cursor && !record;
   const hasRecords = view === 'plans' ? timers.length > 0
     : isExecutionDetail ? Boolean(record)
-    : view === 'executions' ? visibleExecutions.length > 0 : visibleSessions.length > 0;
+    : visibleExecutions.length > 0;
   const showRows = !loading && hasRecords;
   const emptyMessageKey = isExecutionDetail ? 'timers.executionMissing'
     : showHistoryList && hasFilters ? 'timers.filters.noMatches' : `timers.emptyState.${view}`;
@@ -258,7 +237,7 @@ export default function TimerManagement({ permissions }: { permissions: string[]
     <main className="timer-page">
       <div className="timer-toolbar timer-shell">
         <nav className="timer-tabs" aria-label={t('timers.title')}>
-          {views.filter(tab => tab !== 'sessions' || canReadJobs).map(tab => (
+          {views.map(tab => (
             <button className="timer-tab" type="button" key={tab} aria-current={view === tab ? 'page' : undefined} onClick={() => navigate(tab)}>
               <TimerIcon name={viewIcons[tab]} />{t(`timers.${tab}`)}
             </button>
@@ -309,9 +288,6 @@ export default function TimerManagement({ permissions }: { permissions: string[]
                       <>
                         <div className="timer-actions">
                           <button className="timer-button" type="button" onClick={() => navigate('executions', timer.id)}>{t('timers.executions')}</button>
-                          {canReadJobs && (
-                            <button className="timer-button" type="button" onClick={() => navigate('sessions', timer.id)}>{t('timers.sessions')}</button>
-                          )}
                         </div>
                         {(canWrite || canRun) && (
                           <div className="timer-actions">
@@ -349,8 +325,9 @@ export default function TimerManagement({ permissions }: { permissions: string[]
 
           {showHistoryList && (
             <TimerRecords
-              view={view}
+              view="executions"
               showColumns={showRows}
+              showJobColumn={canReadJobs}
               toolbar={
                 <div className="timer-list-toolbar">
                   <div className="timer-list-filters" role="group" aria-label={t('timers.filters.label')}>
@@ -359,9 +336,9 @@ export default function TimerManagement({ permissions }: { permissions: string[]
                       allLabel={t('timers.filters.allTimers')}
                       value={scheduleId}
                       options={timers.map(timer => ({ value: timer.id, label: timer.name }))}
-                      onChange={value => navigate(view, value)}
+                      onChange={value => navigate('executions', value)}
                     />
-                    {view === 'executions' && canReadWorkspaces && (
+                    {canReadWorkspaces && (
                       <TimerFilter
                         label={t('timers.workspace')}
                         allLabel={t('timers.filters.allWorkspaces')}
@@ -370,46 +347,33 @@ export default function TimerManagement({ permissions }: { permissions: string[]
                         onChange={value => { setCursor(''); setWorkspace(value); }}
                       />
                     )}
-                    {view === 'executions' && (
-                      <TimerFilter
-                        label={t('timers.state')}
-                        allLabel={t('timers.filters.allStatuses')}
-                        value={status}
-                        options={statusOptions.map(value => ({ value, label: t(`timers.status.${value}`, { defaultValue: value }) }))}
-                        onChange={value => { setCursor(''); setStatus(value); }}
-                      />
-                    )}
+                    <TimerFilter
+                      label={t('timers.state')}
+                      allLabel={t('timers.filters.allStatuses')}
+                      value={status}
+                      options={statusOptions.map(value => ({ value, label: t(`timers.status.${value}`, { defaultValue: value }) }))}
+                      onChange={value => { setCursor(''); setStatus(value); }}
+                    />
                     {hasFilters && (
                       <button type="button" className="timer-button timer-button-quiet" onClick={() => {
-                        if (view === 'executions') {
-                          setWorkspace('');
-                          setStatus('');
-                        }
-                        navigate(view);
+                        setWorkspace('');
+                        setStatus('');
+                        navigate('executions');
                       }}>{t('timers.resetFilters')}</button>
                     )}
                   </div>
-                  <div className="timer-list-actions">
-                    {view === 'sessions' && executionId && (
-                      <button type="button" className="timer-button timer-button-quiet" onClick={() => navigate('executions', scheduleId, executionId)}>
-                        <TimerIcon name="back" />{t('timers.backToExecution')}
-                      </button>
-                    )}
-                    {refreshButton}
-                  </div>
+                  {refreshButton}
                 </div>
               }
             >
               {!showRows && recordState}
-              {showRows && view === 'executions' && visibleExecutions.map(item => (
-                <TimerExecutionRow key={item.id} record={item} workspaceName={workspaceName(item.workspaceId)} onOpen={() => navigate('executions', scheduleId, item.id)} />
-              ))}
-              {showRows && view === 'sessions' && visibleSessions.map(session => (
-                <TimerSessionRow
-                  key={session.id}
-                  session={session}
-                  href={jobLink(session.jobId, session.scheduleId, session.executionId, session.workspaceId, session.id)}
-                  onOpenExecution={() => navigate('executions', session.scheduleId, session.executionId)}
+              {showRows && visibleExecutions.map(item => (
+                <TimerExecutionRow
+                  key={item.id}
+                  record={item}
+                  workspaceName={workspaceName(item.workspaceId)}
+                  onOpen={() => navigate('executions', scheduleId, item.id)}
+                  canReadJobs={canReadJobs}
                 />
               ))}
             </TimerRecords>
@@ -424,16 +388,7 @@ export default function TimerManagement({ permissions }: { permissions: string[]
                   {scheduleId !== record.scheduleId && (
                     <button className="timer-button timer-button-quiet" type="button" onClick={() => navigate('executions', record.scheduleId)}>{t('timers.filterTimer')}</button>
                   )}
-                  {canReadJobs && record.jobId && !record.detailsError && (
-                    <>
-                      <button className="timer-button" type="button" onClick={() => navigate('sessions', record.scheduleId, record.id)}>
-                        <TimerIcon name="sessions" />{t('timers.sessions')}
-                      </button>
-                      <a className="timer-button timer-button-primary" href={jobLink(record.jobId, record.scheduleId, record.id, record.workspaceId)}>
-                        {t('timers.openJob')}<TimerIcon name="open" />
-                      </a>
-                    </>
-                  )}
+                  {canReadJobs && <TimerJobAction record={record} primary />}
                 </div>
               }
             />
